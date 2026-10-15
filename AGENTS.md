@@ -14,7 +14,7 @@ The complete, versioned project guide is included below. Treat it as a persisten
 2. **Maintain the approved phase boundary.** Unless I explicitly approve the next stage, work only within the currently approved stage. Initial stage is planning and frontend with mock data; do not implement live backend operations initially.
 3. **Observe MVP exclusions.** No quotation management, follow-up tasks/reminders, orders, pipeline, revenue analytics, invoicing, or ERP/CRM integration in MVP.
 4. **Preserve business permissions.** Only salespeople create visit, missed-visit, GPS-failure, and device-failure logs. Managers review/approve/reject but cannot create them for salespeople.
-5. **Apply official branding.** Use the supplied Carbon Car Care logo from `public/brand/carbon-car-care-logo.png`; blue `#21409A`, green `#1B9A4A`, yellow `#E8CF2F`. Never invent or redraw the logo.
+5. **Apply official branding.** Use the supplied Carbon Car Care logo from `public/brand/carbon_logo.png`; blue `#21409A`, green `#1B9A4A`, yellow `#E8CF2F`. Never invent or redraw the logo.
 6. **Prefer durable implementations, not superficial demos.** Clearly identify mock data versus real functionality; preserve code quality, accessibility, and testing.
 7. **Keep security and evidence honest.** GPS does not conclusively prove a meeting; no claims of tamper-proof browser data, spoof-proof geolocation, or uninterrupted offline sync.
 8. **At the end of every task:** report what changed, files modified, tests performed, limitations, and whether approval is needed before advancing.
