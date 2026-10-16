@@ -62,7 +62,7 @@ Use compatible, supported library releases; verify versions as installed. Do not
 
 The provided official logo should live at:
 
-`public/brand/carbon-car-care-logo.png`
+`public/brand/carbon_logo.png`
 
 Never generate a replacement logo. If the file does not exist, request the authentic asset before finalising branded screens. Preserve proportions, whitespace, transparent background and original logo colours. Use it in login, app header/sidebar, manager/admin views, welcome/loading where appropriate, and thoughtfully derived PWA icons. Reference local project assets, never unauthorised hotlinked assets.
 
@@ -152,7 +152,7 @@ Capture contact met; visit purpose; products discussed; narrative outcome; relev
 
 ### Non-visit working day
 
-Support salesperson request plus manager approval for training, office quotation preparation, virtual meeting, internal meeting or other legitimate assigned activity. These affect attendance, **not** GPS-verified visit targets and do not create quotation management features.
+Support salesperson request plus manager approval for training, proposal preparation (office), virtual meeting, internal meeting or other legitimate assigned activity. These affect attendance, **not** GPS-verified visit targets and do not create quotation management features.
 
 ## 8. Visit verification, risk flags and audits
 
