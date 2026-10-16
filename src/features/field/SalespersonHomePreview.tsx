@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useFieldSession } from '@/context/FieldSessionContext';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { MeetingLogModal } from '@/features/field/MeetingLogModal';
+import { StartDayModal } from '@/features/field/StartDayModal';
+import { EndDayModal } from '@/features/field/EndDayModal';
+import { NonVisitDayModal } from '@/features/field/NonVisitDayModal';
+import { RegisterBranchModal } from '@/features/field/RegisterBranchModal';
 import {
   MapPin,
   Building2,
@@ -15,80 +20,65 @@ import {
   CheckCircle2,
   ShieldAlert,
   Lock,
-  AlertTriangle,
 } from 'lucide-react';
 
-export const SalespersonHomePreview: React.FC = () => {
-  const { currentUser, attendanceStatus, setAttendanceStatus } = useAuth();
-  const [activeVisit, setActiveVisit] = useState<boolean>(true);
-  const [isMeetingLogOpen, setIsMeetingLogOpen] = useState<boolean>(false);
-  const [showEndDayBlockedModal, setShowEndDayBlockedModal] = useState<boolean>(false);
-  const [syncStatus, setSyncStatus] = useState<string>('All records synced');
-  const [completedVisitsCount, setCompletedVisitsCount] = useState<number>(3);
-  const [lastNotification, setLastNotification] = useState<string | null>(null);
+interface SalespersonHomePreviewProps {
+  onNavigateTab?: (tab: 'home' | 'clients' | 'visit' | 'exceptions' | 'sync') => void;
+}
 
-  const activeBranch = {
-    name: 'Apex Heavy Logistics Fleet Depot',
-    address: 'Apapa Commercial Port Zone, Lagos',
-    branchCode: 'BR-LAG-014',
-    geofenceDistance: '38m',
-    checkinTime: '09:42',
-    elapsed: '28m 15s',
-  };
+export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ onNavigateTab }) => {
+  const { currentUser } = useAuth();
+  const {
+    workdayStatus,
+    startDayTime,
+    activeVisit,
+    completedVisits,
+    exceptions,
+    isOnline,
+    syncState,
+    triggerSyncNow,
+    sessionNotice,
+    setSessionNotice,
+    checkOutVisit,
+  } = useFieldSession();
+
+  // Modals state
+  const [isStartDayModalOpen, setIsStartDayModalOpen] = useState(false);
+  const [isEndDayModalOpen, setIsEndDayModalOpen] = useState(false);
+  const [isNonVisitModalOpen, setIsNonVisitModalOpen] = useState(false);
+  const [isRegisterBranchModalOpen, setIsRegisterBranchModalOpen] = useState(false);
+  const [isMeetingLogOpen, setIsMeetingLogOpen] = useState(false);
+
+  const verifiedVisitsCount = completedVisits.filter((v) => v.verificationStatus === 'location_verified').length;
+  const unverifiedVisitsCount = completedVisits.filter((v) => v.verificationStatus === 'manager_approved_unverified').length;
 
   const handleStartEndDayClick = () => {
-    if (activeVisit) {
-      // Context-aware enforcement: Block End Day while normal visit is open (PRD §6.1)
-      setShowEndDayBlockedModal(true);
-      return;
-    }
-
-    if (attendanceStatus === 'started') {
-      setAttendanceStatus('ended');
-      setLastNotification('Day Ended: Final GPS coordinate captured and saved to offline queue.');
+    if (workdayStatus === 'started') {
+      setIsEndDayModalOpen(true);
     } else {
-      setAttendanceStatus('started');
-      setLastNotification('Day Started: Front camera selfie & fresh GPS (±14m) verified.');
+      setIsStartDayModalOpen(true);
     }
   };
 
-  const handleNewVisitClick = () => {
-    if (activeVisit) {
-      // Context-aware enforcement: Scroll to / highlight active visit
-      setLastNotification('Active visit is already open. Only 1 normal physical visit permitted at a time (AT-04).');
-      return;
+  const handleVisitActionClick = () => {
+    if (onNavigateTab) {
+      onNavigateTab('visit');
     }
-    // Start visit
-    setActiveVisit(true);
-    setLastNotification('New visit initiated: Fresh GPS and branch geofence check (200m) validated.');
   };
 
   const handleMeetingLogSubmitted = (onTime: boolean) => {
-    setActiveVisit(false);
-    setCompletedVisitsCount((c) => c + 1);
-    setLastNotification(
-      onTime
-        ? 'Visit closed: Meeting log submitted on time. Status: Location Verified.'
-        : 'Visit closed: Meeting log deferred. You have 2 hours to complete without penalty.'
-    );
-  };
-
-  const handleSyncNow = () => {
-    setSyncStatus('Syncing events...');
-    setTimeout(() => {
-      setSyncStatus('All records acknowledged by server');
-      setLastNotification('Sync complete: Server verified sequence, idempotency, and GPS timestamps.');
-    }, 1000);
+    checkOutVisit(false, onTime ? { completed: true } : undefined);
+    setIsMeetingLogOpen(false);
   };
 
   return (
     <div className="space-y-4 pb-20 max-w-lg mx-auto select-none">
       {/* Toast Notification Banner */}
-      {lastNotification && (
+      {sessionNotice && (
         <div className="bg-slate-900 text-white p-3 rounded-xl text-xs flex items-center justify-between shadow-md border border-slate-800 animate-in fade-in duration-200">
-          <span className="leading-tight font-medium pr-2">{lastNotification}</span>
+          <span className="leading-tight font-medium pr-2">{sessionNotice}</span>
           <button
-            onClick={() => setLastNotification(null)}
+            onClick={() => setSessionNotice(null)}
             className="text-slate-400 hover:text-white font-bold px-1.5 py-0.5 rounded text-xs shrink-0"
           >
             ✕
@@ -112,11 +102,12 @@ export const SalespersonHomePreview: React.FC = () => {
 
         <div className="text-right flex flex-col items-end gap-1">
           <StatusBadge
-            status={attendanceStatus === 'started' ? 'started' : 'scheduled'}
+            status={workdayStatus === 'started' ? 'started' : workdayStatus === 'ended' ? 'ended' : 'scheduled'}
             size="sm"
           />
           <span className="text-[11px] text-slate-500 font-mono font-medium">
             {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+            {startDayTime && workdayStatus === 'started' && ` • On Duty: ${startDayTime}`}
           </span>
         </div>
       </div>
@@ -132,24 +123,26 @@ export const SalespersonHomePreview: React.FC = () => {
               </span>
               <span className="text-xs font-mono font-bold text-brand-blue flex items-center gap-1 bg-white px-2 py-0.5 rounded-md border border-blue-200">
                 <Clock className="w-3.5 h-3.5" />
-                {activeBranch.elapsed}
+                Started {activeVisit.checkInTime}
               </span>
             </div>
 
             <div>
-              <h3 className="font-bold text-slate-900 text-base">{activeBranch.name}</h3>
+              <h3 className="font-bold text-slate-900 text-base">{activeVisit.branchName}</h3>
               <p className="text-xs text-slate-700 flex items-center gap-1 mt-0.5 font-medium">
                 <Building2 className="w-3.5 h-3.5 text-slate-500" />
-                {activeBranch.address} • Branch #{activeBranch.branchCode}
+                {activeVisit.address} • Branch #{activeVisit.branchCode}
               </p>
             </div>
 
             <div className="flex items-center justify-between text-xs pt-1 border-t border-blue-100">
               <span className="text-emerald-800 font-semibold flex items-center gap-1 text-[11px]">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                Within Geofence ({activeBranch.geofenceDistance} / 200m)
+                Within Geofence ({activeVisit.geofenceDistanceMeters}m / 200m)
               </span>
-              <span className="text-slate-600 font-medium text-[11px]">Check-in: {activeBranch.checkinTime}</span>
+              <span className="text-slate-600 font-medium text-[11px]">
+                GPS Fix: ±{activeVisit.gpsAccuracyMeters}m
+              </span>
             </div>
 
             <div className="grid grid-cols-2 gap-2 pt-1">
@@ -159,15 +152,15 @@ export const SalespersonHomePreview: React.FC = () => {
                 className="w-full text-xs font-bold h-12 min-h-[48px] bg-white border-slate-300 hover:bg-slate-50"
                 onClick={() => setIsMeetingLogOpen(true)}
               >
-                Log Meeting
+                Draft Meeting Log
               </Button>
               <Button
                 variant="default"
                 size="default"
                 className="w-full text-xs font-bold h-12 min-h-[48px] bg-brand-blue hover:bg-brand-blue-700 text-white"
-                onClick={() => setIsMeetingLogOpen(true)}
+                onClick={handleVisitActionClick}
               >
-                Check Out
+                Go to Visit View
               </Button>
             </div>
           </div>
@@ -179,14 +172,14 @@ export const SalespersonHomePreview: React.FC = () => {
           </div>
           <h3 className="font-bold text-sm text-slate-800">No Active Visit In Progress</h3>
           <p className="text-xs text-slate-600 max-w-xs mx-auto">
-            Ready for next client visit. Check-in captures fresh GPS reading and prompts for live premises photograph.
+            Ready for your next client visit. Check-in captures fresh GPS reading and prompts for live premises photograph.
           </p>
           <Button
             size="default"
             className="font-bold text-xs bg-brand-blue hover:bg-brand-blue-700 text-white h-11 min-h-[48px] px-6"
-            onClick={() => setActiveVisit(true)}
+            onClick={handleVisitActionClick}
           >
-            Start New Client Visit
+            Start Client Visit
           </Button>
         </Card>
       )}
@@ -201,25 +194,25 @@ export const SalespersonHomePreview: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          {/* Tile 1: Start / End Day (Context-Aware Block if visit active) */}
+          {/* Tile 1: Start / End Day */}
           <button
             onClick={handleStartEndDayClick}
             className={`flex flex-col items-start p-4 rounded-xl border transition-all text-left min-h-[112px] ${
-              activeVisit
-                ? 'bg-slate-100/80 border-slate-300 opacity-90 cursor-not-allowed'
+              activeVisit && workdayStatus === 'started'
+                ? 'bg-amber-50/70 border-amber-300 shadow-2xs hover:bg-amber-100/50'
                 : 'bg-white border-slate-200 hover:border-brand-blue active:scale-[0.98] shadow-xs'
             }`}
           >
             <div className={`p-2.5 rounded-lg mb-2 ${
-              activeVisit
+              activeVisit && workdayStatus === 'started'
                 ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                : attendanceStatus === 'started'
+                : workdayStatus === 'started'
                 ? 'bg-amber-100 text-amber-900'
                 : 'bg-emerald-100 text-emerald-900'
             }`}>
-              {activeVisit ? (
+              {activeVisit && workdayStatus === 'started' ? (
                 <Lock className="w-5 h-5 text-amber-900" />
-              ) : attendanceStatus === 'started' ? (
+              ) : workdayStatus === 'started' ? (
                 <Square className="w-5 h-5 fill-current" />
               ) : (
                 <Play className="w-5 h-5 fill-current" />
@@ -227,13 +220,17 @@ export const SalespersonHomePreview: React.FC = () => {
             </div>
 
             <span className="font-bold text-slate-900 text-sm flex items-center gap-1">
-              {activeVisit ? 'End Day Blocked' : attendanceStatus === 'started' ? 'End Day' : 'Start Day'}
+              {activeVisit && workdayStatus === 'started'
+                ? 'End Day (Blocked)'
+                : workdayStatus === 'started'
+                ? 'End Workday'
+                : 'Start Workday'}
             </span>
 
             <span className="text-[11px] text-slate-600 font-medium mt-0.5 leading-tight">
-              {activeVisit
-                ? 'Close active visit first (or exception)'
-                : attendanceStatus === 'started'
+              {activeVisit && workdayStatus === 'started'
+                ? 'Active visit must close first (PRD §6.1)'
+                : workdayStatus === 'started'
                 ? 'Capture final GPS & close'
                 : 'Selfie & GPS check'}
             </span>
@@ -241,7 +238,7 @@ export const SalespersonHomePreview: React.FC = () => {
 
           {/* Tile 2: Visit Client / Resume Active Visit (Context-Aware) */}
           <button
-            onClick={handleNewVisitClick}
+            onClick={handleVisitActionClick}
             className={`flex flex-col items-start p-4 rounded-xl transition-all text-left min-h-[112px] ${
               activeVisit
                 ? 'bg-blue-50 border-2 border-brand-blue shadow-xs text-brand-blue'
@@ -262,62 +259,68 @@ export const SalespersonHomePreview: React.FC = () => {
               activeVisit ? 'text-blue-900 font-semibold' : 'text-blue-100'
             }`}>
               {activeVisit
-                ? '1 visit in progress (Parallel blocked)'
+                ? '1 in progress (AT-04 single visit)'
                 : 'Check-in & photo'}
             </span>
           </button>
 
           {/* Tile 3: Add Branch */}
           <button
-            onClick={() => alert('Demo: Add Branch & Propose GPS Pin registration form opens with automated duplicate branch checks.')}
+            onClick={() => setIsRegisterBranchModalOpen(true)}
             className="flex flex-col items-start p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-brand-blue active:scale-[0.98] transition-all text-left min-h-[104px]"
           >
             <div className="p-2.5 rounded-lg mb-2 bg-blue-50 text-brand-blue">
               <Building2 className="w-5 h-5" />
             </div>
             <span className="font-bold text-slate-900 text-sm">Add Branch</span>
-            <span className="text-[11px] text-slate-600 font-medium mt-0.5">Propose new site pin</span>
+            <span className="text-[11px] text-slate-600 font-medium mt-0.5">Shared phone OK (PRD §4.2)</span>
           </button>
 
           {/* Tile 4: My Exceptions */}
           <button
-            onClick={() => alert('Demo: My Exceptions workbench opens. Allows salesperson to submit GPS failure, device failure, or missed visit claims.')}
+            onClick={() => onNavigateTab ? onNavigateTab('exceptions') : alert('Open Exceptions')}
             className="flex flex-col items-start p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-brand-blue active:scale-[0.98] transition-all text-left min-h-[104px]"
           >
             <div className="p-2.5 rounded-lg mb-2 bg-amber-50 text-amber-800 border border-amber-200">
               <ShieldAlert className="w-5 h-5" />
             </div>
             <span className="font-bold text-slate-900 text-sm">My Exceptions</span>
-            <span className="text-[11px] text-slate-600 font-medium mt-0.5">GPS / device failure</span>
+            <span className="text-[11px] text-slate-600 font-medium mt-0.5">
+              {exceptions.length} filed ({exceptions.filter(e => e.status === 'pending_review').length} pending)
+            </span>
           </button>
 
           {/* Tile 5: Request Non-Visit Day */}
           <button
-            onClick={() => alert('Demo: Request Non-Visit Day (training, proposal preparation (office), virtual meetings). Subject to Sales Head approval.')}
+            onClick={() => setIsNonVisitModalOpen(true)}
             className="flex flex-col items-start p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-brand-blue active:scale-[0.98] transition-all text-left min-h-[104px]"
           >
             <div className="p-2.5 rounded-lg mb-2 bg-purple-50 text-purple-900 border border-purple-200">
               <CalendarCheck className="w-5 h-5" />
             </div>
             <span className="font-bold text-slate-900 text-sm">Non-Visit Request</span>
-            <span className="text-[11px] text-slate-600 font-medium mt-0.5">Proposal prep / training</span>
+            <span className="text-[11px] text-slate-600 font-medium mt-0.5">Office proposal prep / training</span>
           </button>
 
           {/* Tile 6: Sync Now */}
           <button
-            onClick={handleSyncNow}
+            onClick={triggerSyncNow}
             className="flex flex-col items-start p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-brand-blue active:scale-[0.98] transition-all text-left min-h-[104px]"
           >
-            <div className="p-2.5 rounded-lg mb-2 bg-emerald-50 text-emerald-900 border border-emerald-200">
-              <RefreshCw className="w-5 h-5" />
+            <div className={`p-2.5 rounded-lg mb-2 ${
+              syncState === 'syncing' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+            }`}>
+              <RefreshCw className={`w-5 h-5 ${syncState === 'syncing' ? 'animate-spin' : ''}`} />
             </div>
-            <span className="font-bold text-slate-900 text-sm">Sync Now</span>
-            <span className="text-[11px] text-slate-600 font-medium mt-0.5 truncate w-full">{syncStatus}</span>
+            <span className="font-bold text-slate-900 text-sm">Sync Queue</span>
+            <span className="text-[11px] text-slate-600 font-medium mt-0.5 truncate w-full">
+              {syncState === 'syncing' ? 'Syncing...' : isOnline ? 'All synced' : 'Offline queue active'}
+            </span>
           </button>
         </div>
       </div>
 
-      {/* ================= TODAY'S ACTIVITY SUMMARY (FICTIONAL NAMES) ================= */}
+      {/* ================= TODAY'S ACTIVITY SUMMARY ================= */}
       <Card className="border-slate-200">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Today&apos;s Field Activity Records</CardTitle>
@@ -326,106 +329,72 @@ export const SalespersonHomePreview: React.FC = () => {
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
               <p className="text-xs text-slate-600 font-semibold">Verified</p>
-              <p className="text-xl font-bold text-emerald-800">{completedVisitsCount}</p>
+              <p className="text-xl font-bold text-emerald-800">{verifiedVisitsCount}</p>
             </div>
             <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
               <p className="text-xs text-slate-600 font-semibold">Unverified</p>
-              <p className="text-xl font-bold text-amber-800">1</p>
+              <p className="text-xl font-bold text-amber-800">{unverifiedVisitsCount}</p>
             </div>
             <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-              <p className="text-xs text-slate-600 font-semibold">Pending Sync</p>
-              <p className="text-xl font-bold text-slate-800">0</p>
+              <p className="text-xs text-slate-600 font-semibold">Exceptions</p>
+              <p className="text-xl font-bold text-purple-800">{exceptions.length}</p>
             </div>
           </div>
 
           <div className="text-xs text-slate-600 space-y-1.5 pt-1 border-t border-slate-200">
-            {/* Record 1 (Fictional Name) */}
-            <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-              <div>
-                <p className="text-slate-900 font-bold truncate max-w-[210px]">Equatorial Energy Fleet Terminal</p>
-                <p className="text-[10px] text-slate-500 font-mono">08:50 - 09:25 • Lagos Mainland</p>
+            {completedVisits.map((record) => (
+              <div key={record.id} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
+                <div className="space-y-0.5">
+                  <p className="text-slate-900 font-bold truncate max-w-[210px]">{record.branchName}</p>
+                  <p className="text-[10px] text-slate-500 font-mono">
+                    {record.checkInTime} - {record.checkOutTime} ({record.durationMinutes} min)
+                    {record.flagRaised && <span className="text-amber-800 font-bold block">{record.flagRaised}</span>}
+                  </p>
+                </div>
+                <StatusBadge status={record.verificationStatus} size="sm" />
               </div>
-              <StatusBadge status="location_verified" size="sm" />
-            </div>
-
-            {/* Record 2 (Fictional Name) */}
-            <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-              <div>
-                <p className="text-slate-900 font-bold truncate max-w-[210px]">Zenith Logistics & Transit Hub</p>
-                <p className="text-[10px] text-slate-500 font-mono">10:15 - 11:00 • Ikeja Industrial Zone</p>
-              </div>
-              <StatusBadge status="location_verified" size="sm" />
-            </div>
-
-            {/* Record 3 (Fictional Name) */}
-            <div className="flex items-center justify-between py-1.5">
-              <div>
-                <p className="text-slate-900 font-bold truncate max-w-[210px]">Pinnacle Cargo Distribution Hub</p>
-                <p className="text-[10px] text-slate-500 font-mono">11:40 - 12:15 • Victoria Island Hub</p>
-              </div>
-              <StatusBadge status="manager_approved_unverified" size="sm" />
-            </div>
+            ))}
           </div>
         </CardContent>
       </Card>
 
-      {/* ================= END DAY BLOCKED MODAL (PRD §6.1) ================= */}
-      {showEndDayBlockedModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-slate-200 space-y-4">
-            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-900 flex items-center justify-center mx-auto">
-              <Lock className="w-6 h-6" />
-            </div>
-
-            <div className="text-center space-y-1.5">
-              <h3 className="font-bold text-base text-slate-900">
-                Cannot End Day: Active Visit Open
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                PRD §6.1 Hard Block: You currently have an open physical visit at <strong className="text-slate-900">{activeBranch.name}</strong>.
-              </p>
-            </div>
-
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 space-y-1">
-              <p className="font-bold flex items-center gap-1">
-                <AlertTriangle className="w-4 h-4 text-amber-800" />
-                Required Action:
-              </p>
-              <p className="text-[11px] leading-tight text-amber-800">
-                You must either <strong>Check Out</strong> with current GPS location, or submit an <strong>Abandoned Visit Correction Exception</strong> before closing your workday.
-              </p>
-            </div>
-
-            <div className="space-y-2 pt-1">
-              <Button
-                variant="default"
-                className="w-full font-bold h-11 bg-brand-blue"
-                onClick={() => {
-                  setShowEndDayBlockedModal(false);
-                  setIsMeetingLogOpen(true);
-                }}
-              >
-                Proceed to Check Out & Log
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full text-xs h-10 border-slate-300"
-                onClick={() => setShowEndDayBlockedModal(false)}
-              >
-                Return to Home
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ================= MEETING LOG FORM MODAL ================= */}
-      <MeetingLogModal
-        isOpen={isMeetingLogOpen}
-        onClose={() => setIsMeetingLogOpen(false)}
-        branchName={activeBranch.name}
-        onSubmitted={handleMeetingLogSubmitted}
+      {/* ================= MODALS ================= */}
+      <StartDayModal
+        isOpen={isStartDayModalOpen}
+        onClose={() => setIsStartDayModalOpen(false)}
       />
+
+      <EndDayModal
+        isOpen={isEndDayModalOpen}
+        onClose={() => setIsEndDayModalOpen(false)}
+        onOpenCheckOutVisit={() => {
+          setIsEndDayModalOpen(false);
+          setIsMeetingLogOpen(true);
+        }}
+        onOpenExceptionModal={() => {
+          setIsEndDayModalOpen(false);
+          if (onNavigateTab) onNavigateTab('exceptions');
+        }}
+      />
+
+      <NonVisitDayModal
+        isOpen={isNonVisitModalOpen}
+        onClose={() => setIsNonVisitModalOpen(false)}
+      />
+
+      <RegisterBranchModal
+        isOpen={isRegisterBranchModalOpen}
+        onClose={() => setIsRegisterBranchModalOpen(false)}
+      />
+
+      {activeVisit && (
+        <MeetingLogModal
+          isOpen={isMeetingLogOpen}
+          onClose={() => setIsMeetingLogOpen(false)}
+          branchName={activeVisit.branchName}
+          onSubmitted={handleMeetingLogSubmitted}
+        />
+      )}
     </div>
   );
 };

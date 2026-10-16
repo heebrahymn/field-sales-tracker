@@ -7,8 +7,13 @@ import { MobileBottomNav, MobileTab } from '@/components/layout/MobileBottomNav'
 import { DesktopSidebar, DesktopNavSection } from '@/components/layout/DesktopSidebar';
 import { ConsoleHeader } from '@/components/layout/ConsoleHeader';
 import { SalespersonHomePreview } from '@/features/field/SalespersonHomePreview';
+import { ClientsDirectoryView } from '@/features/field/ClientsDirectoryView';
+import { VisitWorkflowView } from '@/features/field/VisitWorkflowView';
+import { ExceptionsWorkbenchView } from '@/features/field/ExceptionsWorkbenchView';
+import { OfflineSyncView } from '@/features/field/OfflineSyncView';
 import { SalesHeadDashboardPreview } from '@/features/review/SalesHeadDashboardPreview';
 import { HqAdminDashboardPreview } from '@/features/admin/HqAdminDashboardPreview';
+import { ClientBranch } from '@/context/FieldSessionContext';
 import { LogOut } from 'lucide-react';
 
 interface AppShellProps {
@@ -18,6 +23,7 @@ interface AppShellProps {
 export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
   const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>('home');
+  const [selectedBranchForVisit, setSelectedBranchForVisit] = useState<ClientBranch | null>(null);
   const [activeDesktopSection, setActiveDesktopSection] = useState<DesktopNavSection>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -54,50 +60,29 @@ export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
 
           {/* Main Mobile Content Area */}
           <main className="flex-1 p-4 overflow-y-auto">
-            {activeMobileTab === 'home' && <SalespersonHomePreview />}
+            {activeMobileTab === 'home' && (
+              <SalespersonHomePreview onNavigateTab={setActiveMobileTab} />
+            )}
             {activeMobileTab === 'clients' && (
-              <div className="max-w-lg mx-auto bg-white p-6 rounded-xl border border-slate-200 text-center space-y-3">
-                <h3 className="font-bold text-base text-slate-900">Client & Branch Directory</h3>
-                <p className="text-xs text-slate-500">
-                  Search approved organisations, nearby pinned branches within 2km, and propose new branch registrations.
-                </p>
-                <div className="p-3 bg-blue-50 text-brand-blue rounded-lg text-xs font-semibold">
-                  Preview in Stage 1A: Comprehensive interactive client flow arrives in Stage 1B.
-                </div>
-              </div>
+              <ClientsDirectoryView
+                onStartVisitAtBranch={(branch) => {
+                  setSelectedBranchForVisit(branch);
+                  setActiveMobileTab('visit');
+                }}
+              />
             )}
             {activeMobileTab === 'visit' && (
-              <div className="max-w-lg mx-auto bg-white p-6 rounded-xl border border-slate-200 text-center space-y-3">
-                <h3 className="font-bold text-base text-slate-900">Active Visit Flow</h3>
-                <p className="text-xs text-slate-500">
-                  Geofence check (200m), live premises photo capture prompt, in-progress elapsed timer, and check-out outside warning.
-                </p>
-                <div className="p-3 bg-emerald-50 text-emerald-800 rounded-lg text-xs font-semibold">
-                  Within Geofence (38m / 200m) • GPS Fix: ±14m
-                </div>
-              </div>
+              <VisitWorkflowView
+                selectedBranchFromDirectory={selectedBranchForVisit}
+                onNavigateToClients={() => setActiveMobileTab('clients')}
+                onNavigateToExceptions={() => setActiveMobileTab('exceptions')}
+              />
             )}
             {activeMobileTab === 'exceptions' && (
-              <div className="max-w-lg mx-auto bg-white p-6 rounded-xl border border-slate-200 text-center space-y-3">
-                <h3 className="font-bold text-base text-slate-900">My Exceptions Workbench</h3>
-                <p className="text-xs text-slate-500">
-                  Salesperson-created missed-visit, GPS failure, or device breakdown exception logs.
-                </p>
-                <div className="p-3 bg-amber-50 text-amber-900 rounded-lg text-xs font-semibold">
-                  Managers cannot create exceptions for you. You own and submit all failure claims.
-                </div>
-              </div>
+              <ExceptionsWorkbenchView />
             )}
             {activeMobileTab === 'sync' && (
-              <div className="max-w-lg mx-auto bg-white p-6 rounded-xl border border-slate-200 text-center space-y-3">
-                <h3 className="font-bold text-base text-slate-900">Offline Queue & Device Health</h3>
-                <p className="text-xs text-slate-500">
-                  IndexedDB event queue with unique UUID idempotency and ordered retry logic.
-                </p>
-                <div className="p-3 bg-slate-100 text-slate-800 rounded-lg text-xs font-semibold">
-                  Queue: 0 pending events • All records acknowledged by server
-                </div>
-              </div>
+              <OfflineSyncView />
             )}
           </main>
 

@@ -16,13 +16,14 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   exceptionBadgeCount = 2,
 }) => {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)] shadow-lg md:hidden">
-      <div className="flex items-center justify-around h-16 px-2 max-w-md mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)] shadow-lg">
+      <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
         {/* Home */}
         <button
+          id="nav-tab-home"
           onClick={() => onTabChange('home')}
           className={cn(
-            'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative',
+            'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative min-h-[48px]',
             activeTab === 'home' ? 'text-brand-blue font-bold' : 'text-slate-500 hover:text-slate-800'
           )}
         >
@@ -35,9 +36,10 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
         {/* Clients & Branches */}
         <button
+          id="nav-tab-clients"
           onClick={() => onTabChange('clients')}
           className={cn(
-            'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative',
+            'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative min-h-[48px]',
             activeTab === 'clients' ? 'text-brand-blue font-bold' : 'text-slate-500 hover:text-slate-800'
           )}
         >
@@ -51,6 +53,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         {/* Center Primary Action: Start / Active Visit */}
         <div className="flex-1 flex justify-center -mt-5">
           <button
+            id="nav-tab-visit"
             onClick={() => onTabChange('visit')}
             className="flex flex-col items-center justify-center w-14 h-14 rounded-full bg-brand-blue text-white shadow-lg border-4 border-slate-50 active:scale-95 transition-transform"
             aria-label="Visit Client"
@@ -63,9 +66,10 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
         {/* Exceptions */}
         <button
+          id="nav-tab-exceptions"
           onClick={() => onTabChange('exceptions')}
           className={cn(
-            'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative',
+            'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative min-h-[48px]',
             activeTab === 'exceptions' ? 'text-brand-blue font-bold' : 'text-slate-500 hover:text-slate-800'
           )}
         >
@@ -85,9 +89,10 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
         {/* Offline Sync & More */}
         <button
+          id="nav-tab-sync"
           onClick={() => onTabChange('sync')}
           className={cn(
-            'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative',
+            'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative min-h-[48px]',
             activeTab === 'sync' ? 'text-brand-blue font-bold' : 'text-slate-500 hover:text-slate-800'
           )}
         >

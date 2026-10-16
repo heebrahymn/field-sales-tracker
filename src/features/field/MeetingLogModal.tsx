@@ -200,6 +200,31 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
             <span className="text-[10px] text-slate-500 font-mono">09:42:15</span>
           </div>
 
+          {/* Optional Business Card Photograph Capture (PRD §7.3) */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 text-[11px]">
+                Business Card Photograph (Optional)
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium">PRD §7.3 Supporting Asset</span>
+            </div>
+
+            <div className="flex items-center justify-between bg-white p-2 rounded border border-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-7 rounded bg-slate-100 border border-slate-300 flex items-center justify-center font-mono text-[8px] text-slate-600">
+                  CARD
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800 text-[10px]">Client Contact Card</p>
+                  <p className="text-[9px] text-slate-500">Live rear-camera macro capture (simulated)</p>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                Attached
+              </span>
+            </div>
+          </div>
+
           {/* Defer Submission Checkbox (Simulate 2h grace window) */}
           <div className="pt-2 border-t border-slate-200 flex items-center gap-2">
             <input
