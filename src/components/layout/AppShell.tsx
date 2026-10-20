@@ -143,7 +143,12 @@ export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
             />
 
             <main className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 lg:p-8">
-              {currentUser.role === 'sales_head' && <SalesHeadDashboardPreview />}
+              {currentUser.role === 'sales_head' && (
+                <SalesHeadDashboardPreview
+                  activeSection={activeDesktopSection}
+                  onSelectSection={setActiveDesktopSection}
+                />
+              )}
               {currentUser.role === 'hq_admin' && <HqAdminDashboardPreview />}
             </main>
           </div>

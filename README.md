@@ -57,14 +57,14 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 1A & 1B Completed)
+## 4. Current Milestone Status (Stages 1A, 1B & 1C Completed)
 
 ```
 [✓] Stage 0  — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
 [✓] Stage 1A — Design System, Application Shell, Role Switcher & Card Refinements (ADR 0002)
 [✓] Stage 1B — Complete Salesperson Mobile Interface (ADR 0003)
-[ ] Stage 1C — Country Sales Head Dashboard (Next)
-[ ] Stage 1D — HQ Admin Regional Oversight Console
+[✓] Stage 1C — Country Sales Head Dashboard & Review Workbenches (ADR 0004)
+[ ] Stage 1D — HQ Admin Regional Oversight Console (Next)
 [ ] Stage 2  — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies
 [ ] Stage 3  — Real Geolocation, Camera Integration & Visit Workflows
 [ ] Stage 4  — Offline Dexie Sync, Idempotency Engine & Exception Resolution
@@ -111,7 +111,46 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 6. Installation & Development Commands
+## 6. Completed Stage 1C Country Sales Head Management Features
+
+1. **Operational Management Dashboard (`SalesHeadDashboardPreview.tsx`):**
+   - Daily, weekly, and quarterly summary scopes with provisional reconciliation notices (19:00 WAT cutoff per PRD §10).
+   - 5 distinct counting KPI cards: Active Reps, Location Verified Visits, Approved Unverified Activity, Missing Logs, and Urgent Flags.
+   - Dedicated quick-switching horizontal pill navigation bar.
+2. **Team & Attendance Management (`TeamAttendanceReview.tsx`):**
+   - Active country roster with territory assignments, company device ID bindings (`SM-A546B`), and battery monitoring.
+   - Start Day selfie inspection with coordinate watermarking and GPS fix accuracy inspection ($\le 50\text{m}$).
+   - Authorised non-visit workday review (office proposals, training; counts toward attendance, strictly zero visit targets).
+   - Administrative leave recording action (annual, sick, compassionate).
+3. **Client & Branch Registration Approvals (`BranchApprovalsQueue.tsx`):**
+   - Pin accuracy verification enforcing PRD $\le 50\text{m}$ threshold.
+   - Live premises photo verification and mandatory manager approval/rejection rationale logging.
+   - **Shared Telephone Number Support (PRD §4.2):** Validates multiple branches sharing parent switchboard phone numbers without auto-rejection.
+4. **Exception Approval Workbench (`ExceptionReviewWorkbench.tsx`):**
+   - Salesperson-created GPS signal failure, camera failure, device depletion, and missed visit triage.
+   - Enforces core PRD governance: managers **never** originate salesperson logs; approved exceptions remain **Manager Approved — Location Unverified**.
+5. **Dedicated Client Visit Verification Screen (`ClientVisitVerification.tsx`):**
+   - Geofence pass/fail verification ($\le 200\text{m}$ threshold with reported GPS accuracy tolerance).
+   - Live premises photograph inspector modal.
+   - Complete meeting log audit with free-text next steps only (strict MVP exclusion enforcement).
+6. **Suspicious Activity Flags Queue (`RiskFlagsWorkbench.tsx`):**
+   - Tripwire monitoring: rapid travel ($>80\text{ km/h}$), out-of-bounds checkout ($>200\text{m}$), short visits ($<5\text{m}$), and late meeting logs ($>2\text{h}$).
+   - Human review actions: Dismiss with justification, request explanation, or confirm policy violation.
+7. **Client Audit Phone Call Workbench (`ClientAuditWorkbench.tsx`):**
+   - Weekly 5% random audit sampling queue (PRD §8.3 / AT-10) plus risk-targeted calls.
+   - Standardized telephone script: in-person meeting confirmation and products discussed verification.
+   - Unreachable client tracking with repeated call attempt counter (Attempt 1, Attempt 2, etc.) and re-queueing.
+   - Client denial immediate transition to **Disputed — Pending Review** for management inquiry (never automated disciplinary action).
+   - Management dispute investigation workbench: documents representative explanation, secondary verification (gate logbook/workshop witness), and formal resolution (`resolved_cleared` vs `resolved_violation`) with preserved audit history.
+8. **Multi-Dimensional Rollups & Reporting (`CountryReportingView.tsx` & `CountryCsvExportModal.tsx`):**
+   - Daily, weekly, and quarterly rollups of verified visits, approved unverified visits, unique branches visited, offline event share, and log compliance.
+   - Multi-parameter filter bar: filter records by **Salesperson**, **Date Range** (with custom start/end date inputs), **Client Branch**, and **Verification Status**.
+   - Dual-tab view: Sales Representative Operational Breakdown (comparative team performance) and Individual Visit Records (granular audit trail with live search).
+   - **CWE-1236 Formula Injection Escaping:** Audited CSV export modal automatically escaping formula triggers (`=`, `+`, `-`, `@`, `\t`, `\r`) with leading single quotes (`'`).
+
+---
+
+## 7. Installation & Development Commands
 
 ### Prerequisites
 - Node.js 18.0+ or 20.0+ LTS
@@ -137,7 +176,7 @@ The application will be accessible at `http://localhost:5173/`.
 # Run TypeScript compilation check (Strict Mode, 0 errors)
 npx tsc --noEmit
 
-# Run Vitest automated unit tests
+# Run Vitest automated unit tests (31 tests passing)
 npm test
 
 # Build the production bundle
@@ -149,7 +188,7 @@ npm run preview
 
 ---
 
-## 7. Project Structure
+## 8. Project Structure
 
 ```
 carbonSalesTracker/
@@ -159,7 +198,8 @@ carbonSalesTracker/
 │   ├── decisions/                       # Architectural Decision Records (ADRs)
 │   │   ├── 0001-stage-0-approval.md
 │   │   ├── 0002-stage-1a-approval.md
-│   │   └── 0003-stage-1b-salesperson-mobile-interface.md
+│   │   ├── 0003-stage-1b-salesperson-mobile-interface.md
+│   │   └── 0004-stage-1c-country-sales-head-dashboard.md
 │   └── screenshots/                     # High-resolution screen captures
 │       └── stage1b/
 ├── public/
@@ -171,7 +211,7 @@ carbonSalesTracker/
 │   │   ├── brand/                       # Brand logo component
 │   │   ├── feedback/                    # Demo role switcher banner
 │   │   ├── field/                       # Persistent status strip
-│   │   ├── layout/                      # AppShell, ConsoleHeader, Navbars
+│   │   ├── layout/                      # AppShell, ConsoleHeader, Navbars, DesktopSidebar
 │   │   └── ui/                          # Button, Card, Badge, Input, Table
 │   ├── context/                         # Reactive application state
 │   │   ├── AuthContext.tsx              # Role-switching demo provider
@@ -180,12 +220,23 @@ carbonSalesTracker/
 │   │   ├── admin/                       # HQ Admin regional console
 │   │   ├── auth/                        # Branded login screen
 │   │   ├── field/                       # Salesperson mobile screens & modals
-│   │   └── review/                      # Country Sales Head dashboards
+│   │   └── review/                      # Country Sales Head dashboard & workbenches
+│   │       ├── ApprovalDecisionModal.tsx
+│   │       ├── BranchApprovalsQueue.tsx
+│   │       ├── ClientAuditWorkbench.tsx
+│   │       ├── ClientVisitVerification.tsx
+│   │       ├── CountryCsvExportModal.tsx
+│   │       ├── CountryReportingView.tsx
+│   │       ├── ExceptionReviewWorkbench.tsx
+│   │       ├── RiskFlagsWorkbench.tsx
+│   │       ├── SalesHeadDashboardPreview.tsx
+│   │       └── TeamAttendanceReview.tsx
 │   ├── lib/                             # Utilities & Tailwind helpers
 │   └── test/                            # Vitest unit test suites
 │       ├── at15-exclusions.test.tsx     # Strict MVP scope boundary assertions
 │       ├── brand-logo.test.tsx          # Brand identity compliance assertions
 │       ├── salesperson-context.test.tsx # AT-03, AT-04, PRD §4.2, §7.4, §9 tests
+│       ├── stage-1c-manager-dashboard.test.tsx # Stage 1C business rules, rollups, audit, and boundary tests
 │       └── status-badge.test.tsx        # Operational status badge tests
 ├── AGENTS.md                            # Always-on Antigravity master instructions
 └── package.json
@@ -193,6 +244,6 @@ carbonSalesTracker/
 
 ---
 
-## 8. License
+## 9. License
 
 Proprietary — Internal application developed for **Carbon Car Care**. All rights reserved.

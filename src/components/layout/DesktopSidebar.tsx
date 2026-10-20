@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import {
   LayoutDashboard,
+  CheckCircle2,
   CheckSquare,
   ShieldAlert,
   AlertTriangle,
@@ -21,6 +22,7 @@ import { cn } from '@/lib/utils';
 
 export type DesktopNavSection =
   | 'dashboard'
+  | 'visits'
   | 'approvals'
   | 'exceptions'
   | 'flags'
@@ -56,6 +58,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       group: 'Oversight & Monitoring',
       items: [
         { id: 'dashboard' as DesktopNavSection, label: 'Operational Dashboard', icon: LayoutDashboard },
+        { id: 'visits' as DesktopNavSection, label: 'Client Visit Verification', icon: CheckCircle2, badge: '34' },
         { id: 'approvals' as DesktopNavSection, label: 'Branch & Pin Approvals', icon: CheckSquare, badge: '4' },
         { id: 'exceptions' as DesktopNavSection, label: 'Exception Workbench', icon: ShieldAlert, badge: '3' },
         { id: 'flags' as DesktopNavSection, label: 'Risk Flags Queue', icon: AlertTriangle, badge: '5' },

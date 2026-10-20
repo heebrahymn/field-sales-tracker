@@ -4,6 +4,15 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { BranchApprovalsQueue } from '@/features/review/BranchApprovalsQueue';
+import { ExceptionReviewWorkbench } from '@/features/review/ExceptionReviewWorkbench';
+import { ClientVisitVerification } from '@/features/review/ClientVisitVerification';
+import { RiskFlagsWorkbench } from '@/features/review/RiskFlagsWorkbench';
+import { ClientAuditWorkbench } from '@/features/review/ClientAuditWorkbench';
+import { TeamAttendanceReview } from '@/features/review/TeamAttendanceReview';
+import { CountryReportingView } from '@/features/review/CountryReportingView';
+import { CountryCsvExportModal } from '@/features/review/CountryCsvExportModal';
+import { DesktopNavSection } from '@/components/layout/DesktopSidebar';
 import {
   Users,
   CheckCircle2,
@@ -12,23 +21,48 @@ import {
   Clock,
   ShieldCheck,
   MapPin,
+  PhoneCall,
+  CalendarDays,
+  FileSpreadsheet,
+  Download,
+  ArrowRight,
 } from 'lucide-react';
 
-export const SalesHeadDashboardPreview: React.FC = () => {
+interface SalesHeadDashboardPreviewProps {
+  activeSection?: DesktopNavSection;
+  onSelectSection?: (section: DesktopNavSection) => void;
+}
+
+export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps> = ({
+  activeSection: propActiveSection,
+  onSelectSection,
+}) => {
   const { currentUser } = useAuth();
+  const [internalSection, setInternalSection] = useState<DesktopNavSection>('dashboard');
   const [selectedReviewItem, setSelectedReviewItem] = useState<ApprovalItem | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [summaryTimeframe, setSummaryTimeframe] = useState<'daily' | 'weekly' | 'quarterly'>('daily');
 
-  // Fictional Mock Items
+  const currentSection = propActiveSection || internalSection;
+
+  const handleSectionChange = (section: DesktopNavSection) => {
+    if (onSelectSection) {
+      onSelectSection(section);
+    }
+    setInternalSection(section);
+  };
+
+  // Fictional Mock Items for Dashboard Overview
   const pendingPins: ApprovalItem[] = [
     {
       id: 'pin-01',
       type: 'pin_approval',
-      title: 'Apex Commercial Transit Ltd',
-      subtitle: 'Ibeju-Lekki Hub • Branch #BR-LAG-108',
+      title: 'Apex Heavy Logistics Fleet Depot',
+      subtitle: 'Apapa Commercial Port Zone • Branch #BR-LAG-014',
       repName: 'Tunde Adebayo',
-      claimedTime: 'Today 09:15',
+      claimedTime: 'Today 09:15 WAT',
       accuracy: '±22m (Passes ≤50m threshold)',
       evidenceNote: 'Premises gate and workshop signage clearly visible in photo. Pin placed at entrance gate.',
       sharedPhoneWarning: true,
@@ -36,36 +70,36 @@ export const SalesHeadDashboardPreview: React.FC = () => {
     {
       id: 'pin-02',
       type: 'pin_approval',
-      title: 'Vanguard Logistics Solutions',
-      subtitle: 'Kano North Depot • Branch #BR-KAN-042',
-      repName: 'Ibrahim Sani',
-      claimedTime: 'Yesterday 16:30',
+      title: 'Apex Commercial Transit Hub (Ikeja)',
+      subtitle: 'Mobolaji Bank Anthony Way • Branch #BR-LAG-108',
+      repName: 'Tunde Adebayo',
+      claimedTime: 'Today 10:45 WAT',
       accuracy: '±18m (Passes ≤50m threshold)',
-      evidenceNote: 'Heavy haulage trailer depot on northern transit corridor. GPS fix taken in open courtyard.',
-      sharedPhoneWarning: false,
+      evidenceNote: 'Heavy haulage trailer depot on transit corridor. GPS fix taken in open courtyard.',
+      sharedPhoneWarning: true,
     },
   ];
 
   const pendingExceptions: ApprovalItem[] = [
     {
-      id: 'exc-01',
+      id: 'exc-001',
       type: 'exception_approval',
-      title: 'Titan Engineering Fleet Depot',
-      subtitle: 'Missed-Visit Exception (Device Battery Depletion)',
-      repName: 'Emeka Nwosu',
-      claimedTime: '11:15 - 11:55',
-      accuracy: 'No GPS (Device shutdown)',
-      evidenceNote: 'Handset battery shut down unexpectedly during meeting. Submitted after power restoration at base.',
-    },
-    {
-      id: 'exc-02',
-      type: 'exception_approval',
-      title: 'Metroline Basement Fleet Hub',
+      title: 'Metroline Basement Depot',
       subtitle: 'GPS Signal Failure (Underground Parking Facility)',
       repName: 'Tunde Adebayo',
-      claimedTime: '13:40 - 14:10',
-      accuracy: '±140m (Uncertain / Exceeds 100m limit)',
-      evidenceNote: 'Severe multipath signal attenuation inside reinforced concrete basement. Premises photo captured.',
+      claimedTime: 'Today 13:40 - 14:15 WAT',
+      accuracy: '±145m (Severe multipath attenuation)',
+      evidenceNote: 'Severe satellite attenuation inside reinforced concrete basement. Premises photo captured.',
+    },
+    {
+      id: 'exc-002',
+      type: 'exception_approval',
+      title: 'Titan Engineering Fleet Depot',
+      subtitle: 'Device Hardware Shutdown (Battery Depletion in Field)',
+      repName: 'Emeka Nwosu',
+      claimedTime: 'Today 11:15 - 11:55 WAT',
+      accuracy: 'No GPS (Device shutdown)',
+      evidenceNote: 'Handset battery shut down unexpectedly during meeting. Submitted after power restoration at base.',
     },
   ];
 
@@ -100,302 +134,500 @@ export const SalesHeadDashboardPreview: React.FC = () => {
         </div>
       )}
 
-      {/* Top Banner Notice: Provisional Reconciliation & Governance */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="w-5 h-5 text-brand-blue shrink-0 mt-0.5" />
-          <div className="text-xs">
-            <p className="font-bold text-slate-900 text-sm">
-              Country Sales Head Review Console • Market: {currentUser.marketName}
-            </p>
-            <p className="text-slate-700 font-medium mt-0.5">
-              Review and audit field registrations, GPS pins, and rep-submitted exceptions. Managers never originate salesperson visit or exception logs.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 shrink-0">
-          <span className="text-[11px] font-bold text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-300">
-            SLA Standard: ≤2 Workdays
+      {/* Module Navigation Pill Bar for Quick Multi-Module Switching */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200 scrollbar-none">
+        <button
+          onClick={() => handleSectionChange('dashboard')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors ${
+            currentSection === 'dashboard'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          Operational Dashboard
+        </button>
+        <button
+          onClick={() => handleSectionChange('visits')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
+            currentSection === 'visits'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Client Visit Verification</span>
+          <span className="bg-emerald-100 text-emerald-900 px-1.5 py-0.2 rounded-full text-[10px]">
+            34
           </span>
-          <Button variant="outline" size="sm" className="text-xs font-semibold bg-white border-slate-300 hover:bg-slate-50 text-slate-800">
-            Export Country CSV
-          </Button>
-        </div>
+        </button>
+        <button
+          onClick={() => handleSectionChange('approvals')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
+            currentSection === 'approvals'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <span>Branch Approvals</span>
+          <span className="bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded-full text-[10px]">
+            4
+          </span>
+        </button>
+        <button
+          onClick={() => handleSectionChange('exceptions')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
+            currentSection === 'exceptions'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <span>Exception Workbench</span>
+          <span className="bg-blue-100 text-brand-blue px-1.5 py-0.2 rounded-full text-[10px]">
+            3
+          </span>
+        </button>
+        <button
+          onClick={() => handleSectionChange('flags')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
+            currentSection === 'flags'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <span>Risk Flags Queue</span>
+          <span className="bg-rose-100 text-rose-900 px-1.5 py-0.2 rounded-full text-[10px]">
+            4
+          </span>
+        </button>
+        <button
+          onClick={() => handleSectionChange('audits')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
+            currentSection === 'audits'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <PhoneCall className="w-3.5 h-3.5" />
+          <span>Client Audit Calls (5%)</span>
+        </button>
+        <button
+          onClick={() => handleSectionChange('attendance')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
+            currentSection === 'attendance'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <CalendarDays className="w-3.5 h-3.5" />
+          <span>Team Attendance</span>
+        </button>
+        <button
+          onClick={() => handleSectionChange('exports')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
+            currentSection === 'exports'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5" />
+          <span>Reporting &amp; CSV</span>
+        </button>
       </div>
 
-      {/* ================= DISTINCT COUNTING KPI CARDS ================= */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
-        {/* 1. Active Field Reps */}
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px]">
-          <div className="flex items-start justify-between gap-1.5">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
-              Active Reps
-            </span>
-            <div className="w-7 h-7 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center shrink-0">
-              <Users className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="my-1.5">
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">8</span>
-              <span className="text-xs font-semibold text-slate-500">/ 10</span>
-            </div>
-            <div className="mt-1">
-              <span className="inline-block text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200/70 px-1.5 py-0.5 rounded">
-                80% Present
-              </span>
-            </div>
-          </div>
-          <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-            <span>1 On Leave • 1 Pending</span>
-          </div>
-        </div>
+      {/* Render Module Content Based on Section */}
+      {currentSection === 'visits' && <ClientVisitVerification />}
+      {currentSection === 'approvals' && <BranchApprovalsQueue />}
+      {currentSection === 'exceptions' && <ExceptionReviewWorkbench />}
+      {currentSection === 'flags' && <RiskFlagsWorkbench />}
+      {currentSection === 'audits' && <ClientAuditWorkbench />}
+      {currentSection === 'attendance' && <TeamAttendanceReview />}
+      {currentSection === 'exports' && <CountryReportingView marketName={currentUser.marketName} />}
+      {currentSection === 'clients' && <BranchApprovalsQueue />}
 
-        {/* 2. Location Verified Visits */}
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px]">
-          <div className="flex items-start justify-between gap-1.5">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
-              Location Verified
-            </span>
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="my-1.5">
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">34</span>
-              <span className="text-xs font-semibold text-slate-500">visits</span>
-            </div>
-            <div className="mt-1">
-              <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/70 px-1.5 py-0.5 rounded">
-                Provisional (Today)
-              </span>
-            </div>
-          </div>
-          <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-            <span>GPS & photo validated</span>
-          </div>
-        </div>
-
-        {/* 3. Approved Unverified Activity */}
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px]">
-          <div className="flex items-start justify-between gap-1.5">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
-              Approved Unverified
-            </span>
-            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-              <ShieldAlert className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="my-1.5">
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">3</span>
-              <span className="text-xs font-semibold text-slate-500">exceptions</span>
-            </div>
-            <div className="mt-1">
-              <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/70 px-1.5 py-0.5 rounded">
-                Separate Audit
-              </span>
-            </div>
-          </div>
-          <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-            <span>Manager sign-off only</span>
-          </div>
-        </div>
-
-        {/* 4. Missing Meeting Logs */}
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px]">
-          <div className="flex items-start justify-between gap-1.5">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
-              Missing Logs
-            </span>
-            <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
-              <Clock className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="my-1.5">
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">2</span>
-              <span className="text-xs font-semibold text-slate-500">flagged</span>
-            </div>
-            <div className="mt-1">
-              <span className="inline-block text-[10px] font-bold text-orange-800 bg-orange-50 border border-orange-200/70 px-1.5 py-0.5 rounded">
-                &gt;2h SLA Overdue
-              </span>
-            </div>
-          </div>
-          <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0" />
-            <span>Pending rep entry</span>
-          </div>
-        </div>
-
-        {/* 5. Urgent Risk Flags */}
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px] col-span-2 lg:col-span-1">
-          <div className="flex items-start justify-between gap-1.5">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
-              Urgent Flags
-            </span>
-            <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="my-1.5">
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-black text-slate-900 tracking-tight">4</span>
-              <span className="text-xs font-semibold text-slate-500">open</span>
-            </div>
-            <div className="mt-1">
-              <span className="inline-block text-[10px] font-bold text-rose-800 bg-rose-50 border border-rose-200/70 px-1.5 py-0.5 rounded">
-                Action Required
-              </span>
-            </div>
-          </div>
-          <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
-            <span>1 out-of-bounds • 1 short</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ================= REVIEW WORKBENCH: PENDING APPROVALS & EXCEPTIONS ================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pending Branch & Pin Approvals */}
-        <Card className="border-slate-200 shadow-xs">
-          <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
-            <div>
-              <CardTitle className="text-base text-slate-900">Pending Branch & Pin Approvals</CardTitle>
-              <p className="text-xs text-slate-600 font-medium">Proposed client branches requiring manager pin verification</p>
-            </div>
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-              4 Awaiting Sign-off
-            </span>
-          </CardHeader>
-
-          <CardContent className="space-y-3 pt-3">
-            {pendingPins.map((item) => (
-              <div key={item.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-900 text-sm">{item.title}</h4>
-                    <p className="text-xs text-slate-700 font-medium flex items-center gap-1 mt-0.5">
-                      <MapPin className="w-3.5 h-3.5 text-slate-500" />
-                      {item.subtitle}
-                    </p>
-                    <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
-                      Submitted by: <span className="text-slate-900">{item.repName}</span>
-                    </p>
-                  </div>
-                  <span className="text-[11px] text-slate-500 font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-200">
-                    {item.claimedTime}
-                  </span>
-                </div>
-
-                {item.sharedPhoneWarning && (
-                  <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-brand-blue font-semibold">
-                    Note: Shared parent company phone detected with Ikeja branch (Allowed under PRD §4.2).
-                  </div>
-                )}
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-200">
-                  <span className="text-[11px] text-emerald-800 font-bold">
-                    GPS Accuracy: {item.accuracy}
-                  </span>
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs h-9 sm:h-8 px-3 font-semibold bg-white border-slate-300 flex-1 sm:flex-initial"
-                      onClick={() => handleOpenReview(item)}
-                    >
-                      Inspect Evidence
-                    </Button>
-                    <Button
-                      variant="success"
-                      size="sm"
-                      className="text-xs h-9 sm:h-8 px-3 font-bold bg-brand-green-700 hover:bg-brand-green-800 text-white flex-1 sm:flex-initial"
-                      onClick={() => handleOpenReview(item)}
-                    >
-                      Approve Pin
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        {/* Exceptions Awaiting Manager Review */}
-        <Card className="border-slate-200 shadow-xs">
-          <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
-            <div>
-              <CardTitle className="text-base text-slate-900">Exceptions Workbench</CardTitle>
-              <p className="text-xs text-slate-600 font-medium">Salesperson-created missed-visit, GPS and device breakdown logs</p>
-            </div>
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-brand-blue border border-blue-300">
-              3 Submitted
-            </span>
-          </CardHeader>
-
-          <CardContent className="space-y-3 pt-3">
-            {pendingExceptions.map((item) => (
-              <div key={item.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
-                      {item.subtitle}
-                    </span>
-                    <h4 className="text-xs font-bold text-slate-900 text-sm mt-1.5">{item.title}</h4>
-                    <p className="text-[11px] text-slate-700 font-semibold">
-                      Submitted by: <span className="text-slate-900">{item.repName}</span> • Claimed Time: {item.claimedTime}
-                    </p>
-                  </div>
-                  <StatusBadge status="pending_review" size="sm" />
-                </div>
-
-                <p className="text-[11px] text-slate-700 font-medium bg-white p-2.5 rounded-lg border border-slate-200 italic">
-                  &ldquo;{item.evidenceNote}&rdquo;
+      {/* DEFAULT: Master Operational Dashboard */}
+      {currentSection === 'dashboard' && (
+        <div className="space-y-6">
+          {/* Top Banner Notice: Provisional Reconciliation & Governance */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-brand-blue shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <p className="font-bold text-slate-900 text-sm">
+                  Country Sales Head Review Console • Market: {currentUser.marketName}
                 </p>
+                <p className="text-slate-700 font-medium mt-0.5">
+                  Review and audit field registrations, GPS pins, and rep-submitted exceptions. Managers never originate salesperson visit or exception logs.
+                </p>
+              </div>
+            </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-200">
-                  <span className="text-[11px] text-slate-600 font-medium">
-                    Status: <strong className="text-amber-900">Unverified Activity</strong>
-                  </span>
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs h-9 sm:h-8 px-3 text-red-700 border-red-200 hover:bg-red-50 font-semibold flex-1 sm:flex-initial"
-                      onClick={() => handleOpenReview(item)}
-                    >
-                      Reject
-                    </Button>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="text-xs h-9 sm:h-8 px-3 bg-brand-blue hover:bg-brand-blue-700 text-white font-bold flex-1 sm:flex-initial"
-                      onClick={() => handleOpenReview(item)}
-                    >
-                      Review & Decide
-                    </Button>
-                  </div>
+            <div className="flex items-center gap-2.5 shrink-0">
+              <span className="text-[11px] font-bold text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-300">
+                SLA Standard: ≤2 Workdays
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs font-semibold bg-white border-slate-300 hover:bg-slate-50 text-slate-800 flex items-center gap-1"
+                onClick={() => setCsvModalOpen(true)}
+              >
+                <Download className="w-3.5 h-3.5 text-slate-600" />
+                Export Country CSV
+              </Button>
+            </div>
+          </div>
+
+          {/* Timeframe Summary Pills */}
+          <div className="flex items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500">Summary Scope:</span>
+              <button
+                onClick={() => setSummaryTimeframe('daily')}
+                className={`text-xs px-2.5 py-1 rounded-md font-bold ${
+                  summaryTimeframe === 'daily'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Daily (19 Oct 2026)
+              </button>
+              <button
+                onClick={() => setSummaryTimeframe('weekly')}
+                className={`text-xs px-2.5 py-1 rounded-md font-bold ${
+                  summaryTimeframe === 'weekly'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Weekly Rollup (W42)
+              </button>
+              <button
+                onClick={() => setSummaryTimeframe('quarterly')}
+                className={`text-xs px-2.5 py-1 rounded-md font-bold ${
+                  summaryTimeframe === 'quarterly'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Quarterly (Q4 2026)
+              </button>
+            </div>
+
+            <span className="text-[11px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200 hidden sm:inline-block">
+              Provisional live events • Cutoff at 19:00 WAT
+            </span>
+          </div>
+
+          {/* ================= DISTINCT COUNTING KPI CARDS ================= */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
+            {/* 1. Active Field Reps */}
+            <div
+              onClick={() => handleSectionChange('attendance')}
+              className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px] cursor-pointer"
+            >
+              <div className="flex items-start justify-between gap-1.5">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
+                  Active Reps
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center shrink-0">
+                  <Users className="w-3.5 h-3.5" />
                 </div>
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+              <div className="my-1.5">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">8</span>
+                  <span className="text-xs font-semibold text-slate-500">/ 10</span>
+                </div>
+                <div className="mt-1">
+                  <span className="inline-block text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200/70 px-1.5 py-0.5 rounded">
+                    80% Present
+                  </span>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span>1 On Leave • 1 Training</span>
+              </div>
+            </div>
 
-      {/* ================= DECISION MODAL ================= */}
+            {/* 2. Location Verified Visits */}
+            <div
+              onClick={() => handleSectionChange('visits')}
+              className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px] cursor-pointer"
+            >
+              <div className="flex items-start justify-between gap-1.5">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
+                  Location Verified
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <div className="my-1.5">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">
+                    {summaryTimeframe === 'daily' ? '34' : summaryTimeframe === 'weekly' ? '168' : '482'}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">visits</span>
+                </div>
+                <div className="mt-1">
+                  <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/70 px-1.5 py-0.5 rounded">
+                    Provisional (Live)
+                  </span>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-600 font-medium">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  <span>GPS &amp; photo validated</span>
+                </div>
+                <span className="text-brand-blue font-bold">View all &rarr;</span>
+              </div>
+            </div>
+
+            {/* 3. Approved Unverified Activity */}
+            <div
+              onClick={() => handleSectionChange('exceptions')}
+              className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px] cursor-pointer"
+            >
+              <div className="flex items-start justify-between gap-1.5">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
+                  Approved Unverified
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <div className="my-1.5">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">
+                    {summaryTimeframe === 'daily' ? '3' : summaryTimeframe === 'weekly' ? '12' : '31'}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">exceptions</span>
+                </div>
+                <div className="mt-1">
+                  <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/70 px-1.5 py-0.5 rounded">
+                    Separate Audit
+                  </span>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                <span>Manager sign-off only</span>
+              </div>
+            </div>
+
+            {/* 4. Missing Meeting Logs */}
+            <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px]">
+              <div className="flex items-start justify-between gap-1.5">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
+                  Missing Logs
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
+                  <Clock className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <div className="my-1.5">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">2</span>
+                  <span className="text-xs font-semibold text-slate-500">flagged</span>
+                </div>
+                <div className="mt-1">
+                  <span className="inline-block text-[10px] font-bold text-orange-800 bg-orange-50 border border-orange-200/70 px-1.5 py-0.5 rounded">
+                    &gt;2h SLA Overdue
+                  </span>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0" />
+                <span>Pending rep entry</span>
+              </div>
+            </div>
+
+            {/* 5. Urgent Risk Flags */}
+            <div
+              onClick={() => handleSectionChange('flags')}
+              className="bg-white rounded-xl border border-slate-200/90 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-150 p-3.5 flex flex-col justify-between min-h-[142px] col-span-2 lg:col-span-1 cursor-pointer"
+            >
+              <div className="flex items-start justify-between gap-1.5">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight">
+                  Urgent Flags
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <div className="my-1.5">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">4</span>
+                  <span className="text-xs font-semibold text-slate-500">open</span>
+                </div>
+                <div className="mt-1">
+                  <span className="inline-block text-[10px] font-bold text-rose-800 bg-rose-50 border border-rose-200/70 px-1.5 py-0.5 rounded">
+                    Action Required
+                  </span>
+                </div>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                <span>1 out-of-bounds • 1 short</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ================= REVIEW WORKBENCH: PENDING APPROVALS & EXCEPTIONS ================= */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Pending Branch & Pin Approvals Preview */}
+            <Card className="border-slate-200 shadow-xs">
+              <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <CardTitle className="text-base text-slate-900">Pending Branch &amp; Pin Approvals</CardTitle>
+                  <p className="text-xs text-slate-600 font-medium">Proposed client branches requiring manager pin verification</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs font-bold text-brand-blue border-blue-200 hover:bg-blue-50 flex items-center gap-1"
+                  onClick={() => handleSectionChange('approvals')}
+                >
+                  View All (4) <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              </CardHeader>
+
+              <CardContent className="space-y-3.5 pt-3.5">
+                {pendingPins.map((item) => (
+                  <div key={item.id} className="p-4 sm:p-5 pt-4 sm:pt-5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900 text-sm">{item.title}</h4>
+                        <p className="text-xs text-slate-700 font-medium flex items-center gap-1 mt-0.5">
+                          <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                          {item.subtitle}
+                        </p>
+                        <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
+                          Submitted by: <span className="text-slate-900">{item.repName}</span>
+                        </p>
+                      </div>
+                      <span className="text-[11px] text-slate-500 font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-200">
+                        {item.claimedTime}
+                      </span>
+                    </div>
+
+                    {item.sharedPhoneWarning && (
+                      <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-brand-blue font-semibold">
+                        Note: Shared company telephone detected with Apapa branch (Permitted under PRD §4.2).
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-200">
+                      <span className="text-[11px] text-emerald-800 font-bold">
+                        GPS Accuracy: {item.accuracy}
+                      </span>
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-9 sm:h-8 px-3 font-semibold bg-white border-slate-300 flex-1 sm:flex-initial"
+                          onClick={() => handleOpenReview(item)}
+                        >
+                          Inspect Evidence
+                        </Button>
+                        <Button
+                          variant="success"
+                          size="sm"
+                          className="text-xs h-9 sm:h-8 px-3 font-bold bg-brand-green-700 hover:bg-brand-green-800 text-white flex-1 sm:flex-initial"
+                          onClick={() => handleOpenReview(item)}
+                        >
+                          Approve Pin
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            {/* Exceptions Awaiting Manager Review Preview */}
+            <Card className="border-slate-200 shadow-xs">
+              <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <CardTitle className="text-base text-slate-900">Exceptions Workbench</CardTitle>
+                  <p className="text-xs text-slate-600 font-medium">Salesperson-created missed-visit, GPS and device breakdown logs</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs font-bold text-brand-blue border-blue-200 hover:bg-blue-50 flex items-center gap-1"
+                  onClick={() => handleSectionChange('exceptions')}
+                >
+                  View All (3) <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              </CardHeader>
+
+              <CardContent className="space-y-3.5 pt-3.5">
+                {pendingExceptions.map((item) => (
+                  <div key={item.id} className="p-4 sm:p-5 pt-4 sm:pt-5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                          {item.subtitle}
+                        </span>
+                        <h4 className="text-xs font-bold text-slate-900 text-sm mt-1.5">{item.title}</h4>
+                        <p className="text-[11px] text-slate-700 font-semibold">
+                          Submitted by: <span className="text-slate-900">{item.repName}</span> • Claimed Time: {item.claimedTime}
+                        </p>
+                      </div>
+                      <StatusBadge status="pending_review" size="sm" />
+                    </div>
+
+                    <p className="text-[11px] text-slate-700 font-medium bg-white p-2.5 rounded-lg border border-slate-200 italic">
+                      &ldquo;{item.evidenceNote}&rdquo;
+                    </p>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-200">
+                      <span className="text-[11px] text-slate-600 font-medium">
+                        Status: <strong className="text-amber-900">Unverified Activity</strong>
+                      </span>
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-9 sm:h-8 px-3 text-red-700 border-red-200 hover:bg-red-50 font-semibold flex-1 sm:flex-initial"
+                          onClick={() => handleOpenReview(item)}
+                        >
+                          Reject
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="text-xs h-9 sm:h-8 px-3 bg-brand-blue hover:bg-brand-blue-700 text-white font-bold flex-1 sm:flex-initial"
+                          onClick={() => handleOpenReview(item)}
+                        >
+                          Review &amp; Decide
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Decision Modal */}
       <ApprovalDecisionModal
         item={selectedReviewItem}
         isOpen={reviewModalOpen}
         onClose={() => setReviewModalOpen(false)}
         onDecision={handleDecisionRecorded}
+      />
+
+      {/* Country CSV Export Modal */}
+      <CountryCsvExportModal
+        isOpen={csvModalOpen}
+        onClose={() => setCsvModalOpen(false)}
+        marketName={currentUser.marketName}
       />
     </div>
   );
