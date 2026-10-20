@@ -233,6 +233,7 @@ App shell · responsive sidebar · mobile bottom nav · top bar · BrandLogo · 
 | `rule_sets` | PRD §6: thresholds are configurable per market and *logged when changed*; visits record the rule version. |
 | `branch_pins` | PRD §4.3/§8.3: versioned pins with original and revised coordinates; visits must reference the pin version they were checked against. |
 | `device_assignments` | PRD §2.3: issue/return dates and approved replacement history. |
+| `device_replacement_requests` | Approved decision: Salesperson submits company device replacement requests directly to HQ Admin with 7 lifecycle states, mandatory reason on approval/rejection, spare assignment from depot, dispatch tracking, activation confirmation, and old device disposition. Zero Country Sales Head approval gate. |
 | `report_snapshots` | AT-16 and §7.2: keep the 19:00 provisional digest and each reconciliation without overwriting earlier snapshots. |
 
 **Not created:** `quotations`, `orders`, `reported_orders`, `opportunities`, `follow_up_tasks`, and any pipeline or revenue columns. The PRD lists `markets.currency` as reference data only; no table stores monetary values.
@@ -418,4 +419,17 @@ The PRD treats offline reliability as the main delivery risk and asks for early 
    - **Strict permission rule confirmed:** Managers and HQ Admins must never create salesperson visit logs, missed-visit logs, or GPS/device-failure exception logs. Only the authenticated salesperson can create and submit them. Enforced at RLS and server RPC level.
 5. **Brand Colours & Contrast:** Blue `#21409A`, Green `#1B9A4A`, Yellow `#E8CF2F`. Darker semantic variants (e.g. Green-700 `#157A3A`) used for text/buttons to guarantee WCAG AA ≥4.5:1.
 6. **Early Real-Device Testing:** Isolated technical feasibility spike approved for real company handsets, kept separate from production codebase.
-7. **Scope Authorization:** Stage 0 confirmed. **Stage 1A — Frontend Design System and Application Shell only** authorized.
+7. **Scope Authorization:** Stage 0 confirmed. **Stage 1A, 1B, 1C, and 1D completed.**
+
+---
+
+## 9. Stage 1D Completion & Approved Decisions
+
+**Recorded 2026-10-20 in `docs/decisions/0005-stage-1d-hq-admin-interface.md`:**
+
+1. **Direct Salesperson → HQ Admin Device Replacement Workflow:** Salespeople submit company device replacement requests directly to HQ Admin under `Profile → My Device → Report Device Issue`. Country Sales Heads have read-only operational visibility where appropriate and do not act as an approval intermediary. Hardware replacement requests are administrative records and remain strictly separate from field visit exception logs.
+2. **New Company Device Registration & MDM Inventory:** HQ Admin registers new company-owned devices with required fields (Asset ID, Make, Model, Serial, Market, Initial Status) and optional metadata (IMEI, OS version, purchase date, supplier, warranty, notes). Duplicate asset ID and serial number prevention enforced.
+3. **9-Status Device Lifecycle:** Support for `Available`, `Assigned`, `Active`, `Pending Inspection`, `Under Maintenance`, `Lost/Stolen`, `Returned`, `Revoked`, `Retired` with decoupled security authorization (`Authorized`, `Quarantined`, `Revoked`, `Pending Activation`).
+4. **Single Active Device Assignment Rule:** A salesperson cannot be assigned multiple active handsets simultaneously; custody reassignments require confirmation and mandatory administrative reasons recorded in append-only history.
+5. **Quality Gate Status:** All 57 unit tests passed across 6 test suites; TypeScript strict check passed (0 errors); Vite production build passed. Stage 1D approved.
+

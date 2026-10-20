@@ -19,5 +19,6 @@ The complete, versioned project guide is included below. Treat it as a persisten
 7. **Keep security and evidence honest.** GPS does not conclusively prove a meeting; no claims of tamper-proof browser data, spoof-proof geolocation, or uninterrupted offline sync.
 8. **At the end of every task:** report what changed, files modified, tests performed, limitations, and whether approval is needed before advancing.
 9. **If new user instructions conflict with the guide**, identify the discrepancy, request clarification when material, and update the relevant project document after approval rather than silently changing scope.
+10. **Direct Salesperson → HQ Admin Device Replacement Workflow.** Per approved architectural decision, salespeople submit company device replacement requests directly to HQ Admin under Profile → My Device → Report Device Issue. Country Sales Heads have read-only visibility where operationally appropriate and do not act as an approval intermediary. Hardware replacement requests are administrative records and remain strictly separate from field visit exception logs.
 
 > Keep this file at the project root. Do not move the referenced guide unless you also update the include path above.

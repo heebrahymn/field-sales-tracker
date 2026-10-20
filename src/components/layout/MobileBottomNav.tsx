@@ -1,8 +1,8 @@
 import React from 'react';
-import { Home, Building2, MapPin, AlertCircle, RefreshCw } from 'lucide-react';
+import { Home, Building2, MapPin, AlertCircle, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type MobileTab = 'home' | 'clients' | 'visit' | 'exceptions' | 'sync';
+export type MobileTab = 'home' | 'clients' | 'visit' | 'exceptions' | 'sync' | 'profile';
 
 interface MobileBottomNavProps {
   activeTab: MobileTab;
@@ -87,18 +87,18 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           )}
         </button>
 
-        {/* Offline Sync & More */}
+        {/* Profile & My Device */}
         <button
-          id="nav-tab-sync"
-          onClick={() => onTabChange('sync')}
+          id="nav-tab-profile"
+          onClick={() => onTabChange('profile')}
           className={cn(
             'flex flex-col items-center justify-center flex-1 py-1 transition-colors relative min-h-[48px]',
-            activeTab === 'sync' ? 'text-brand-blue font-bold' : 'text-slate-500 hover:text-slate-800'
+            activeTab === 'profile' ? 'text-brand-blue font-bold' : 'text-slate-500 hover:text-slate-800'
           )}
         >
-          <RefreshCw className="w-5 h-5 mb-1" />
-          <span className="text-[10px]">Sync</span>
-          {activeTab === 'sync' && (
+          <User className="w-5 h-5 mb-1" />
+          <span className="text-[10px]">Profile</span>
+          {activeTab === 'profile' && (
             <span className="absolute top-0 w-8 h-0.5 bg-brand-blue rounded-full" />
           )}
         </button>

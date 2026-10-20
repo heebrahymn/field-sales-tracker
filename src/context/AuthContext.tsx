@@ -71,8 +71,24 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentRole, setCurrentRole] = useState<UserRole>('salesperson');
-  const [selectedMarket, setSelectedMarket] = useState<MarketCode>('NG');
+  const getInitialRole = (): UserRole => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('role');
+      if (p === 'salesperson' || p === 'sales_head' || p === 'hq_admin') return p;
+    }
+    return 'salesperson';
+  };
+
+  const getInitialMarket = (): MarketCode => {
+    if (typeof window !== 'undefined') {
+      const m = new URLSearchParams(window.location.search).get('market')?.toUpperCase();
+      if (m === 'NG' || m === 'ZM' || m === 'MW') return m as MarketCode;
+    }
+    return 'NG';
+  };
+
+  const [currentRole, setCurrentRole] = useState<UserRole>(getInitialRole);
+  const [selectedMarket, setSelectedMarket] = useState<MarketCode>(getInitialMarket);
   const [attendanceStatus, setAttendanceStatus] = useState<'started' | 'ended' | 'scheduled'>('started');
   const [gpsAccuracyMeters] = useState<number>(14); // Simulated accurate GPS (14m <= 100m)
   const [syncQueueCount] = useState<number>(0); // 0 pending

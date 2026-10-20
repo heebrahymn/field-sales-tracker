@@ -20,10 +20,12 @@ import {
   CheckCircle2,
   ShieldAlert,
   Lock,
+  Smartphone,
+  ChevronRight,
 } from 'lucide-react';
 
 interface SalespersonHomePreviewProps {
-  onNavigateTab?: (tab: 'home' | 'clients' | 'visit' | 'exceptions' | 'sync') => void;
+  onNavigateTab?: (tab: 'home' | 'clients' | 'visit' | 'exceptions' | 'sync' | 'profile') => void;
 }
 
 export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ onNavigateTab }) => {
@@ -110,6 +112,30 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
             {startDayTime && workdayStatus === 'started' && ` • On Duty: ${startDayTime}`}
           </span>
         </div>
+      </div>
+
+      {/* Assigned Company Device Quick Strip (Profile -> My Device) */}
+      <div className="bg-white px-3.5 py-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md bg-blue-50 text-brand-blue flex items-center justify-center shrink-0">
+            <Smartphone className="w-3.5 h-3.5" />
+          </div>
+          <div>
+            <span className="font-semibold text-slate-900">
+              {currentUser.assignedDevice?.assetTag || 'CC-DEV-LAG-019'}
+            </span>
+            <span className="text-[10px] text-slate-500 ml-1.5 hidden sm:inline">
+              ({currentUser.assignedDevice?.model || 'Samsung Galaxy A15 Enterprise'})
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={() => onNavigateTab?.('profile')}
+          className="text-brand-blue hover:text-blue-800 font-bold text-[11px] flex items-center gap-1"
+        >
+          My Device & Issues
+          <ChevronRight className="w-3 h-3" />
+        </button>
       </div>
 
       {/* ================= ACTIVE VISIT CARD ================= */}

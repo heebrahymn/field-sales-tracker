@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AuthProvider } from '@/context/AuthContext';
 import { FieldSessionProvider } from '@/context/FieldSessionContext';
+import { DeviceReplacementProvider } from '@/context/DeviceReplacementContext';
 import { LoginView } from '@/features/auth/LoginView';
 import { AppShell } from '@/components/layout/AppShell';
 
@@ -10,11 +11,13 @@ export default function App() {
   return (
     <AuthProvider>
       <FieldSessionProvider>
-        {isAuthenticated ? (
-          <AppShell onLogout={() => setIsAuthenticated(false)} />
-        ) : (
-          <LoginView onLoginSuccess={() => setIsAuthenticated(true)} />
-        )}
+        <DeviceReplacementProvider>
+          {isAuthenticated ? (
+            <AppShell onLogout={() => setIsAuthenticated(false)} />
+          ) : (
+            <LoginView onLoginSuccess={() => setIsAuthenticated(true)} />
+          )}
+        </DeviceReplacementProvider>
       </FieldSessionProvider>
     </AuthProvider>
   );
