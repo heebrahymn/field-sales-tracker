@@ -17,6 +17,7 @@ import {
   FileClock,
   LogOut,
   X,
+  Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +31,7 @@ export type DesktopNavSection =
   | 'attendance'
   | 'clients'
   | 'exports'
+  | 'users'
   | 'devices'
   | 'markets'
   | 'import'
@@ -53,40 +55,59 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const { currentUser } = useAuth();
   const isHQ = currentUser.role === 'hq_admin';
 
-  const navItems = [
-    {
-      group: 'Oversight & Monitoring',
-      items: [
-        { id: 'dashboard' as DesktopNavSection, label: 'Operational Dashboard', icon: LayoutDashboard },
-        { id: 'visits' as DesktopNavSection, label: 'Client Visit Verification', icon: CheckCircle2, badge: '34' },
-        { id: 'approvals' as DesktopNavSection, label: 'Branch & Pin Approvals', icon: CheckSquare, badge: '4' },
-        { id: 'exceptions' as DesktopNavSection, label: 'Exception Workbench', icon: ShieldAlert, badge: '3' },
-        { id: 'flags' as DesktopNavSection, label: 'Risk Flags Queue', icon: AlertTriangle, badge: '5' },
-        { id: 'audits' as DesktopNavSection, label: 'Client Audit Calls (5%)', icon: PhoneCall },
-      ],
-    },
-    {
-      group: 'Team & Directory',
-      items: [
-        { id: 'attendance' as DesktopNavSection, label: 'Team Attendance', icon: CalendarDays },
-        { id: 'clients' as DesktopNavSection, label: 'Organisations & Branches', icon: Building2 },
-        { id: 'exports' as DesktopNavSection, label: 'Audited CSV Exports', icon: FileSpreadsheet },
-      ],
-    },
-    ...(isHQ
-      ? [
-          {
-            group: 'HQ Administration',
-            items: [
-              { id: 'devices' as DesktopNavSection, label: 'Company Devices & MDM', icon: Smartphone, badge: '2' },
-              { id: 'markets' as DesktopNavSection, label: 'Rule Sets & Calendars', icon: Sliders },
-              { id: 'import' as DesktopNavSection, label: 'Client Master Import', icon: UploadCloud },
-              { id: 'audit_log' as DesktopNavSection, label: 'System Audit Log', icon: FileClock },
-            ],
-          },
-        ]
-      : []),
-  ];
+  const navItems = isHQ
+    ? [
+        {
+          group: 'Executive Overview',
+          items: [
+            { id: 'dashboard' as DesktopNavSection, label: 'HQ Operations Dashboard', icon: LayoutDashboard },
+          ],
+        },
+        {
+          group: 'Administration & MDM',
+          items: [
+            { id: 'users' as DesktopNavSection, label: 'User & Role Management', icon: Users },
+            { id: 'devices' as DesktopNavSection, label: 'Company Devices & MDM', icon: Smartphone, badge: '2' },
+            { id: 'markets' as DesktopNavSection, label: 'Rule Sets & Calendars', icon: Sliders },
+          ],
+        },
+        {
+          group: 'Data & Imports',
+          items: [
+            { id: 'import' as DesktopNavSection, label: 'Client Master Import', icon: UploadCloud },
+            { id: 'exports' as DesktopNavSection, label: 'Reporting & Data Exports', icon: FileSpreadsheet },
+          ],
+        },
+        {
+          group: 'Governance & Oversight',
+          items: [
+            { id: 'exceptions' as DesktopNavSection, label: 'Exception Oversight', icon: ShieldAlert, badge: '4' },
+            { id: 'audits' as DesktopNavSection, label: 'Client Audit Oversight', icon: PhoneCall },
+            { id: 'audit_log' as DesktopNavSection, label: 'System Audit Log', icon: FileClock },
+          ],
+        },
+      ]
+    : [
+        {
+          group: 'Oversight & Monitoring',
+          items: [
+            { id: 'dashboard' as DesktopNavSection, label: 'Operational Dashboard', icon: LayoutDashboard },
+            { id: 'visits' as DesktopNavSection, label: 'Client Visit Verification', icon: CheckCircle2, badge: '34' },
+            { id: 'approvals' as DesktopNavSection, label: 'Branch & Pin Approvals', icon: CheckSquare, badge: '4' },
+            { id: 'exceptions' as DesktopNavSection, label: 'Exception Workbench', icon: ShieldAlert, badge: '3' },
+            { id: 'flags' as DesktopNavSection, label: 'Risk Flags Queue', icon: AlertTriangle, badge: '5' },
+            { id: 'audits' as DesktopNavSection, label: 'Client Audit Calls (5%)', icon: PhoneCall },
+          ],
+        },
+        {
+          group: 'Team & Directory',
+          items: [
+            { id: 'attendance' as DesktopNavSection, label: 'Team Attendance', icon: CalendarDays },
+            { id: 'clients' as DesktopNavSection, label: 'Organisations & Branches', icon: Building2 },
+            { id: 'exports' as DesktopNavSection, label: 'Audited CSV Exports', icon: FileSpreadsheet },
+          ],
+        },
+      ];
 
   return (
     <aside

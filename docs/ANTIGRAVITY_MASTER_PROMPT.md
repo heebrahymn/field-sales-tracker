@@ -33,6 +33,7 @@ Before every significant task:
 - An authorised non-visit working day can be manager approved; it counts toward attendance but not physical-visit targets.
 - A properly evidenced GPS/geofence visit can count as **Location Verified** without client confirmation; client confirmation is a separate audit dimension.
 - Quotes, follow-up task management/reminders, orders, sales pipelines, sales conversion/revenue analytics, invoicing, and ERP/CRM integration are **outside MVP**. Future integration is a roadmap only.
+- Salesperson submits company device replacement requests directly to HQ Admin (`Profile → My Device → Report Device Issue`); there is **no Country Sales Head approval or intermediary submission step**. Hardware replacement is strictly administrative and separate from salesperson-authored field visit exceptions.
 
 ## 3. Project description
 
@@ -92,19 +93,22 @@ Create reusable components for: app shell, responsive sidebar/mobile navigation,
 - Capture GPS check-in/out and mandatory live premises photo for normal verified visits.
 - Complete meeting logs.
 - Create and submit own missed-visit, GPS/device-failure exception logs.
+- Submit company device replacement requests directly to HQ Admin under **Profile → My Device → Report Device Issue**; track approval, dispatch, activation status, and HQ decisions.
 - Request non-visit day/activities, view reviews, and sync offline records.
-- Cannot silently edit/delete submitted evidence or approve own exceptions.
+- Cannot silently edit/delete submitted evidence or approve own exceptions or device replacements.
 
 ### Country Sales Head
 
 - View one assigned country's team and client data.
 - Review attendance, visit evidence, registration/pin approvals, exceptions, disputes, flags, client audits, and country CSV exports.
 - Approve/reject/comment/escalate salesperson submissions and authorised non-field workdays.
+- **Does not create, submit, approve, or reject company device replacement requests.** Read-only operational visibility where appropriate, with zero approval bottleneck.
 - **Cannot create a salesperson's visit or exception log.** Enforce in API/database/RLS, not only in UI.
 
 ### HQ Admin
 
 - Cross-country oversight, users, devices, country rules/calendars, client master imports, audited exports, escalation and system administration.
+- Sole review and approval/rejection authority for salesperson company device replacement requests; manages spare depot inventory, records dispatch, confirms activation, and records old device disposition.
 - Follow least-privilege controls; HQ privileges never imply impersonation or creation of fictitious salesperson evidence.
 
 ## 7. Salesperson workflows and screens

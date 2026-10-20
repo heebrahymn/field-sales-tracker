@@ -64,7 +64,7 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Stage 1A — Design System, Application Shell, Role Switcher & Card Refinements (ADR 0002)
 [✓] Stage 1B — Complete Salesperson Mobile Interface (ADR 0003)
 [✓] Stage 1C — Country Sales Head Dashboard & Review Workbenches (ADR 0004)
-[ ] Stage 1D — HQ Admin Regional Oversight Console (Next)
+[✓] Stage 1D — HQ Admin Regional Oversight Console & Approved Device Replacement Workflow (ADR 0005)
 [ ] Stage 2  — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies
 [ ] Stage 3  — Real Geolocation, Camera Integration & Visit Workflows
 [ ] Stage 4  — Offline Dexie Sync, Idempotency Engine & Exception Resolution
@@ -108,6 +108,14 @@ To maintain absolute focus on core field activity verification and operational i
    - Cellular connectivity simulator (Online vs. Offline / Airplane Mode).
    - Animated "Sync Now" trigger.
    - Durable IndexedDB journal demonstrating monotonic sequence ordering and client-generated UUID idempotency keys (`evt-8f4b-2291-a10c`).
+9. **Profile & Company Device Issue Reporting (`ProfileView.tsx`, `ReportDeviceIssueModal.tsx`):**
+   - Direct-to-HQ hardware issue reporting under **Profile → My Device → Report Device Issue**.
+   - Displays assigned company-issued device asset ID, hardware model, IMEI hash, battery status, and Knox enrollment.
+   - Report categories: camera defects, GPS failure, screen damage, battery/charging faults, lost or stolen devices, or other issues with optional supporting photo evidence.
+   - **Direct HQ Admin Submission:** Zero Country Sales Head involvement or approval bottleneck (strict direct-to-HQ flow per approved decision).
+   - Live lifecycle tracking across all 7 statuses (`Pending Review`, `Approved`, `Rejected`, `Awaiting Spare`, `Dispatched`, `Awaiting Activation`, `Completed`).
+   - Append-only timeline history inspection and display of HQ Admin decision commentary and courier tracking details.
+   - Separate from field visit exceptions: hardware replacement is an administrative record, while visit exceptions remain field activity evidence authored solely by the salesperson.
 
 ---
 
@@ -150,7 +158,59 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 7. Installation & Development Commands
+## 7. Completed Stage 1D HQ Admin Regional Governance Features
+
+1. **HQ Operations Dashboard (`HqOperationsDashboard.tsx`):**
+   - Multi-market consolidated aggregates across Nigeria (`Africa/Lagos`), Zambia (`Africa/Lusaka`), and Malawi (`Africa/Blantyre`).
+   - Country operational performance comparison table benchmarking active personnel, verified visits, approved exceptions, unique branches, and offline synchronisation rates.
+   - Provisional data markers indicating metrics subject to 19:00 local synchronization reconciliation.
+   - Quick action links to user provisioning, handset MDM, rule sets, CSV ingestion, and audited exports.
+2. **User & Role Management (`HqUserManagement.tsx`):**
+   - Centralized user directory with search and multi-parameter filters (market, role, status).
+   - User account provisioning modal with role assignment (`salesperson`, `sales_head`, `hq_admin`), territory scoping, and initial device pairing.
+   - Role boundary enforcement: Country Sales Heads sandboxed to their assigned national market; HQ Admins have cross-market oversight.
+   - One-click account activation / deactivation lifecycle controls with audit trail drawer.
+3. **Company Device Management & MDM (`HqDeviceManagement.tsx`):**
+   - 100% company-provided handset inventory tracking (Samsung Galaxy A15, Nokia G22, Samsung S23).
+   - Knox Enterprise MDM telemetry: 15-digit IMEI, Asset Tag, battery health %, OS build, and last sync timestamp.
+   - **Approved Device Replacement Lifecycle (Direct Salesperson → HQ Admin):**
+     - Full queue tracking requests directly submitted by salespeople across all 7 lifecycle statuses: `Pending Review`, `Approved`, `Rejected`, `Awaiting Spare`, `Dispatched`, `Awaiting Activation`, and `Completed`.
+     - **Decoupled Workflow Actions:** Review request $\to$ Approve or Reject with mandatory reason $\to$ Allocate spare device from depot inventory $\to$ Record dispatch with courier tracking notes $\to$ Confirm Knox MDM activation & record old-device disposition (`quarantined`, `returned_to_depot`, `revoked`) $\to$ Close completed request.
+     - Append-only chronological history ledger documenting all status transitions, timestamps, actor roles, and administrative rationales.
+     - Device reassignment handover modal with chain-of-custody audit logging.
+4. **Market Configuration & Rule Sets (`HqMarketConfiguration.tsx`):**
+   - Configurable settings for Nigeria, Zambia, and Malawi: working hours, shift start grace periods, late start cutoffs, daily visit targets (6 visits), and public holiday calendars.
+   - Spatial thresholds: canonical 200m geofence radius, $\le 100\text{m}$ visit GPS accuracy, $\le 50\text{m}$ proposed pin accuracy, 5-min minimum visit duration, and 150-min idle gap threshold.
+   - **PRD §11 Rule Immutability & Non-Retroactivity:** Rule revisions apply prospectively from effective dates and never silently alter historical visit verification results.
+   - Rule version history table (`v1.0-initial`, `v1.1-clarified`, `v1.2-canonical`) with simulation tool.
+5. **Client Master CSV Import (`HqClientMasterImport.tsx`):**
+   - 4-step B2B CSV ingestion wizard: market selection, file upload / sample loader, row preview, validation audit, and commit.
+   - **PRD §4.2 Shared Corporate Telephone Compliance:** Explicitly validates and permits sibling branches sharing parent switchboard numbers without duplicate rejection.
+   - **Location Pending Classification:** Ingests accounts without GPS coordinates with `Location Pending` status until field pin registration and Sales Head approval.
+   - Historical batch import log tracking total rows, approved pins, and location pending branches.
+6. **Exception & Escalation Oversight (`HqExceptionOversight.tsx`):**
+   - Tri-market triage of GPS failures, device freezes, and delayed submissions after phone recovery.
+   - **PRD §2 & §7 Sole-Author Boundary:** Salesperson is the sole author of all visit evidence; HQ admins and managers cannot fabricate logs.
+   - Overdue review tracking (>24h without Sales Head adjudication).
+   - Forensic inspection modal displaying claimed visit time vs actual phone recovery time, salesperson rationale, delivery ticket evidence, and prior manager notes.
+   - HQ governance actions: Request Field Re-investigation or Uphold Decision.
+7. **Client Audit Oversight (`HqClientAuditOversight.tsx`):**
+   - Weekly 5% random audit sampling tracking (PRD §8.3 / AT-10) and risk-targeted cases.
+   - Separation of GPS verification from client confirmation: client denial transitions to `Disputed — Pending Review`, never immediate disciplinary violation.
+   - Country Sales Head audit completion scorecards for Nigeria, Zambia, and Malawi.
+8. **Enterprise Reporting & Data Exports (`HqReportingExport.tsx`):**
+   - Multi-market CSV extracts for attendance, physical visits, country rollups, exception logs, device inventory, and system audit logs.
+   - **CWE-1236 Formula Injection Sanitization:** Escaping formula triggers (`=`, `+`, `-`, `@`, `\t`, `\r`) with leading single quotes (`'`).
+   - Client-side download execution generating RFC-4180 compliant CSV files with download history table.
+9. **System Administration Audit Trail (`HqSystemAuditLog.tsx`):**
+   - Immutable administrative ledger tracking user provisioning, role modifications, device handovers, rule updates, CSV master merges, and data downloads.
+   - Forensic audit metadata: Log ID, timestamp, actor, role, market scope, action, target record, diff summary, IP address, and security severity.
+10. **Master Orchestration (`HqAdminDashboardPreview.tsx`):**
+    - Integrated navigation via top quick-switch pill bar and full desktop sidebar synchronization.
+
+---
+
+## 8. Installation & Development Commands
 
 ### Prerequisites
 - Node.js 18.0+ or 20.0+ LTS
@@ -176,7 +236,7 @@ The application will be accessible at `http://localhost:5173/`.
 # Run TypeScript compilation check (Strict Mode, 0 errors)
 npx tsc --noEmit
 
-# Run Vitest automated unit tests (31 tests passing)
+# Run Vitest automated unit tests (57 tests passing across 6 test suites)
 npm test
 
 # Build the production bundle
@@ -199,7 +259,8 @@ carbonSalesTracker/
 │   │   ├── 0001-stage-0-approval.md
 │   │   ├── 0002-stage-1a-approval.md
 │   │   ├── 0003-stage-1b-salesperson-mobile-interface.md
-│   │   └── 0004-stage-1c-country-sales-head-dashboard.md
+│   │   ├── 0004-stage-1c-country-sales-head-dashboard.md
+│   │   └── 0005-stage-1d-hq-admin-interface.md
 │   └── screenshots/                     # High-resolution screen captures
 │       └── stage1b/
 ├── public/
@@ -215,11 +276,24 @@ carbonSalesTracker/
 │   │   └── ui/                          # Button, Card, Badge, Input, Table
 │   ├── context/                         # Reactive application state
 │   │   ├── AuthContext.tsx              # Role-switching demo provider
+│   │   ├── DeviceReplacementContext.tsx # 7-status device replacement lifecycle engine
 │   │   └── FieldSessionContext.tsx      # Comprehensive field state engine
 │   ├── features/                        # Role-specific feature modules
 │   │   ├── admin/                       # HQ Admin regional console
+│   │   │   ├── HqAdminDashboardPreview.tsx
+│   │   │   ├── HqClientAuditOversight.tsx
+│   │   │   ├── HqClientMasterImport.tsx
+│   │   │   ├── HqDeviceManagement.tsx   # Direct replacement management & MDM
+│   │   │   ├── HqExceptionOversight.tsx
+│   │   │   ├── HqMarketConfiguration.tsx
+│   │   │   ├── HqOperationsDashboard.tsx
+│   │   │   ├── HqReportingExport.tsx
+│   │   │   ├── HqSystemAuditLog.tsx
+│   │   │   └── HqUserManagement.tsx
 │   │   ├── auth/                        # Branded login screen
 │   │   ├── field/                       # Salesperson mobile screens & modals
+│   │   │   ├── ProfileView.tsx          # My Device & direct issue reporting
+│   │   │   └── ReportDeviceIssueModal.tsx # Direct-to-HQ defect reporting modal
 │   │   └── review/                      # Country Sales Head dashboard & workbenches
 │   │       ├── ApprovalDecisionModal.tsx
 │   │       ├── BranchApprovalsQueue.tsx
@@ -237,6 +311,7 @@ carbonSalesTracker/
 │       ├── brand-logo.test.tsx          # Brand identity compliance assertions
 │       ├── salesperson-context.test.tsx # AT-03, AT-04, PRD §4.2, §7.4, §9 tests
 │       ├── stage-1c-manager-dashboard.test.tsx # Stage 1C business rules, rollups, audit, and boundary tests
+│       ├── stage-1d-hq-admin.test.tsx   # Stage 1D HQ Admin & device replacement workflow tests
 │       └── status-badge.test.tsx        # Operational status badge tests
 ├── AGENTS.md                            # Always-on Antigravity master instructions
 └── package.json
