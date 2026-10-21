@@ -57,7 +57,7 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 1A, 1B, 1C, 1D & 1E Completed)
+## 4. Current Milestone Status (Stages 0, 1 & 2 Approved & Completed)
 
 ```
 [✓] Stage 0  — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
@@ -66,7 +66,7 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Stage 1C — Country Sales Head Dashboard & Review Workbenches (ADR 0004)
 [✓] Stage 1D — HQ Admin Regional Oversight Console & Device Management (ADR 0005)
 [✓] Stage 1E — Final Frontend QA & Cross-Role Integration Review (ADR 0006)
-[ ] Stage 2  — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies
+[✓] Stage 2  — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies (ADR 0007, ADR 0008)
 [ ] Stage 3  — Real Geolocation, Camera Integration & Visit Workflows
 [ ] Stage 4  — Offline Dexie Sync, Idempotency Engine & Exception Resolution
 [ ] Stage 5  — Management Reports, Safe CSV Exports & Reconciliation
@@ -355,7 +355,11 @@ carbonSalesTracker/
 │   │       ├── RiskFlagsWorkbench.tsx
 │   │       ├── SalesHeadDashboardPreview.tsx
 │   │       └── TeamAttendanceReview.tsx
-│   ├── lib/                             # Utilities & Tailwind helpers
+│   ├── lib/                             # Utilities, Tailwind helpers & Supabase client
+│   │   ├── supabase.ts                  # Typed Supabase client wrapper
+│   │   └── utils.ts                     # UI styling utilities
+│   ├── types/                           # Strongly-typed schemas
+│   │   └── database.types.ts            # Supabase database TypeScript definitions
 │   └── test/                            # Vitest unit test suites
 │       ├── at15-exclusions.test.tsx     # Strict MVP scope boundary assertions
 │       ├── brand-logo.test.tsx          # Brand identity compliance assertions
@@ -364,13 +368,76 @@ carbonSalesTracker/
 │       ├── stage-1d-hq-admin.test.tsx   # Stage 1D HQ Admin & device replacement workflow tests
 │       ├── stage-1e-cross-role-integration.test.tsx # Cross-role state integration tests (Workflows A-E)
 │       └── status-badge.test.tsx        # Operational status badge tests
+├── scripts/
+│   ├── provision-users.ts               # Official Supabase Auth Admin API account provisioning
+│   └── test-backend.ts                  # Stage 2B automated backend verification suite (60 tests)
+├── supabase/
+│   └── migrations/                      # 25 sequential declarative SQL migrations
+├── docs/
+│   ├── provisioning.md                  # Account provisioning & credential security protocol
+│   └── decisions/                       # Architecture Decision Records (ADRs 0001–0008)
 ├── AGENTS.md                            # Always-on Antigravity master instructions
 └── package.json
 ```
 
 ---
 
-## 13. License
+## 13. Backend Architecture & Hosted Supabase Setup (Stage 2)
+
+The application backend runs on Supabase PostgreSQL (PostGIS) with strict Row-Level Security (RLS) and cryptographic sandboxing across Nigeria (`NG`), Zambia (`ZM`), and Malawi (`MW`).
+
+> **ENVIRONMENT SCOPE NOTICE:** **The backend is approved for development, not production deployment.** Production deployment requires dedicated VPC isolation, enterprise KMS key management, hardware Knox attestation, and individual corporate email invite onboarding.
+
+### Environment Configuration
+
+Create a `.env.local` file at the project root based on `.env.example`:
+
+```bash
+VITE_SUPABASE_URL=https://<your-project-id>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SERVICE_ROLE_KEY=ey... # Required for administrative provisioning scripts only
+```
+
+> **Security Note:** Never commit `.env.local` to Git. It is automatically excluded by `.gitignore`. The repository and migrations contain zero hardcoded credentials.
+
+### Database Migrations & Account Provisioning
+
+Database migrations are located under `supabase/migrations/` (25 sequential declarative migrations):
+
+```bash
+# Push declarative migrations to hosted Supabase
+npx supabase db push
+
+# Provision authenticated seed users via official Auth Admin API
+npm run provision:users
+```
+
+### Automated Backend Verification Suite
+
+Run the Stage 2B backend verification suite to test tri-market RLS isolation, sole-author field evidence, PostGIS spatial geofence calculations, offline event ingestion, private storage policies, and 100% company handset fleet custody:
+
+```bash
+npm run test:backend
+```
+
+All **60 backend tests** execute live against the hosted PostgreSQL/PostGIS database and pass at 100%.
+
+---
+
+## 14. Architecture Decision Records (ADRs)
+
+- [ADR 0001: Project Initiation & Architecture Baseline](docs/decisions/0001-project-initiation.md)
+- [ADR 0002: Stage 1A Approval & Technology Baseline](docs/decisions/0002-stage-1a-approval.md)
+- [ADR 0003: Stage 1B Salesperson Mobile Experience](docs/decisions/0003-stage-1b-salesperson-mobile-interface.md)
+- [ADR 0004: Stage 1C Country Sales Head Console](docs/decisions/0004-stage-1c-country-sales-head-dashboard.md)
+- [ADR 0005: Stage 1D HQ Admin & Company Device Management](docs/decisions/0005-stage-1d-hq-admin-device-management.md)
+- [ADR 0006: Stage 1E Frontend Quality Assurance & Checkpoint](docs/decisions/0006-stage-1e-frontend-qa-and-checkpoint.md)
+- [ADR 0007: Stage 2A Backend Architecture & Planning](docs/decisions/0007-stage-2a-backend-architecture-and-planning.md)
+- [ADR 0008: Stage 2B Supabase Backend Implementation & Verification](docs/decisions/0008-stage-2b-supabase-backend-implementation.md)
+
+---
+
+## 15. License
 
 Proprietary — Internal application developed for **Carbon Car Care**. All rights reserved.
 
