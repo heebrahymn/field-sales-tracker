@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { useFieldSession } from '@/context/FieldSessionContext';
 import {
   ShieldAlert,
   AlertOctagon,
@@ -37,6 +38,8 @@ export interface ExceptionRecord extends ApprovalItem {
 }
 
 export const ExceptionReviewWorkbench: React.FC = () => {
+  const { exceptions: sharedExceptions, approveException, rejectException, escalateException } = useFieldSession();
+
   const [filterType, setFilterType] = useState<'all' | 'gps_failure' | 'device_failure' | 'missed_visit'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'resolved'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,90 +47,47 @@ export const ExceptionReviewWorkbench: React.FC = () => {
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [exceptions, setExceptions] = useState<ExceptionRecord[]>([
-    {
-      id: 'exc-001',
-      type: 'exception_approval',
-      exceptionType: 'gps_failure',
-      title: 'Metroline Basement Depot',
-      subtitle: 'GPS Signal Failure (Underground Concrete Facility)',
-      clientName: 'Metroline Transit Authority',
-      branchName: 'Sub-level Maintenance Workshop, Victoria Island',
-      repName: 'Tunde Adebayo (CC-REP-042)',
-      claimedTime: 'Today 13:40 - 14:15 WAT',
-      claimedDuration: '35 mins',
-      submissionLag: '12 mins post-checkout',
-      accuracy: '±145m (Exceeds ≤100m visit limit)',
-      evidenceNote: 'Premises photo captured at workshop bay. Heavy concrete reinforced ceiling caused severe GPS multipath satellite attenuation. Handset retried 4 times before submitting exception.',
-      productsDiscussed: 'Heavy Duty Radiator Coolant, Fleet Degreaser 20L',
-      contactMet: 'Engr. Femi Alabi (Senior Fleet Mechanic)',
-      failureReason: 'Underground depot structure prevents line-of-sight satellite acquisition. Accuracy fluctuated between 130m and 160m.',
-      status: 'pending_review',
-    },
-    {
-      id: 'exc-002',
-      type: 'exception_approval',
-      exceptionType: 'device_failure',
-      title: 'Titan Engineering Fleet Depot',
-      subtitle: 'Device Hardware Shutdown (Battery Depletion in Field)',
-      clientName: 'Titan Engineering Works Ltd',
-      branchName: 'Heavy Haulage Yard, Ibeju-Lekki Hub',
-      repName: 'Emeka Nwosu (CC-REP-039)',
-      claimedTime: 'Today 11:15 - 11:55 WAT',
-      claimedDuration: '40 mins',
-      submissionLag: '3h 15m (Submitted after power bank recharge)',
-      accuracy: 'No GPS (Device powered off)',
-      evidenceNote: 'Company-issued phone battery depleted unexpectedly during meeting. Rep recharged handset in vehicle at 14:30 and immediately submitted delayed exception log.',
-      productsDiscussed: 'Brake Fluid DOT 4, Industrial Gear Oil ISO 220',
-      contactMet: 'Mr. Jude Okafor (Logistics Procurement Lead)',
-      failureReason: 'Company phone power management chip malfunctioned. Device died at 11:35 mid-visit.',
-      status: 'pending_review',
-    },
-    {
-      id: 'exc-003',
-      type: 'exception_approval',
-      exceptionType: 'missed_visit',
-      title: 'Zenith Logistics Park Gate 2',
-      subtitle: 'Missed Visit / Access Refusal at Security Gate',
-      clientName: 'Zenith Haulage Express',
-      branchName: 'Inbound Container Terminal, Tin Can Island',
-      repName: 'Chinyere Nwosu (CC-REP-038)',
-      claimedTime: 'Yesterday 15:10 - 15:35 WAT',
-      claimedDuration: '25 mins',
-      submissionLag: 'Same day 16:00 WAT',
-      accuracy: '±28m (Valid location at terminal gate)',
-      evidenceNote: 'Client security officer refused gate entry due to unscheduled terminal safety drill. Contact was called by phone from gate.',
-      productsDiscussed: 'Fleet Wash Concentrate, Tyre Shine 5L',
-      contactMet: 'Capt. Daniel Briggs (Gate Security Supervisor)',
-      failureReason: 'Could not access premises interior to capture standard indoor meeting evidence due to terminal lockdown.',
-      status: 'pending_review',
-    },
-    {
-      id: 'exc-004',
-      type: 'exception_approval',
-      exceptionType: 'gps_failure',
-      title: 'Trans-Sahara Logistics Depot',
-      subtitle: 'GPS Jamming / Industrial RF Interference',
-      clientName: 'Trans-Sahara Transport Corp',
-      branchName: 'Industrial Zone Depot 4, Ikeja',
-      repName: 'Ibrahim Sani (CC-REP-044)',
-      claimedTime: 'Yesterday 10:20 - 11:00 WAT',
-      claimedDuration: '40 mins',
-      submissionLag: '15 mins post-visit',
-      accuracy: '±112m (Failed ≤100m threshold)',
-      evidenceNote: 'High-voltage substation adjacent to trailer yard caused electromagnetic sensor fluctuation.',
-      productsDiscussed: 'Diesel Exhaust Fluid (DEF) AdBlue 200L Drum',
-      contactMet: 'Malam Haruna Bello (Workshop Supervisor)',
-      failureReason: 'Location fix could not converge below 100m. Photo and signed visitor log attached.',
-      status: 'manager_approved_unverified',
-      managerDecision: {
-        action: 'approved',
-        reason: 'Confirmed with rep and verified visitor badge photograph. Counted as unverified visit.',
-        decidedBy: 'Ayodele Ibraheem (Country Head)',
-        decidedAt: 'Yesterday 14:10 WAT',
-      },
-    },
-  ]);
+  const exceptions: ExceptionRecord[] = useMemo(() => {
+    return sharedExceptions.map((item) => {
+      let mappedType: ExceptionRecord['exceptionType'] = 'gps_failure';
+      if (item.type === 'device_breakdown') mappedType = 'device_failure';
+      else if (item.type === 'missed_visit_claim') mappedType = 'missed_visit';
+      else if (item.type === 'camera_failure') mappedType = 'device_failure';
+
+      let mappedStatus: ExceptionRecord['status'] = 'pending_review';
+      if (item.status === 'approved_unverified') mappedStatus = 'manager_approved_unverified';
+      else if (item.status === 'rejected') mappedStatus = 'rejected';
+      else if (item.status === 'escalated') mappedStatus = 'escalated';
+
+      return {
+        id: item.id,
+        type: 'exception_approval',
+        exceptionType: mappedType,
+        title: item.title,
+        subtitle: `${item.reason.slice(0, 65)}...`,
+        clientName: item.branchName.replace(/ Depot| Hub| Yard| Terminal/i, '') + ' Transit Ltd',
+        branchName: item.branchName,
+        repName: item.repName || 'Tunde Adebayo (CC-REP-042)',
+        claimedTime: `${item.claimedDate} • ${item.claimedTime}`,
+        claimedDuration: item.claimedDuration || '35 mins',
+        submissionLag: item.submissionLag || '15 mins post-visit',
+        accuracy: item.accuracy || '±135m (Exceeds ≤100m visit limit)',
+        evidenceNote: item.evidenceNote,
+        productsDiscussed: item.productsDiscussed || 'Fleet Radiator Coolant, Heavy Duty Degreaser 20L',
+        contactMet: item.contactMet || 'Facility Operations Lead',
+        failureReason: item.reason,
+        status: mappedStatus,
+        managerDecision: item.managerComment
+          ? {
+              action: item.status === 'rejected' ? 'rejected' : item.status === 'escalated' ? 'escalated' : 'approved',
+              reason: item.managerComment,
+              decidedBy: item.decidedBy || 'Ayodele Ibraheem (Country Head)',
+              decidedAt: item.decisionDate || 'Today 14:45 WAT',
+            }
+          : undefined,
+      };
+    });
+  }, [sharedExceptions]);
 
   const handleOpenDecision = (item: ExceptionRecord) => {
     setSelectedException(item);
@@ -139,32 +99,13 @@ export const ExceptionReviewWorkbench: React.FC = () => {
     decision: 'approved' | 'rejected' | 'escalated',
     reason: string
   ) => {
-    const updatedStatus =
-      decision === 'approved'
-        ? 'manager_approved_unverified'
-        : decision === 'rejected'
-        ? 'rejected'
-        : 'escalated';
-
-    setExceptions((prev) =>
-      prev.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              status: updatedStatus,
-              managerDecision: {
-                action: decision,
-                reason,
-                decidedBy: 'Ayodele Ibraheem (Country Head)',
-                decidedAt: new Date().toLocaleTimeString('en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                }) + ' WAT Today',
-              },
-            }
-          : item
-      )
-    );
+    if (decision === 'approved') {
+      approveException(itemId, reason);
+    } else if (decision === 'rejected') {
+      rejectException(itemId, reason);
+    } else {
+      escalateException(itemId, reason);
+    }
 
     const statusLabel =
       decision === 'approved'

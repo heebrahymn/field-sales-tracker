@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketCode } from '@/context/AuthContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 
 export interface MarketRuleConfig {
   marketCode: MarketCode;
@@ -39,162 +40,36 @@ export interface MarketRuleConfig {
   effectiveDate: string; // "2026-09-01"
 }
 
-interface RuleVersionHistoryItem {
-  version: string;
-  effectiveDate: string;
-  approvedBy: string;
-  changeSummary: string;
-}
-
-const DEFAULT_MARKET_RULES: Record<MarketCode, MarketRuleConfig> = {
-  NG: {
-    marketCode: 'NG',
-    countryName: 'Nigeria',
-    ianaTimezone: 'Africa/Lagos',
-    workingHoursStart: '08:00',
-    workingHoursEnd: '17:00',
-    workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    publicHolidays2026: [
-      { name: "New Year's Day", date: '2026-01-01' },
-      { name: 'Workers Day', date: '2026-05-01' },
-      { name: 'Democracy Day', date: '2026-06-12' },
-      { name: 'Independence Day', date: '2026-10-01' },
-      { name: 'Christmas Day', date: '2026-12-25' },
-    ],
-    attendanceGraceMinutes: 15,
-    lateStartCutoffMinutes: 45,
-    earlyFinishThresholdMinutes: 30,
-    defaultGeofenceRadiusMeters: 200,
-    maxVisitGpsAccuracyMeters: 100,
-    maxProposedPinGpsAccuracyMeters: 50,
-    minVisitDurationMinutes: 5,
-    idleGapThresholdMinutes: 150,
-    dailyVisitTarget: 6,
-    dailyProvisionalCutoffHour: 19,
-    auditSamplingPercentage: 5,
-    ruleVersion: 'v1.2-canonical',
-    effectiveDate: '2026-09-01',
-  },
-  ZM: {
-    marketCode: 'ZM',
-    countryName: 'Zambia',
-    ianaTimezone: 'Africa/Lusaka',
-    workingHoursStart: '08:00',
-    workingHoursEnd: '17:00',
-    workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    publicHolidays2026: [
-      { name: "New Year's Day", date: '2026-01-01' },
-      { name: 'Youth Day', date: '2026-03-12' },
-      { name: 'Labour Day', date: '2026-05-01' },
-      { name: 'Heroes Day', date: '2026-07-06' },
-      { name: 'Independence Day', date: '2026-10-24' },
-      { name: 'Christmas Day', date: '2026-12-25' },
-    ],
-    attendanceGraceMinutes: 15,
-    lateStartCutoffMinutes: 45,
-    earlyFinishThresholdMinutes: 30,
-    defaultGeofenceRadiusMeters: 200,
-    maxVisitGpsAccuracyMeters: 100,
-    maxProposedPinGpsAccuracyMeters: 50,
-    minVisitDurationMinutes: 5,
-    idleGapThresholdMinutes: 150,
-    dailyVisitTarget: 6,
-    dailyProvisionalCutoffHour: 19,
-    auditSamplingPercentage: 5,
-    ruleVersion: 'v1.2-canonical',
-    effectiveDate: '2026-09-01',
-  },
-  MW: {
-    marketCode: 'MW',
-    countryName: 'Malawi',
-    ianaTimezone: 'Africa/Blantyre',
-    workingHoursStart: '08:00',
-    workingHoursEnd: '17:00',
-    workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    publicHolidays2026: [
-      { name: "New Year's Day", date: '2026-01-01' },
-      { name: 'Martyrs Day', date: '2026-03-03' },
-      { name: 'Labour Day', date: '2026-05-01' },
-      { name: 'Independence Day', date: '2026-07-06' },
-      { name: 'Mothers Day', date: '2026-10-15' },
-      { name: 'Christmas Day', date: '2026-12-25' },
-    ],
-    attendanceGraceMinutes: 15,
-    lateStartCutoffMinutes: 45,
-    earlyFinishThresholdMinutes: 30,
-    defaultGeofenceRadiusMeters: 200,
-    maxVisitGpsAccuracyMeters: 100,
-    maxProposedPinGpsAccuracyMeters: 50,
-    minVisitDurationMinutes: 5,
-    idleGapThresholdMinutes: 150,
-    dailyVisitTarget: 6,
-    dailyProvisionalCutoffHour: 19,
-    auditSamplingPercentage: 5,
-    ruleVersion: 'v1.2-canonical',
-    effectiveDate: '2026-09-01',
-  },
-};
-
-const VERSION_HISTORY: RuleVersionHistoryItem[] = [
-  {
-    version: 'v1.2-canonical',
-    effectiveDate: '2026-09-01',
-    approvedBy: 'Ayodele Ibraheem (HQ Admin)',
-    changeSummary:
-      'Standardised tri-market geofence to 200m radius; codified 100m visit GPS accuracy; set 150-min idle gap threshold per PRD v1.2.',
-  },
-  {
-    version: 'v1.1-clarified',
-    effectiveDate: '2026-06-15',
-    approvedBy: 'Ayodele Ibraheem (HQ Admin)',
-    changeSummary:
-      'Added PRD §4.2 rule allowing shared company telephone numbers across sibling branches without duplicate rejection.',
-  },
-  {
-    version: 'v1.0-initial',
-    effectiveDate: '2026-01-01',
-    approvedBy: 'Executive Sponsor',
-    changeSummary:
-      'Initial baseline field rules for Nigeria pilot hub; standard 8-hour workday and 6-visit daily target.',
-  },
-];
-
 export const HqMarketConfiguration: React.FC = () => {
+  const { marketRules, ruleHistory, updateMarketRules } = useMarketConfig();
+
   const [activeMarket, setActiveMarket] = useState<MarketCode>('NG');
-  const [marketConfigs, setMarketConfigs] = useState<Record<MarketCode, MarketRuleConfig>>(DEFAULT_MARKET_RULES);
   const [isEditing, setIsEditing] = useState(false);
-  const [editConfig, setEditConfig] = useState<MarketRuleConfig>(marketConfigs[activeMarket]);
+  const [editConfig, setEditConfig] = useState<MarketRuleConfig>(marketRules[activeMarket]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Sync editConfig when switching active market
   const handleSelectMarket = (code: MarketCode) => {
     setActiveMarket(code);
-    setEditConfig(marketConfigs[code]);
+    setEditConfig(marketRules[code]);
     setIsEditing(false);
     setSuccessMessage(null);
   };
 
-  const currentConfig = marketConfigs[activeMarket];
+  const currentConfig = marketRules[activeMarket];
 
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Increment version tag for demonstration
-    const newVersion = `v1.2.${Date.now().toString().slice(-2)}`;
-    const updated = {
-      ...editConfig,
-      ruleVersion: newVersion,
-      effectiveDate: new Date().toISOString().split('T')[0],
-    };
-
-    setMarketConfigs({
-      ...marketConfigs,
-      [activeMarket]: updated,
-    });
+    const res = updateMarketRules(
+      activeMarket,
+      editConfig,
+      `Operational thresholds adjusted by HQ Admin: ${editConfig.defaultGeofenceRadiusMeters}m geofence, ${editConfig.maxVisitGpsAccuracyMeters}m accuracy limit, ${editConfig.dailyVisitTarget} daily visit target.`
+    );
 
     setIsEditing(false);
     setSuccessMessage(
-      `Rule set updated for ${updated.countryName} (Version: ${newVersion}). Rule changes apply prospectively from ${updated.effectiveDate}. Historical visit verifications remain immutable.`
+      `Rule set updated for ${currentConfig.countryName} (Version: ${res.newVersion}). Rule changes apply prospectively from ${new Date().toISOString().slice(0, 10)}. Historical visit verifications remain immutable.`
     );
   };
 
@@ -260,7 +135,7 @@ export const HqMarketConfiguration: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-xs">
         <div className="flex items-center gap-1.5">
           {(['NG', 'ZM', 'MW'] as const).map((code) => {
-            const config = marketConfigs[code];
+            const config = marketRules[code];
             const isSelected = activeMarket === code;
             return (
               <button
@@ -624,7 +499,7 @@ export const HqMarketConfiguration: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {VERSION_HISTORY.map((vh, i) => (
+                {(ruleHistory[activeMarket] || []).map((vh, i) => (
                   <tr key={i} className="hover:bg-slate-50/70">
                     <td className="py-3 px-4 font-mono font-bold text-brand-blue text-xs">
                       {vh.version}

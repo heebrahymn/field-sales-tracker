@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { useAudit } from '@/context/AuditContext';
 import {
   PhoneCall,
   CheckCircle2,
@@ -49,6 +50,8 @@ export interface AuditQueueItem {
 }
 
 export const ClientAuditWorkbench: React.FC = () => {
+  const { audits, recordAuditCall, resolveDispute } = useAudit();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'random' | 'targeted'>('all');
   const [filterStatus, setFilterStatus] = useState<
@@ -69,100 +72,49 @@ export const ClientAuditWorkbench: React.FC = () => {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [auditQueue, setAuditQueue] = useState<AuditQueueItem[]>([
-    {
-      id: 'AUD-001',
-      visitId: 'VIS-LAG-901',
-      sampleType: 'random_5_percent',
-      clientName: 'Apex Commercial Transit Ltd',
-      branchName: 'Ibeju-Lekki Hub • Branch #BR-LAG-108',
-      contactName: 'Engr. Babatunde Jinadu',
-      contactRole: 'Fleet Maintenance Director',
-      contactPhone: '+234 803 555 1204',
-      repName: 'Tunde Adebayo',
-      claimedDate: 'Today 19 Oct 2026',
-      claimedTime: '09:15 - 09:58 WAT',
-      productsDiscussed: 'Heavy Duty Coolant 20L, Fleet Degreaser',
-      status: 'pending_call',
-      callAttempts: 0,
-    },
-    {
-      id: 'AUD-002',
-      visitId: 'VIS-LAG-874',
-      sampleType: 'risk_targeted',
-      clientName: 'Atlantic Heavy Transport',
-      branchName: 'Lekki Depot Yard • Branch #BR-LAG-015',
-      contactName: 'Mr. Kenneth Okoro',
-      contactRole: 'Depot Superintendent',
-      contactPhone: '+234 802 333 4455',
-      repName: 'Emeka Nwosu',
-      claimedDate: 'Today 19 Oct 2026',
-      claimedTime: '10:15 - 10:19 WAT (3m short visit flag)',
-      productsDiscussed: 'Industrial Gear Oil ISO 220',
-      status: 'pending_call',
-      callAttempts: 0,
-    },
-    {
-      id: 'AUD-003',
-      visitId: 'VIS-LAG-850',
-      sampleType: 'random_5_percent',
-      clientName: 'Equatorial Energy Hubs',
-      branchName: 'Dockyard Road, Apapa • Branch #BR-LAG-002',
-      contactName: 'Mrs. Chinyere Nwosu',
-      contactRole: 'Safety & Environmental Officer',
-      contactPhone: '+234 805 777 9900',
-      repName: 'Chinyere Nwosu',
-      claimedDate: 'Yesterday 18 Oct 2026',
-      claimedTime: '11:20 - 12:05 WAT',
-      productsDiscussed: 'Spill Containment Booms, Absorbent Pads',
-      status: 'confirmed',
-      callAttempts: 1,
-      callNotes:
-        'Spoke with Mrs. Chinyere. Confirmed in-person visit took place and discussed environmental spill kits.',
-      auditedBy: 'Ayodele Ibraheem (Country Head)',
-      auditedAt: 'Yesterday 16:30 WAT',
-    },
-    {
-      id: 'AUD-004',
-      visitId: 'VIS-LAG-821',
-      sampleType: 'risk_targeted',
-      clientName: 'Northern Freight Corridors Ltd',
-      branchName: 'Kano Transit Yard • Branch #BR-KAN-012',
-      contactName: 'Malam Salisu Garba',
-      contactRole: 'Logistics Supervisor',
-      contactPhone: '+234 803 222 1100',
-      repName: 'Ibrahim Sani',
-      claimedDate: '17 Oct 2026',
-      claimedTime: '13:45 WAT (High velocity flag)',
-      productsDiscussed: 'Radiator Antifreeze 200L',
-      status: 'disputed',
-      callAttempts: 1,
-      callNotes:
-        'Client stated no sales representative visited the workshop on 17 Oct. Contact was in Zaria all afternoon. Moved to Disputed — Pending Human Review.',
-      auditedBy: 'Ayodele Ibraheem (Country Head)',
-      auditedAt: '17 Oct 17:00 WAT',
-    },
-    {
-      id: 'AUD-005',
-      visitId: 'VIS-LAG-812',
-      sampleType: 'random_5_percent',
-      clientName: 'Seven-Up Bottling Logistics Hub',
-      branchName: 'Oregun Industrial Area • Branch #BR-LAG-063',
-      contactName: 'Mr. Femi Adeolu',
-      contactRole: 'Distribution Manager',
-      contactPhone: '+234 802 888 7766',
-      repName: 'Emeka Nwosu',
-      claimedDate: '18 Oct 2026',
-      claimedTime: '15:20 WAT',
-      productsDiscussed: 'Heavy Duty Wash Concentrate',
-      status: 'unavailable',
-      callAttempts: 1,
-      callNotes:
-        'Client unreachable on 18 Oct. Call went to voicemail after 4 rings. Re-queued for repeated attempt.',
-      auditedBy: 'Ayodele Ibraheem (Country Head)',
-      auditedAt: '18 Oct 17:15 WAT',
-    },
-  ]);
+  const auditQueue: AuditQueueItem[] = useMemo(() => {
+    return audits
+      .filter((a) => a.marketCode === 'NG')
+      .map((a) => {
+        let status: AuditQueueItem['status'] = 'pending_call';
+        if (a.callStatus === 'confirmed_meeting') {
+          status = a.disputeDecision === 'cleared' ? 'resolved_cleared' : 'confirmed';
+        } else if (a.callStatus === 'disputed_client_denial') {
+          status =
+            a.disputeDecision === 'violation'
+              ? 'resolved_violation'
+              : a.disputeDecision === 'cleared'
+              ? 'resolved_cleared'
+              : 'disputed';
+        } else if (a.callStatus === 'unreachable_rescheduled') {
+          status = 'unavailable';
+        }
+
+        return {
+          id: a.id,
+          visitId: a.visitId,
+          sampleType: a.sampleType,
+          clientName: a.organisationName,
+          branchName: a.branchName,
+          contactName: a.clientContactPerson,
+          contactRole: a.clientContactRole,
+          contactPhone: a.clientContactPhone,
+          repName: a.salespersonName,
+          claimedDate: a.visitDate,
+          claimedTime: a.claimedTime || '09:30 WAT',
+          productsDiscussed: a.productsDiscussed || 'Fleet Radiator Coolant, Degreaser',
+          status,
+          callAttempts: a.callAttemptCount,
+          callNotes: a.callNotes,
+          disputeFindings: a.disputeFindings,
+          secondaryContact: a.secondaryContact,
+          auditedBy: a.auditorName,
+          auditedAt: a.lastCallTimestamp,
+          resolvedBy: a.resolvedBy,
+          resolvedAt: a.resolvedAt,
+        };
+      });
+  }, [audits]);
 
   const handleOpenCallModal = (item: AuditQueueItem) => {
     setActiveCallItem(item);
@@ -185,44 +137,28 @@ export const ClientAuditWorkbench: React.FC = () => {
       return;
     }
 
-    let resultingStatus: AuditQueueItem['status'] = 'confirmed';
-    if (clientMetInPerson === 'no') {
-      resultingStatus = 'disputed';
-    } else if (clientMetInPerson === 'unreachable') {
-      resultingStatus = 'unavailable';
-    }
+    const outcome =
+      clientMetInPerson === 'yes'
+        ? 'confirmed'
+        : clientMetInPerson === 'no'
+        ? 'disputed'
+        : 'unreachable';
 
-    const updatedAttempts = activeCallItem.callAttempts + 1;
+    recordAuditCall(activeCallItem.id, outcome, callNotes, productsConfirmed);
 
-    setAuditQueue((prev) =>
-      prev.map((item) =>
-        item.id === activeCallItem.id
-          ? {
-              ...item,
-              status: resultingStatus,
-              callAttempts: updatedAttempts,
-              callNotes: `${
-                clientMetInPerson === 'yes'
-                  ? 'In-person meeting confirmed.'
-                  : clientMetInPerson === 'no'
-                  ? 'Meeting denied by client.'
-                  : `Client unreachable after call attempt #${updatedAttempts}.`
-              } Products confirmed: ${productsConfirmed ? 'Yes' : 'No'}. Notes: ${callNotes}`,
-              auditedBy: 'Ayodele Ibraheem (Country Head)',
-              auditedAt:
-                new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) +
-                ' WAT Today',
-            }
-          : item
-      )
-    );
+    const resultingStatus =
+      clientMetInPerson === 'yes'
+        ? 'confirmed'
+        : clientMetInPerson === 'no'
+        ? 'disputed'
+        : 'unavailable';
 
     const statusLabel =
       resultingStatus === 'confirmed'
         ? 'Client Confirmed'
         : resultingStatus === 'disputed'
         ? 'Disputed — Pending Human Review'
-        : `Client Unavailable (Attempt #${updatedAttempts} Re-queued)`;
+        : `Client Unavailable (Re-queued)`;
 
     setToastMessage(`Audit call [${activeCallItem.id}] recorded as: "${statusLabel}".`);
     setTimeout(() => setToastMessage(null), 5000);
@@ -236,28 +172,15 @@ export const ClientAuditWorkbench: React.FC = () => {
       return;
     }
 
-    const resultingStatus =
-      disputeDecision === 'cleared' ? 'resolved_cleared' : 'resolved_violation';
-
-    setAuditQueue((prev) =>
-      prev.map((item) =>
-        item.id === activeDisputeItem.id
-          ? {
-              ...item,
-              status: resultingStatus,
-              disputeFindings,
-              secondaryContact: secondaryContact.trim() || undefined,
-              resolvedBy: 'Ayodele Ibraheem (Country Head)',
-              resolvedAt:
-                new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) +
-                ' WAT Today',
-            }
-          : item
-      )
+    resolveDispute(
+      activeDisputeItem.id,
+      disputeFindings,
+      secondaryContact,
+      disputeDecision
     );
 
     const resolutionLabel =
-      resultingStatus === 'resolved_cleared'
+      disputeDecision === 'cleared'
         ? 'Dispute Cleared (Secondary Witness Validated)'
         : 'Confirmed Violation (Escalated to HQ Admin/HR)';
 

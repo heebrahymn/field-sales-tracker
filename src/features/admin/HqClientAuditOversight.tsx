@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketCode } from '@/context/AuthContext';
+import { useAudit } from '@/context/AuditContext';
 
 export interface HqAuditCallRecord {
   id: string;
@@ -34,108 +35,31 @@ export interface HqAuditCallRecord {
   gpsStatus: 'location_verified' | 'manager_approved_unverified';
 }
 
-const INITIAL_HQ_AUDITS: HqAuditCallRecord[] = [
-  // Nigeria Audits
-  {
-    id: 'AUD-NG-2026-101',
-    samplingType: 'random_5_percent',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos)',
-    organisationName: 'Apex Heavy Logistics Ltd',
-    branchName: 'Apapa Port Terminal Hub',
-    clientContactPerson: 'Capt. Ibrahim Danjuma',
-    clientContactPhone: '+234 1 270 5000',
-    clientContactRole: 'Fleet Director',
-    salespersonName: 'Chukwudi Okafor',
-    visitDate: '2026-10-18',
-    callStatus: 'confirmed_meeting',
-    callAttemptCount: 1,
-    lastCallTimestamp: '2026-10-18 16:30 WAT',
-    auditorName: 'Babajide Adeleke (Sales Head)',
-    auditorNotes: 'Client confirmed Chukwudi visited at 11:30 and presented heavy-duty diesel engine oil formulations. Samples received.',
-    gpsStatus: 'manager_approved_unverified',
-  },
-  {
-    id: 'AUD-NG-2026-102',
-    samplingType: 'risk_targeted', // triggered by short visit under 5 mins
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos)',
-    organisationName: 'Lekki Transit Commercial Fleets',
-    branchName: 'Admiralty Way Express Hub',
-    clientContactPerson: 'Emeka Nwachukwu',
-    clientContactPhone: '+234 803 445 6677',
-    clientContactRole: 'Maintenance Superintendent',
-    salespersonName: 'Amina Bello',
-    visitDate: '2026-10-19',
-    callStatus: 'pending_call',
-    callAttemptCount: 0,
-    gpsStatus: 'location_verified',
-  },
-  {
-    id: 'AUD-NG-2026-103',
-    samplingType: 'random_5_percent',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos)',
-    organisationName: 'Bua Haulage & Cement Logistics',
-    branchName: 'Epe Transit Weighbridge',
-    clientContactPerson: 'Alhaji Musa Bello',
-    clientContactPhone: '+234 809 332 1100',
-    clientContactRole: 'Dispatch Supervisor',
-    salespersonName: 'Oluwaseun Fashola',
-    visitDate: '2026-10-17',
-    callStatus: 'unreachable_rescheduled',
-    callAttemptCount: 2,
-    lastCallTimestamp: '2026-10-19 11:00 WAT',
-    auditorName: 'Babajide Adeleke (Sales Head)',
-    auditorNotes: 'Number ringing with no answer. Rescheduled second call attempt for tomorrow afternoon.',
-    gpsStatus: 'location_verified',
-  },
-
-  // Zambia Audits
-  {
-    id: 'AUD-ZM-2026-041',
-    samplingType: 'random_5_percent',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka)',
-    organisationName: 'Zambezi Freight & Mining Transit',
-    branchName: 'Kafue Road Operations Yard',
-    clientContactPerson: 'Godfrey Lungu',
-    clientContactPhone: '+260 97 765 4321',
-    clientContactRole: 'Fleet Director',
-    salespersonName: 'Kondwani Banda',
-    visitDate: '2026-10-19',
-    callStatus: 'confirmed_meeting',
-    callAttemptCount: 1,
-    lastCallTimestamp: '2026-10-19 14:00 CAT',
-    auditorName: 'Mutale Mwape (Sales Head)',
-    auditorNotes: 'Client confirmed meeting took place in yard manager office.',
-    gpsStatus: 'location_verified',
-  },
-
-  // Malawi Audits
-  {
-    id: 'AUD-MW-2026-022',
-    samplingType: 'risk_targeted', // camera defect flagged
-    marketCode: 'MW',
-    marketName: 'Malawi (Blantyre)',
-    organisationName: 'Nyasa Express Couriers',
-    branchName: 'Ginnery Corner Distribution Hub',
-    clientContactPerson: 'Harrison Banda',
-    clientContactPhone: '+265 88 812 3456',
-    clientContactRole: 'Logistics Supervisor',
-    salespersonName: 'Chifundo Phiri',
-    visitDate: '2026-10-18',
-    callStatus: 'disputed_client_denial',
-    callAttemptCount: 1,
-    lastCallTimestamp: '2026-10-19 09:15 CAT',
-    auditorName: 'Blessings Gondwe (Sales Head)',
-    auditorNotes: 'Supervisor stated no sales representative attended their site on 18 Oct. Initiated Disputed — Pending Review investigation.',
-    gpsStatus: 'location_verified',
-  },
-];
-
 export const HqClientAuditOversight: React.FC = () => {
-  const [audits] = useState<HqAuditCallRecord[]>(INITIAL_HQ_AUDITS);
+  const { audits: sharedAudits } = useAudit();
+
+  const audits: HqAuditCallRecord[] = useMemo(() => {
+    return sharedAudits.map((a) => ({
+      id: a.id,
+      samplingType: a.sampleType,
+      marketCode: a.marketCode,
+      marketName: a.marketName,
+      organisationName: a.organisationName,
+      branchName: a.branchName,
+      clientContactPerson: a.clientContactPerson,
+      clientContactPhone: a.clientContactPhone,
+      clientContactRole: a.clientContactRole,
+      salespersonName: a.salespersonName,
+      visitDate: a.visitDate,
+      callStatus: a.callStatus,
+      callAttemptCount: a.callAttemptCount,
+      lastCallTimestamp: a.lastCallTimestamp,
+      auditorName: a.auditorName,
+      auditorNotes: a.callNotes,
+      gpsStatus: a.gpsStatus,
+    }));
+  }, [sharedAudits]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [marketFilter, setMarketFilter] = useState<'ALL' | MarketCode>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | string>('ALL');

@@ -21,8 +21,17 @@ export interface ClientBranch {
   approvedGpsLat: number;
   approvedGpsLng: number;
   isRegisteredByRep?: boolean;
+  registeredByRepName?: string;
+  accuracyMeters?: number;
+  evidenceNote?: string;
   status: 'approved' | 'pending_approval' | 'rejected';
   lastVisitDate?: string;
+  managerDecision?: {
+    action: 'approved' | 'rejected' | 'escalated';
+    reason: string;
+    decidedBy: string;
+    decidedAt: string;
+  };
 }
 
 export interface ActiveVisitSession {
@@ -64,9 +73,16 @@ export interface FieldExceptionRecord {
   reason: string;
   evidenceNote: string;
   submittedAt: string;
-  status: 'pending_review' | 'approved_unverified' | 'rejected';
+  status: 'pending_review' | 'approved_unverified' | 'rejected' | 'escalated';
   managerComment?: string;
   decisionDate?: string;
+  decidedBy?: string;
+  repName?: string;
+  accuracy?: string;
+  claimedDuration?: string;
+  submissionLag?: string;
+  productsDiscussed?: string;
+  contactMet?: string;
 }
 
 export interface QueuedEvent {
@@ -109,10 +125,15 @@ interface FieldSessionContextType {
   // Branches & Directory
   branches: ClientBranch[];
   registerBranch: (newBranch: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>) => void;
+  approveBranchPin: (branchId: string, reason: string, managerName?: string) => void;
+  rejectBranchPin: (branchId: string, reason: string, managerName?: string) => void;
 
   // Exceptions
   exceptions: FieldExceptionRecord[];
   submitException: (exception: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'>) => void;
+  approveException: (exceptionId: string, reason: string, managerName?: string) => void;
+  rejectException: (exceptionId: string, reason: string, managerName?: string) => void;
+  escalateException: (exceptionId: string, reason: string, managerName?: string) => void;
 
   // Non-Visit Day
   nonVisitDayRequest: NonVisitDayRequest | null;
@@ -288,30 +309,79 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // 5. Rep-Submitted Exceptions
   const [exceptions, setExceptions] = useState<FieldExceptionRecord[]>([
     {
-      id: 'exc-01',
+      id: 'exc-001',
       type: 'gps_failure',
-      title: 'GPS Signal Failure (Basement Facility)',
+      title: 'Metroline Basement Depot GPS Failure',
       branchName: 'Metroline Basement Fleet Hub',
       claimedDate: 'Today 16 Oct 2026',
       claimedTime: '13:40 - 14:10 WAT',
-      reason: 'Underground parking concrete attenuation prevented GPS lock (Accuracy ±140m).',
-      evidenceNote: 'Premises gate and workshop signage clearly photographed on entry.',
+      reason: 'Underground parking concrete attenuation prevented GPS lock (Accuracy ±145m exceeds ≤100m visit limit).',
+      evidenceNote: 'Premises gate and workshop signage clearly photographed on entry. Rep retried 4 times before submitting exception.',
       submittedAt: 'Today 14:15 WAT',
-      status: 'approved_unverified',
-      managerComment: 'Approved based on verifiable basement multi-path signal and stamped entrance image.',
-      decisionDate: 'Today 14:45 WAT',
+      status: 'pending_review',
+      repName: 'Tunde Adebayo (CC-REP-042)',
+      accuracy: '±145m (Exceeds ≤100m visit limit)',
+      claimedDuration: '30 mins',
+      submissionLag: '12 mins post-checkout',
+      productsDiscussed: 'Heavy Duty Radiator Coolant, Fleet Degreaser 20L',
+      contactMet: 'Engr. Femi Alabi (Senior Fleet Mechanic)',
     },
     {
-      id: 'exc-02',
+      id: 'exc-002',
       type: 'device_breakdown',
-      title: 'Device Battery Depletion & Recovery',
+      title: 'Titan Engineering Battery Depletion & Recovery',
       branchName: 'Titan Engineering Fleet Depot',
-      claimedDate: 'Yesterday 15 Oct 2026',
+      claimedDate: 'Today 16 Oct 2026',
       claimedTime: '11:15 - 11:55 WAT',
       reason: 'Assigned handset battery depleted unexpectedly during meeting. Submitted after power restoration at depot base.',
-      evidenceNote: 'Signed physical visitor log sheet scanned and attached.',
-      submittedAt: 'Yesterday 14:00 WAT',
+      evidenceNote: 'Signed physical visitor log sheet scanned and attached. Handset recharged in vehicle.',
+      submittedAt: 'Today 14:00 WAT',
       status: 'pending_review',
+      repName: 'Emeka Nwosu (CC-REP-039)',
+      accuracy: 'No GPS (Device powered off)',
+      claimedDuration: '40 mins',
+      submissionLag: '2h 5m post-recovery',
+      productsDiscussed: 'Brake Fluid DOT 4, Industrial Gear Oil ISO 220',
+      contactMet: 'Mr. Jude Okafor (Logistics Procurement Lead)',
+    },
+    {
+      id: 'exc-003',
+      type: 'missed_visit_claim',
+      title: 'Zenith Logistics Park Gate 2 Access Refusal',
+      branchName: 'Zenith Fleet Services Hub',
+      claimedDate: 'Yesterday 15 Oct 2026',
+      claimedTime: '15:10 - 15:35 WAT',
+      reason: 'Could not access premises interior to capture standard indoor meeting evidence due to terminal lockdown.',
+      evidenceNote: 'Client security officer refused gate entry due to unscheduled terminal safety drill. Contact was called by phone from gate.',
+      submittedAt: 'Yesterday 16:00 WAT',
+      status: 'pending_review',
+      repName: 'Chinyere Nwosu (CC-REP-038)',
+      accuracy: '±28m (Valid location at terminal gate)',
+      claimedDuration: '25 mins',
+      submissionLag: '25 mins post-attempt',
+      productsDiscussed: 'Fleet Wash Concentrate, Tyre Shine 5L',
+      contactMet: 'Capt. Daniel Briggs (Gate Security Supervisor)',
+    },
+    {
+      id: 'exc-004',
+      type: 'gps_failure',
+      title: 'Trans-Sahara Logistics RF Interference',
+      branchName: 'Trans-Sahara Transport Corp Hub',
+      claimedDate: 'Yesterday 15 Oct 2026',
+      claimedTime: '10:20 - 11:00 WAT',
+      reason: 'High-voltage substation adjacent to trailer yard caused electromagnetic sensor fluctuation.',
+      evidenceNote: 'Location fix could not converge below 100m. Photo and signed visitor badge attached.',
+      submittedAt: 'Yesterday 11:15 WAT',
+      status: 'approved_unverified',
+      managerComment: 'Confirmed with rep and verified visitor badge photograph. Counted as unverified visit.',
+      decisionDate: 'Yesterday 14:10 WAT',
+      decidedBy: 'Ayodele Ibraheem (Country Head)',
+      repName: 'Ibrahim Sani (CC-REP-044)',
+      accuracy: '±112m (Failed ≤100m threshold)',
+      claimedDuration: '40 mins',
+      submissionLag: '15 mins post-visit',
+      productsDiscussed: 'Diesel Exhaust Fluid (DEF) AdBlue 200L Drum',
+      contactMet: 'Malam Haruna Bello (Workshop Supervisor)',
     },
   ]);
 
@@ -440,20 +510,123 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       status: 'pending_approval',
       distanceMeters: 120,
       isRegisteredByRep: true,
+      registeredByRepName: 'Tunde Adebayo (CC-REP-042)',
+      accuracyMeters: 18,
+      evidenceNote: 'Premises entrance gate and workshop signage clearly visible in photo. GPS pin confirmed at central vehicle intake gate.',
     };
     setBranches((prev) => [newBranch, ...prev]);
     notify(`Branch "${newBranch.branchName}" registered. Submitted to Country Sales Head for pin review.`);
+  };
+
+  const approveBranchPin = (branchId: string, reason: string, managerName = 'Ayodele Ibraheem (Country Head)') => {
+    const timestamp = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`;
+    setBranches((prev) =>
+      prev.map((b) =>
+        b.id === branchId
+          ? {
+              ...b,
+              status: 'approved',
+              managerDecision: {
+                action: 'approved',
+                reason: reason.trim(),
+                decidedBy: managerName,
+                decidedAt: timestamp,
+              },
+            }
+          : b
+      )
+    );
+    notify(`Branch pin [${branchId}] approved by ${managerName}. Status updated to Approved Pin.`);
+  };
+
+  const rejectBranchPin = (branchId: string, reason: string, managerName = 'Ayodele Ibraheem (Country Head)') => {
+    const timestamp = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`;
+    setBranches((prev) =>
+      prev.map((b) =>
+        b.id === branchId
+          ? {
+              ...b,
+              status: 'rejected',
+              managerDecision: {
+                action: 'rejected',
+                reason: reason.trim(),
+                decidedBy: managerName,
+                decidedAt: timestamp,
+              },
+            }
+          : b
+      )
+    );
+    notify(`Branch pin [${branchId}] rejected by ${managerName}. Rationale recorded.`);
   };
 
   const submitException = (exceptionData: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'>) => {
     const newExc: FieldExceptionRecord = {
       ...exceptionData,
       id: `exc-${Date.now()}`,
-      submittedAt: 'Just now',
+      submittedAt: `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`,
       status: 'pending_review',
+      repName: 'Tunde Adebayo (CC-REP-042)',
+      accuracy: '±145m (Exceeds ≤100m visit limit)',
+      claimedDuration: '35 mins',
+      submissionLag: '12 mins post-checkout',
     };
     setExceptions((prev) => [newExc, ...prev]);
-    notify('Exception claim submitted for Country Sales Head review.');
+    notify(`Exception claim [${newExc.title}] submitted directly to Country Sales Head.`);
+  };
+
+  const approveException = (exceptionId: string, reason: string, managerName = 'Ayodele Ibraheem (Country Head)') => {
+    const timestamp = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`;
+    setExceptions((prev) =>
+      prev.map((e) =>
+        e.id === exceptionId
+          ? {
+              ...e,
+              status: 'approved_unverified',
+              managerComment: reason.trim(),
+              decisionDate: timestamp,
+              decidedBy: managerName,
+            }
+          : e
+      )
+    );
+    notify(`Exception [${exceptionId}] marked "Manager Approved — Location Unverified".`);
+  };
+
+  const rejectException = (exceptionId: string, reason: string, managerName = 'Ayodele Ibraheem (Country Head)') => {
+    const timestamp = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`;
+    setExceptions((prev) =>
+      prev.map((e) =>
+        e.id === exceptionId
+          ? {
+              ...e,
+              status: 'rejected',
+              managerComment: reason.trim(),
+              decisionDate: timestamp,
+              decidedBy: managerName,
+            }
+          : e
+      )
+    );
+    notify(`Exception [${exceptionId}] rejected. Rationale recorded.`);
+  };
+
+  const escalateException = (exceptionId: string, reason: string, managerName = 'Ayodele Ibraheem (Country Head)') => {
+    const timestamp = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`;
+    setExceptions((prev) =>
+      prev.map((e) =>
+        e.id === exceptionId
+          ? {
+              ...e,
+              status: 'escalated',
+              managerComment: `Escalated to HQ Admin: ${reason.trim()}`,
+              decisionDate: timestamp,
+              decidedBy: managerName,
+            }
+          : e
+      )
+    );
+    notify(`Exception [${exceptionId}] escalated to HQ Admin for governance review.`);
   };
 
   const submitNonVisitDayRequest = (req: Omit<NonVisitDayRequest, 'id' | 'status'>) => {
@@ -506,8 +679,13 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         submitMeetingLog,
         branches,
         registerBranch,
+        approveBranchPin,
+        rejectBranchPin,
         exceptions,
         submitException,
+        approveException,
+        rejectException,
+        escalateException,
         nonVisitDayRequest,
         submitNonVisitDayRequest,
         isOnline,

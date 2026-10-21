@@ -191,8 +191,37 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
                         <CheckCircle2 className="w-3 h-3" /> Approved Pin
                       </span>
                     )}
+
+                    {branch.status === 'rejected' && (
+                      <span className="text-[10px] font-bold bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded border border-rose-300 flex items-center gap-0.5">
+                        <Lock className="w-3 h-3 text-rose-600" /> Pin Rejected
+                      </span>
+                    )}
                   </div>
                 </div>
+
+                {/* Manager Decision Rationale Callout if reviewed */}
+                {branch.managerDecision && (
+                  <div
+                    className={`p-2.5 rounded-lg border text-[11px] leading-relaxed ${
+                      branch.managerDecision.action === 'approved'
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                        : 'bg-rose-50/70 border-rose-200 text-rose-950'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-bold pb-0.5">
+                      <span>
+                        {branch.managerDecision.action === 'approved' ? '✓ Pin Approved' : '✕ Pin Rejected'} by {branch.managerDecision.decidedBy}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono font-normal">
+                        {branch.managerDecision.decidedAt}
+                      </span>
+                    </div>
+                    <p className="italic">
+                      &quot;{branch.managerDecision.reason}&quot;
+                    </p>
+                  </div>
+                )}
 
                 {/* Location & Landmark */}
                 <div className="text-xs text-slate-600 space-y-1">

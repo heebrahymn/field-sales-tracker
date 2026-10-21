@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { useFieldSession } from '@/context/FieldSessionContext';
 import {
   MapPin,
   Building2,
@@ -34,104 +35,37 @@ export interface BranchPinRecord extends ApprovalItem {
 }
 
 export const BranchApprovalsQueue: React.FC = () => {
+  const { branches, approveBranchPin, rejectBranchPin } = useFieldSession();
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState<ApprovalItem | null>(null);
   const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [branchesList, setBranchesList] = useState<BranchPinRecord[]>([
-    {
-      id: 'pin-01',
-      type: 'pin_approval',
-      title: 'Apex Heavy Logistics Fleet Depot',
-      subtitle: 'Apapa Commercial Port Zone • Branch #BR-LAG-014',
-      companyName: 'Apex Heavy Logistics Ltd',
-      category: 'Haulage Fleet Depot',
-      address: 'Apapa Commercial Port Corridor, Gate 4, Lagos',
-      landmark: 'Opposite Berth 12 Container Yard',
-      repName: 'Tunde Adebayo (CC-REP-042)',
-      claimedTime: 'Today 09:15 WAT',
-      accuracy: '±22m (Passes ≤50m threshold)',
-      evidenceNote: 'Premises entrance gate and workshop signage clearly visible in photo. GPS pin confirmed at central vehicle intake gate.',
-      sharedPhoneWarning: true,
-      sharedPhone: '+234 1 270 5000',
-      contactName: 'Engr. Babatunde Jinadu',
-      contactRole: 'Fleet Maintenance Director',
-      contactPhone: '+234 803 555 1204',
-      status: 'pending_approval',
-    },
-    {
-      id: 'pin-02',
-      type: 'pin_approval',
-      title: 'Apex Commercial Transit Hub (Ikeja)',
-      subtitle: 'Mobolaji Bank Anthony Way • Branch #BR-LAG-108',
-      companyName: 'Apex Heavy Logistics Ltd',
-      category: 'Transit Maintenance Depot',
-      address: 'Mobolaji Bank Anthony Way, Ikeja, Lagos',
-      landmark: 'Adjacent to Air Force Base Roundabout',
-      repName: 'Tunde Adebayo (CC-REP-042)',
-      claimedTime: 'Today 10:45 WAT',
-      accuracy: '±18m (Passes ≤50m threshold)',
-      evidenceNote: 'Workshop entrance and fleet maintenance staging area verified. Pinned outdoors in loading courtyard.',
-      sharedPhoneWarning: true,
-      sharedPhone: '+234 1 270 5000',
-      contactName: 'Alhaji Musa Danjuma',
-      contactRole: 'Depot Operations Manager',
-      contactPhone: '+234 802 111 8899',
-      status: 'pending_approval',
-    },
-    {
-      id: 'pin-03',
-      type: 'pin_approval',
-      title: 'Equatorial Energy Fleet Terminal',
-      subtitle: 'Dockyard Road, Apapa • Branch #BR-LAG-002',
-      companyName: 'Equatorial Energy Hubs',
-      category: 'Bulk Fuel Fleet Terminal',
-      address: 'Dockyard Road, Apapa Marine Terminal, Lagos',
-      landmark: 'Next to Tank Farm Cluster B',
-      repName: 'Chinyere Nwosu (CC-REP-038)',
-      claimedTime: 'Yesterday 14:20 WAT',
-      accuracy: '±14m (Passes ≤50m threshold)',
-      evidenceNote: 'Heavy fuel tanker dispatch bay. Pin placed at main tanker weighbridge.',
-      sharedPhoneWarning: false,
-      contactName: 'Mrs. Chinyere Nwosu',
-      contactRole: 'Head of Transport & Safety',
-      contactPhone: '+234 818 444 9901',
-      status: 'approved',
-      managerDecision: {
-        action: 'approved',
-        reason: 'Pin coordinates validated against port authority registry. Premises signage clearly verified.',
-        decidedBy: 'Ayodele Ibraheem (Country Head)',
-        decidedAt: 'Yesterday 15:10 WAT',
-      },
-    },
-    {
-      id: 'pin-04',
-      type: 'pin_approval',
-      title: 'Zenith Logistics & Transit Hub',
-      subtitle: 'Oshodi-Isolo Expressway • Branch #BR-LAG-009',
-      companyName: 'Zenith Fleet Services Ltd',
-      category: 'Commercial Distribution Hub',
-      address: 'Oshodi-Isolo Expressway, Industrial Area, Lagos',
-      landmark: 'Near Toyota Bus Stop Industrial Park',
-      repName: 'Segun Oladipo (CC-REP-019)',
-      claimedTime: '15 Oct 2026',
-      accuracy: '±16m (Passes ≤50m threshold)',
-      evidenceNote: 'Central parts depot and truck service center. Pin placed at security gatehouse.',
-      sharedPhoneWarning: false,
-      contactName: 'Mr. Segun Oladipo',
-      contactRole: 'Workshop Superintendent',
-      contactPhone: '+234 805 777 3322',
-      status: 'approved',
-      managerDecision: {
-        action: 'approved',
-        reason: 'Valid industrial park entrance. Stamped premises photo confirmed.',
-        decidedBy: 'Ayodele Ibraheem (Country Head)',
-        decidedAt: '15 Oct 2026 16:30 WAT',
-      },
-    },
-  ]);
+  // Synchronized branches mapped from FieldSessionContext
+  const branchesList: BranchPinRecord[] = useMemo(() => {
+    return branches.map((b) => ({
+      id: b.id,
+      type: 'pin_approval' as const,
+      title: b.branchName,
+      subtitle: `${b.address} • Branch #${b.branchCode}`,
+      companyName: b.companyName,
+      category: b.category,
+      address: b.address,
+      landmark: b.landmark,
+      repName: b.registeredByRepName || 'Tunde Adebayo (CC-REP-042)',
+      claimedTime: b.lastVisitDate || 'Today 10:45 WAT',
+      accuracy: b.accuracyMeters ? `±${b.accuracyMeters}m (Passes ≤50m threshold)` : '±18m (Passes ≤50m threshold)',
+      evidenceNote: b.evidenceNote || 'Premises entrance and workshop signage verified. GPS pin confirmed at central gate.',
+      sharedPhoneWarning: b.hasSharedPhone,
+      sharedPhone: b.sharedCompanyPhone,
+      contactName: b.contacts[0]?.name || 'Site Contact',
+      contactRole: b.contacts[0]?.role || 'Manager',
+      contactPhone: b.contacts[0]?.phone || '+234 800 000 0000',
+      status: b.status,
+      managerDecision: b.managerDecision,
+    }));
+  }, [branches]);
 
   const handleOpenDecision = (item: ApprovalItem) => {
     setSelectedItem(item);
@@ -143,23 +77,11 @@ export const BranchApprovalsQueue: React.FC = () => {
     decision: 'approved' | 'rejected' | 'escalated',
     reason: string
   ) => {
-    setBranchesList((prev) =>
-      prev.map((branch) => {
-        if (branch.id === itemId) {
-          return {
-            ...branch,
-            status: decision === 'approved' ? 'approved' : decision === 'rejected' ? 'rejected' : branch.status,
-            managerDecision: {
-              action: decision,
-              reason,
-              decidedBy: 'Ayodele Ibraheem (Country Head)',
-              decidedAt: 'Just now',
-            },
-          };
-        }
-        return branch;
-      })
-    );
+    if (decision === 'approved') {
+      approveBranchPin(itemId, reason, 'Ayodele Ibraheem (Country Head)');
+    } else if (decision === 'rejected') {
+      rejectBranchPin(itemId, reason, 'Ayodele Ibraheem (Country Head)');
+    }
 
     setToastMessage(`Decision logged for ${itemId}: ${decision.toUpperCase()}. Recorded to immutable audit log.`);
     setTimeout(() => setToastMessage(null), 5000);

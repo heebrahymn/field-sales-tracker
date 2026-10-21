@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useFieldSession, ClientBranch } from '@/context/FieldSessionContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 import { MeetingLogModal } from '@/features/field/MeetingLogModal';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -36,6 +37,11 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     simulatedGeofenceDistance,
     setSimulatedGps,
   } = useFieldSession();
+
+  const { getActiveMarketRules } = useMarketConfig();
+  const marketRules = getActiveMarketRules('NG');
+  const geofenceLimit = marketRules.defaultGeofenceRadiusMeters;
+  const maxGpsLimit = marketRules.maxVisitGpsAccuracyMeters;
 
   // Selected branch for new visit check-in
   const [selectedBranch, setSelectedBranch] = useState<ClientBranch>(
@@ -95,7 +101,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   };
 
   const handleInitiateCheckOut = () => {
-    if (simulatedGeofenceDistance > 200) {
+    if (simulatedGeofenceDistance > geofenceLimit) {
       setCheckoutOutsideWarning(true);
     } else {
       setIsMeetingLogOpen(true);
@@ -108,7 +114,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   };
 
   const handleMeetingLogFinished = (onTime: boolean) => {
-    checkOutVisit(simulatedGeofenceDistance > 200, onTime ? { completed: true } : undefined);
+    checkOutVisit(simulatedGeofenceDistance > geofenceLimit, onTime ? { completed: true } : undefined);
     setIsMeetingLogOpen(false);
   };
 
@@ -121,7 +127,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
             <Sparkles className="w-3.5 h-3.5 text-amber-400" /> GPS & Geofence Simulator (Test Controls)
           </span>
           <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">
-            PRD Max: 200m
+            Max: {geofenceLimit}m ({marketRules.ruleVersion})
           </span>
         </div>
 
@@ -129,7 +135,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
           <button
             onClick={() => setSimulatedGps(14, 38)}
             className={`p-2 rounded-lg text-[11px] font-bold border transition-colors ${
-              simulatedGeofenceDistance <= 200 && simulatedGpsAccuracy <= 100
+              simulatedGeofenceDistance <= geofenceLimit && simulatedGpsAccuracy <= maxGpsLimit
                 ? 'bg-emerald-600 text-white border-emerald-500'
                 : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
             }`}
@@ -141,7 +147,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
           <button
             onClick={() => setSimulatedGps(18, 340)}
             className={`p-2 rounded-lg text-[11px] font-bold border transition-colors ${
-              simulatedGeofenceDistance > 200
+              simulatedGeofenceDistance > geofenceLimit
                 ? 'bg-amber-600 text-white border-amber-500'
                 : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
             }`}
@@ -153,7 +159,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
           <button
             onClick={() => setSimulatedGps(140, 60)}
             className={`p-2 rounded-lg text-[11px] font-bold border transition-colors ${
-              simulatedGpsAccuracy > 100
+              simulatedGpsAccuracy > maxGpsLimit
                 ? 'bg-red-700 text-white border-red-600'
                 : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
             }`}
@@ -201,7 +207,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                   <span className="text-[10px] text-slate-500 block">Check-in Location</span>
                   <span className="font-bold text-emerald-700 flex items-center gap-1 text-[11px]">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Within Geofence ({activeVisit.geofenceDistanceMeters}m / 200m)
+                    Within Geofence ({activeVisit.geofenceDistanceMeters}m / {geofenceLimit}m)
                   </span>
                   <span className="text-[9px] text-slate-500 font-mono">GPS Fix: ±{activeVisit.gpsAccuracyMeters}m</span>
                 </div>

@@ -433,3 +433,25 @@ The PRD treats offline reliability as the main delivery risk and asks for early 
 4. **Single Active Device Assignment Rule:** A salesperson cannot be assigned multiple active handsets simultaneously; custody reassignments require confirmation and mandatory administrative reasons recorded in append-only history.
 5. **Quality Gate Status:** All 57 unit tests passed across 6 test suites; TypeScript strict check passed (0 errors); Vite production build passed. Stage 1D approved.
 
+---
+
+## 10. Stage 1E Completion — Final Frontend QA & Cross-Role Integration Review
+
+**Recorded 2026-10-21 in `docs/decisions/0006-stage-1e-frontend-qa-and-integration.md`:**
+
+1. **Cross-Role Shared Reactive State:** Unified application root with `MarketConfigProvider`, `AuditProvider`, `DeviceReplacementProvider`, and `FieldSessionProvider`. Actions performed in one role are immediately and reactively reflected in other personas without requiring a page refresh.
+2. **Cross-Role Workflows A–E Verified:**
+   - *Workflow A (Branch Registration):* Rep registers branch → Manager approves → Rep sees approved status immediately.
+   - *Workflow B (Missed Visit Exception):* Rep submits missed visit exception → Manager approves with reason → Rep sees `Manager Approved — Location Unverified` with audit note.
+   - *Workflow C (Device Replacement):* Rep submits device issue directly to HQ → HQ approves, allocates spare device, records dispatch, confirms Knox activation → Rep sees completed status.
+   - *Workflow D (Client Audit Workbench):* Manager records client telephone audit outcome (confirmation or denial) → Disputed visits escalate → HQ Admin client audit oversight reflects real-time status.
+   - *Workflow E (Market Configuration):* HQ Admin updates versioned geofence/GPS thresholds → Version bumps to `v1.2.04` and appends to immutable history → Salesperson visit checks dynamically adopt new limits.
+3. **Quality & Test Metrics:**
+   - All 65 tests passed across 7 test suites in Vitest.
+   - Zero TypeScript errors (`tsc -b` clean).
+   - Vite production bundle successfully built (`872.53 kB` JS / `75.62 kB` CSS).
+   - All responsive viewports validated (`360×800`, `390×844`, `768×1024`, `1440×900`, `1920×1080`).
+4. **MVP Non-Commercial Boundaries Reconfirmed:** Zero quotation, order, pipeline, revenue, task scheduling, invoicing, or CRM integration modules exist.
+5. **Gate Check:** Frontend phase (Stages 1A–1E) complete. Ready for Project Owner review before Stage 2 Supabase backend integration.
+
+
