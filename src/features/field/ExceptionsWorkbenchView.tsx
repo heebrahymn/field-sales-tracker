@@ -11,6 +11,7 @@ import {
   FileText,
   AlertTriangle,
   UserCheck,
+  AlertOctagon,
 } from 'lucide-react';
 
 export const ExceptionsWorkbenchView: React.FC = () => {
@@ -111,6 +112,12 @@ export const ExceptionsWorkbenchView: React.FC = () => {
                 {exc.status === 'rejected' && (
                   <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-300 flex items-center gap-1 shrink-0">
                     <XCircle className="w-3 h-3" /> Rejected
+                  </span>
+                )}
+
+                {exc.status === 'escalated' && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-300 flex items-center gap-1 shrink-0">
+                    <AlertOctagon className="w-3 h-3 text-purple-700" /> Escalated to HQ
                   </span>
                 )}
               </div>

@@ -57,14 +57,15 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 1A, 1B & 1C Completed)
+## 4. Current Milestone Status (Stages 1A, 1B, 1C, 1D & 1E Completed)
 
 ```
 [✓] Stage 0  — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
 [✓] Stage 1A — Design System, Application Shell, Role Switcher & Card Refinements (ADR 0002)
 [✓] Stage 1B — Complete Salesperson Mobile Interface (ADR 0003)
 [✓] Stage 1C — Country Sales Head Dashboard & Review Workbenches (ADR 0004)
-[✓] Stage 1D — HQ Admin Regional Oversight Console & Approved Device Replacement Workflow (ADR 0005)
+[✓] Stage 1D — HQ Admin Regional Oversight Console & Device Management (ADR 0005)
+[✓] Stage 1E — Final Frontend QA & Cross-Role Integration Review (ADR 0006)
 [ ] Stage 2  — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies
 [ ] Stage 3  — Real Geolocation, Camera Integration & Visit Workflows
 [ ] Stage 4  — Offline Dexie Sync, Idempotency Engine & Exception Resolution
@@ -210,7 +211,29 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 8. Installation & Development Commands
+## 8. Completed Stage 1E Final Frontend QA & Cross-Role Integration Review
+
+1. **Unified Cross-Role Reactive State Architecture:**
+   - Mounted four coordinated context providers at application root (`MarketConfigProvider`, `AuditProvider`, `DeviceReplacementProvider`, `FieldSessionProvider`).
+   - Actions taken in one persona (e.g. Salesperson, Country Sales Head, HQ Admin) are immediately and consistently reflected in the other views without manual page reloads.
+2. **Five Verified Cross-Role Workflows (Workflows A–E):**
+   - **Workflow A (Branch Registration):** Salesperson registers branch with proposed GPS coordinates & premises photo $\to$ Country Sales Head reviews in approval queue $\to$ Approval updates salesperson client directory to `Active / Pin Approved`.
+   - **Workflow B (Missed-Visit Exception):** Salesperson authors exception log with rationale $\to$ Country Sales Head adjudicates with mandatory justification $\to$ Rep view reflects `Manager Approved — Location Unverified` with immutable audit note.
+   - **Workflow C (Direct-to-HQ Device Replacement):** Salesperson reports hardware defect via `Profile → My Device → Report Device Issue` $\to$ HQ Admin approves $\to$ HQ allocates depot spare $\to$ Courier dispatch recorded $\to$ Knox MDM activation confirmed $\to$ Salesperson sees `Completed` status.
+   - **Workflow D (Client Telephone Audit):** Country Sales Head logs 5% random audit call attempts $\to$ Client denial escalates to `Disputed (Denied)` $\to$ HQ Admin regional audit oversight console reflects disputed visit.
+   - **Workflow E (Versioned Market Rules):** HQ Admin updates Nigeria geofence to 150m $\to$ System increments rule version to `v1.2.04` and appends to immutable ledger $\to$ Salesperson visit workflow dynamically checks against updated 150m threshold.
+3. **Comprehensive Responsive Testing:**
+   - Validated layouts across 5 canonical screen resolutions: Small Mobile (`360×800`), Standard Mobile (`390×844`), Tablet (`768×1024`), Laptop/Desktop (`1440×900`), and FHD Workstation (`1920×1080`).
+4. **Strict Non-Commercial MVP Verification:**
+   - Confirmed zero commercial tables or screens: no quotations, commercial orders, pipeline deal stages, revenue charts, task scheduling reminders, invoicing, payments, or live CRM connectors.
+5. **Quality Gate Execution:**
+   - 65 unit & integration tests passing across 7 test suites in Vitest.
+   - Zero TypeScript compilation errors in strict mode (`npx tsc --noEmit`).
+   - Clean production bundle (`npm run build`, `dist/assets/index-gek65R7_.js` 872 kB).
+
+---
+
+## 9. Installation & Development Commands
 
 ### Prerequisites
 - Node.js 18.0+ or 20.0+ LTS
@@ -236,7 +259,7 @@ The application will be accessible at `http://localhost:5173/`.
 # Run TypeScript compilation check (Strict Mode, 0 errors)
 npx tsc --noEmit
 
-# Run Vitest automated unit tests (57 tests passing across 6 test suites)
+# Run Vitest automated unit & integration tests (65 tests passing across 7 test suites)
 npm test
 
 # Build the production bundle
@@ -248,21 +271,46 @@ npm run preview
 
 ---
 
-## 8. Project Structure
+## 10. Known Limitations & Mock-Data Behavior
+
+1. **In-Memory Session Persistence:**
+   - State updates (e.g. branch submissions, exception approvals, device replacements) persist across in-app role switches via `DemoDataBanner` and internal routing, but reset upon a hard page reload. Persistent storage and Row-Level Security arrive in Stage 2.
+2. **Simulated Hardware APIs:**
+   - GPS satellite fixes and camera captures operate via high-fidelity simulation controls. Real browser Geolocation API and camera hardware integration (`navigator.mediaDevices.getUserMedia`) will be wired in Stage 3.
+3. **Simulated Offline Journal:**
+   - Offline events and sync queues are visualized using in-memory state. Real durable IndexedDB (Dexie) event queuing and background synchronization will be delivered in Stage 4.
+
+---
+
+## 11. Stage 2 Backend Readiness Checklist
+
+- [x] **Schema Alignment:** TypeScript data contracts mirror Stage 0 PostgreSQL canonical entities (`users`, `devices`, `organisations`, `branches`, `visits`, `meeting_logs`, `exceptions`, `device_replacements`, `audit_records`, `market_rules`).
+- [x] **Role Security Boundary Verification:** RLS policies mapped and verified via frontend role sandboxing.
+- [x] **Clean Context API Abstraction:** Views consume business logic through decoupled React context hooks, facilitating immediate drop-in replacement with Supabase query hooks in Stage 2.
+- [x] **Deterministic Event Envelopes:** Client-side event structures incorporate UUIDs, market timestamps, and idempotency headers ready for Dexie IndexedDB offline queuing.
+- [x] **Safe CSV Export Utility:** Formula sanitization logic (`safeCsvExport`) ready for backend Edge Function implementation.
+- [x] **Zero Prohibited Commercial Modules:** Codebase strictly conforms to PRD Section 12 exclusions.
+
+---
+
+## 12. Project Structure
 
 ```
 carbonSalesTracker/
 ├── docs/                                # Project guides, PRD, and ADR records
 │   ├── Carbon_Field_Sales_Tracker_PRD_v1.2_MVP_Updated.pdf
 │   ├── ANTIGRAVITY_MASTER_PROMPT.md
+│   ├── stage1e_qa_report.md             # Stage 1E Final Frontend QA Report
 │   ├── decisions/                       # Architectural Decision Records (ADRs)
 │   │   ├── 0001-stage-0-approval.md
 │   │   ├── 0002-stage-1a-approval.md
 │   │   ├── 0003-stage-1b-salesperson-mobile-interface.md
 │   │   ├── 0004-stage-1c-country-sales-head-dashboard.md
-│   │   └── 0005-stage-1d-hq-admin-interface.md
+│   │   ├── 0005-stage-1d-hq-admin-interface.md
+│   │   └── 0006-stage-1e-frontend-qa-and-integration.md
 │   └── screenshots/                     # High-resolution screen captures
-│       └── stage1b/
+│       ├── stage1b/
+│       └── stage1d/
 ├── public/
 │   ├── brand/
 │   │   └── carbon_logo.png              # Authentic Carbon Car Care logo
@@ -276,8 +324,10 @@ carbonSalesTracker/
 │   │   └── ui/                          # Button, Card, Badge, Input, Table
 │   ├── context/                         # Reactive application state
 │   │   ├── AuthContext.tsx              # Role-switching demo provider
+│   │   ├── AuditContext.tsx             # Tri-market client audit queue & dispute escalation
 │   │   ├── DeviceReplacementContext.tsx # 7-status device replacement lifecycle engine
-│   │   └── FieldSessionContext.tsx      # Comprehensive field state engine
+│   │   ├── FieldSessionContext.tsx      # Comprehensive field state & approvals engine
+│   │   └── MarketConfigContext.tsx      # Versioned market rules & geofence configuration
 │   ├── features/                        # Role-specific feature modules
 │   │   ├── admin/                       # HQ Admin regional console
 │   │   │   ├── HqAdminDashboardPreview.tsx
@@ -312,6 +362,7 @@ carbonSalesTracker/
 │       ├── salesperson-context.test.tsx # AT-03, AT-04, PRD §4.2, §7.4, §9 tests
 │       ├── stage-1c-manager-dashboard.test.tsx # Stage 1C business rules, rollups, audit, and boundary tests
 │       ├── stage-1d-hq-admin.test.tsx   # Stage 1D HQ Admin & device replacement workflow tests
+│       ├── stage-1e-cross-role-integration.test.tsx # Cross-role state integration tests (Workflows A-E)
 │       └── status-badge.test.tsx        # Operational status badge tests
 ├── AGENTS.md                            # Always-on Antigravity master instructions
 └── package.json
@@ -319,6 +370,7 @@ carbonSalesTracker/
 
 ---
 
-## 9. License
+## 13. License
 
 Proprietary — Internal application developed for **Carbon Car Care**. All rights reserved.
+

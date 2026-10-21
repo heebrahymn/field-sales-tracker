@@ -1524,7 +1524,7 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
         if (r.id === requestId) {
           return {
             ...r,
-            status: 'Awaiting Activation',
+            status: 'Completed',
             activationConfirmedAt: timestamp,
             oldDeviceDisposition,
             history: [
