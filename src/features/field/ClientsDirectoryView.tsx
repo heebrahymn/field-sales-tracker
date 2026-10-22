@@ -53,7 +53,7 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
             Approved Client Directory
           </span>
           <h2 className="text-lg font-bold text-slate-900 leading-tight">
-            Clients & Branches
+            Clients & Locations
           </h2>
           <p className="text-xs text-slate-500 font-medium">
             {branches.length} verified physical sites in Lagos Market
@@ -64,7 +64,7 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
           onClick={() => setIsRegisterModalOpen(true)}
           className="bg-brand-blue hover:bg-brand-blue-700 text-white font-bold text-xs h-10 px-3.5 gap-1.5 shadow-sm min-h-[44px]"
         >
-          <Plus className="w-4 h-4" /> Add Branch
+          <Plus className="w-4 h-4" /> Add Client
         </Button>
       </div>
 
@@ -75,7 +75,7 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search company, branch code, or address..."
+            placeholder="Search client, location code, or address..."
             className="pl-9 pr-4 h-11 text-xs bg-white border-slate-300 rounded-xl"
           />
           {searchQuery && (
@@ -138,9 +138,9 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
         {filteredBranches.length === 0 ? (
           <div className="p-8 text-center bg-white rounded-xl border border-slate-200 space-y-2">
             <Building2 className="w-8 h-8 text-slate-400 mx-auto" />
-            <h4 className="font-bold text-sm text-slate-800">No matching branches found</h4>
+            <h4 className="font-bold text-sm text-slate-800">No matching clients or locations found</h4>
             <p className="text-xs text-slate-500">
-              Try adjusting your search terms or register this new site.
+              Try adjusting your search terms or register a new client site.
             </p>
           </div>
         ) : (
@@ -285,7 +285,7 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
                       onClick={() => onStartVisitAtBranch?.(branch)}
                       className="w-full font-bold text-xs h-11 bg-brand-blue hover:bg-brand-blue-700 text-white min-h-[48px]"
                     >
-                      Check In at this Branch
+                      Select Client for Visit
                     </Button>
                   )}
                 </div>

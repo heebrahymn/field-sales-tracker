@@ -110,6 +110,7 @@ export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
             {activeMobileTab === 'visit' && (
               <VisitWorkflowView
                 selectedBranchFromDirectory={selectedBranchForVisit}
+                onClearSelectedBranch={() => setSelectedBranchForVisit(null)}
                 onNavigateToClients={() => setActiveMobileTab('clients')}
                 onNavigateToExceptions={() => setActiveMobileTab('exceptions')}
               />

@@ -290,7 +290,7 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
             </span>
           </button>
 
-          {/* Tile 3: Add Branch */}
+          {/* Tile 3: Add Client */}
           <button
             onClick={() => setIsRegisterBranchModalOpen(true)}
             className="flex flex-col items-start p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-brand-blue active:scale-[0.98] transition-all text-left min-h-[104px]"
@@ -298,8 +298,8 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
             <div className="p-2.5 rounded-lg mb-2 bg-blue-50 text-brand-blue">
               <Building2 className="w-5 h-5" />
             </div>
-            <span className="font-bold text-slate-900 text-sm">Add Branch</span>
-            <span className="text-[11px] text-slate-600 font-medium mt-0.5">Shared phone OK (PRD §4.2)</span>
+            <span className="font-bold text-slate-900 text-sm">Add Client</span>
+            <span className="text-[11px] text-slate-600 font-medium mt-0.5">Register a new business client</span>
           </button>
 
           {/* Tile 4: My Exceptions */}

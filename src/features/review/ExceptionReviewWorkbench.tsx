@@ -198,7 +198,7 @@ export const ExceptionReviewWorkbench: React.FC = () => {
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <Input
-                placeholder="Search exceptions by client, branch, rep name, or ID..."
+                placeholder="Search exceptions by client, location, rep name, or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 text-xs h-9 bg-slate-50/50 border-slate-200"

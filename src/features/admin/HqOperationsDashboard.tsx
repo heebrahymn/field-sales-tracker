@@ -348,7 +348,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
         >
           <div className="flex items-start justify-between gap-1.5">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-              Unique Branches
+              Unique Locations
             </span>
             <div className="w-7 h-7 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center shrink-0">
               <Building2 className="w-3.5 h-3.5" />
@@ -369,7 +369,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
           </div>
           <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-            <span>Client branches reached</span>
+            <span>Client locations reached</span>
           </div>
         </div>
 
@@ -467,7 +467,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
                   <th className="py-3 px-4">Field Reps</th>
                   <th className="py-3 px-4">Verified Visits</th>
                   <th className="py-3 px-4">Approved Unverified</th>
-                  <th className="py-3 px-4">Unique Branches</th>
+                  <th className="py-3 px-4">Unique Locations</th>
                   <th className="py-3 px-4">Offline Sync Share</th>
                   <th className="py-3 px-4">Log SLA</th>
                   <th className="py-3 px-4 text-right">Device Fleet</th>
@@ -649,7 +649,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
           </div>
           <h4 className="font-bold text-slate-900 text-sm">Client Master B2B Import</h4>
           <p className="text-xs text-slate-500">
-            Bulk-import enterprise client branches with automated phone &amp; GPS validation.
+            Bulk-import enterprise client locations with automated phone &amp; GPS validation.
           </p>
           <div className="text-xs font-bold text-amber-800 flex items-center gap-1 pt-1">
             Launch Import Engine <ArrowRight className="w-3.5 h-3.5" />

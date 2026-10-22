@@ -520,17 +520,17 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
             </select>
           </div>
 
-          {/* 3. Filter by Branch */}
+          {/* 3. Filter by Location */}
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-              <Building2 className="w-3.5 h-3.5 text-slate-500" /> Client Branch
+              <Building2 className="w-3.5 h-3.5 text-slate-500" /> Client Location
             </label>
             <select
               value={selectedBranch}
               onChange={(e) => setSelectedBranch(e.target.value)}
               className="w-full text-xs h-9 px-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
-              <option value="all">All Client Branches</option>
+              <option value="all">All Client Locations</option>
               <option value="BR-LAG-108">Apex Commercial Transit Hub (BR-LAG-108)</option>
               <option value="BR-LAG-014">Apex Heavy Logistics Fleet Depot (BR-LAG-014)</option>
               <option value="BR-LAG-052">Metroline Basement Depot (BR-LAG-052)</option>
@@ -609,7 +609,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
             )}
             {selectedBranch !== 'all' && (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-blue-50 text-brand-blue border border-blue-200 font-semibold text-[11px]">
-                Branch: {selectedBranch}
+                Location: {selectedBranch}
                 <button onClick={() => setSelectedBranch('all')} className="hover:text-red-600 ml-1">
                   <X className="w-3 h-3" />
                 </button>
@@ -849,7 +849,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
                 Individual Operational Records
               </CardTitle>
               <p className="text-xs text-slate-500 mt-0.5">
-                Detailed audit trail filtered by representative, date range, branch, and status
+                Detailed audit trail filtered by representative, date range, location, and status
               </p>
             </div>
 
@@ -878,7 +878,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
               <div className="p-8 text-center text-slate-500 text-xs">
                 <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                 <p className="font-semibold text-slate-700">No operational records match the chosen filter combinations.</p>
-                <p className="text-slate-500 mt-1">Try adjusting the representative, date range, branch, or verification status.</p>
+                <p className="text-slate-500 mt-1">Try adjusting the representative, date range, location, or verification status.</p>
                 <button
                   onClick={handleResetFilters}
                   className="mt-3 text-brand-blue hover:underline font-bold inline-block"
@@ -893,7 +893,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
                     <tr>
                       <th className="py-3 px-4">Visit ID</th>
                       <th className="py-3 px-4">Salesperson</th>
-                      <th className="py-3 px-4">Client Branch</th>
+                      <th className="py-3 px-4">Client Location</th>
                       <th className="py-3 px-4">Date &amp; Time</th>
                       <th className="py-3 px-4">Verification Status</th>
                       <th className="py-3 px-4">Sync Origin</th>

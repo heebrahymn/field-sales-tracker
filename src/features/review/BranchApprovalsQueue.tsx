@@ -48,7 +48,7 @@ export const BranchApprovalsQueue: React.FC = () => {
       id: b.id,
       type: 'pin_approval' as const,
       title: b.branchName,
-      subtitle: `${b.address} • Branch #${b.branchCode}`,
+      subtitle: `${b.address} • Location #${b.branchCode}`,
       companyName: b.companyName,
       category: b.category,
       address: b.address,
@@ -127,10 +127,10 @@ export const BranchApprovalsQueue: React.FC = () => {
               PRD §4.2 & §7.1 Pin Governance
             </span>
             <h2 className="text-xl font-bold text-slate-900 mt-1">
-              Branch Registration & GPS Pin Approvals
+              Client Registration & GPS Location Approvals
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              Review field-proposed physical branch pins against reported GPS uncertainty (Threshold: ≤50m) and premises photographs.
+              Review field-proposed client locations and GPS pins against reported GPS uncertainty (Threshold: ≤50m) and premises photographs.
             </p>
           </div>
 
@@ -148,7 +148,7 @@ export const BranchApprovalsQueue: React.FC = () => {
         <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-start gap-2.5 text-xs text-slate-700">
           <Info className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
           <div className="text-[11px] leading-relaxed">
-            <strong className="text-slate-900 font-semibold">Shared Telephone Approved Rule:</strong> Different branches of the same company (e.g. <em>Apex Heavy Logistics Ltd</em>) are explicitly allowed to share a central company telephone number (+234 1 270 5000). System alerts you to verify, but <strong>never</strong> auto-rejects a valid branch merely for a shared switchboard phone.
+            <strong className="text-slate-900 font-semibold">Shared Telephone Approved Rule:</strong> Different physical locations of the same client (e.g. <em>Apex Heavy Logistics Ltd</em>) are explicitly allowed to share a central company telephone number (+234 1 270 5000). System alerts you to verify, but <strong>never</strong> auto-rejects a valid client location merely for a shared switchboard phone.
           </div>
         </div>
       </div>
@@ -187,7 +187,7 @@ export const BranchApprovalsQueue: React.FC = () => {
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search branch, company, address..."
+            placeholder="Search client, location, address..."
             className="pl-8 h-9 text-xs bg-white border-slate-300"
           />
         </div>
@@ -223,12 +223,12 @@ export const BranchApprovalsQueue: React.FC = () => {
                   </span>
                   {item.status === 'pending_approval' && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Pending Pin Sign-off
+                      <Clock className="w-3 h-3" /> Pending Location Pin Sign-off
                     </span>
                   )}
                   {item.status === 'approved' && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
-                      <Check className="w-3 h-3 text-emerald-700" /> Pin Approved
+                      <Check className="w-3 h-3 text-emerald-700" /> Location Pin Approved
                     </span>
                   )}
                   {item.status === 'rejected' && (
@@ -245,7 +245,7 @@ export const BranchApprovalsQueue: React.FC = () => {
                   <div className="flex items-center gap-2 text-amber-950 font-medium">
                     <Phone className="w-3.5 h-3.5 text-amber-700" />
                     <span>
-                      Shared Switchboard Phone: <strong className="font-mono">{item.sharedPhone}</strong> (Used across sibling branches)
+                      Shared Switchboard Phone: <strong className="font-mono">{item.sharedPhone}</strong> (Used across sibling client locations)
                     </span>
                   </div>
                   <span className="text-[10px] font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
@@ -259,7 +259,7 @@ export const BranchApprovalsQueue: React.FC = () => {
                 {/* 1. Proposed GPS Fix */}
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-emerald-700" /> Proposed GPS Coordinates
+                    <MapPin className="w-3.5 h-3.5 text-emerald-700" /> Proposed Location GPS Coordinates
                   </span>
                   <p className="font-mono font-bold text-slate-900 text-[11px]">6.5892° N, 3.3581° E</p>
                   <p className="text-[11px] font-semibold text-emerald-800">
@@ -302,7 +302,7 @@ export const BranchApprovalsQueue: React.FC = () => {
               {/* Submitting Rep Narrative */}
               <div className="text-xs space-y-1">
                 <span className="text-[11px] font-bold text-slate-700">
-                  Field Rep Submission Note ({item.repName}):
+                  Field Salesperson Submission Note ({item.repName}):
                 </span>
                 <p className="text-slate-800 bg-white p-2.5 rounded-lg border border-slate-200 text-[11px] leading-relaxed">
                   &ldquo;{item.evidenceNote}&rdquo;
@@ -333,7 +333,7 @@ export const BranchApprovalsQueue: React.FC = () => {
                     onClick={() => handleOpenDecision(item)}
                     className="text-xs h-9 px-3.5 font-semibold border-slate-300 bg-white"
                   >
-                    Inspect Pin Evidence
+                    Inspect Location Evidence
                   </Button>
                   <Button
                     size="sm"

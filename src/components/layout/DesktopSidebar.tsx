@@ -93,7 +93,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           items: [
             { id: 'dashboard' as DesktopNavSection, label: 'Operational Dashboard', icon: LayoutDashboard },
             { id: 'visits' as DesktopNavSection, label: 'Client Visit Verification', icon: CheckCircle2, badge: '34' },
-            { id: 'approvals' as DesktopNavSection, label: 'Branch & Pin Approvals', icon: CheckSquare, badge: '4' },
+            { id: 'approvals' as DesktopNavSection, label: 'Client & GPS Approvals', icon: CheckSquare, badge: '4' },
             { id: 'exceptions' as DesktopNavSection, label: 'Exception Workbench', icon: ShieldAlert, badge: '3' },
             { id: 'flags' as DesktopNavSection, label: 'Risk Flags Queue', icon: AlertTriangle, badge: '5' },
             { id: 'audits' as DesktopNavSection, label: 'Client Audit Calls (5%)', icon: PhoneCall },
@@ -103,7 +103,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           group: 'Team & Directory',
           items: [
             { id: 'attendance' as DesktopNavSection, label: 'Team Attendance', icon: CalendarDays },
-            { id: 'clients' as DesktopNavSection, label: 'Organisations & Branches', icon: Building2 },
+            { id: 'clients' as DesktopNavSection, label: 'Clients & Locations', icon: Building2 },
             { id: 'exports' as DesktopNavSection, label: 'Audited CSV Exports', icon: FileSpreadsheet },
           ],
         },
