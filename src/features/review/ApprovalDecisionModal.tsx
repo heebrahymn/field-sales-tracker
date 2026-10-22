@@ -52,7 +52,7 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
           <div>
             <span className="text-[10px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-              {isPin ? 'Branch & GPS Pin Proposal Review' : 'Salesperson Exception Review'}
+              {isPin ? 'Client Location & GPS Pin Proposal Review' : 'Salesperson Exception Review'}
             </span>
             <h3 className="font-bold text-slate-900 text-base mt-1">
               Manager Approval Decision Workbench
@@ -114,7 +114,7 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
 
               {item.sharedPhoneWarning && (
                 <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-slate-700 leading-tight">
-                  <strong className="text-brand-blue font-bold">Policy Note (PRD §4.2):</strong> A shared parent telephone number was detected across sibling branches. This is explicitly permitted and does not invalidate the physical branch location.
+                  <strong className="text-brand-blue font-bold">Policy Note (PRD §4.2):</strong> A shared parent telephone number was detected across sibling client locations. This is explicitly permitted and does not invalidate the physical client location.
                 </div>
               )}
 
@@ -188,7 +188,7 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
                 isPin ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-brand-blue hover:bg-brand-blue-700'
               }`}
             >
-              {isPin ? 'Confirm Pin Approval' : 'Approve (Unverified Activity)'}
+              {isPin ? 'Confirm Location Pin Approval' : 'Approve (Unverified Activity)'}
             </Button>
           </div>
         </div>

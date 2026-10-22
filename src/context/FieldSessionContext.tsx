@@ -124,7 +124,7 @@ interface FieldSessionContextType {
 
   // Branches & Directory
   branches: ClientBranch[];
-  registerBranch: (newBranch: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>) => void;
+  registerBranch: (newBranch: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>) => ClientBranch;
   approveBranchPin: (branchId: string, reason: string, managerName?: string) => void;
   rejectBranchPin: (branchId: string, reason: string, managerName?: string) => void;
 
@@ -503,7 +503,7 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     notify('Meeting log submitted successfully. Stored as narrative outcome.');
   };
 
-  const registerBranch = (newBranchData: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>) => {
+  const registerBranch = (newBranchData: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>): ClientBranch => {
     const newBranch: ClientBranch = {
       ...newBranchData,
       id: `br-rep-${Date.now()}`,
@@ -515,7 +515,8 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       evidenceNote: 'Premises entrance gate and workshop signage clearly visible in photo. GPS pin confirmed at central vehicle intake gate.',
     };
     setBranches((prev) => [newBranch, ...prev]);
-    notify(`Branch "${newBranch.branchName}" registered. Submitted to Country Sales Head for pin review.`);
+    notify(`Client "${newBranch.companyName}" (${newBranch.branchName}) registered. Submitted to Country Sales Head for pin review.`);
+    return newBranch;
   };
 
   const approveBranchPin = (branchId: string, reason: string, managerName = 'Ayodele Ibraheem (Country Head)') => {

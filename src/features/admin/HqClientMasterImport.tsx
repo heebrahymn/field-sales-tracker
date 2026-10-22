@@ -245,8 +245,8 @@ export const HqClientMasterImport: React.FC = () => {
           <div className="space-y-1 leading-relaxed">
             <span className="font-bold text-emerald-900">PRD §4.2 Rule: Shared Corporate Telephones Permitted</span>
             <p className="text-emerald-800">
-              Multiple physical branches belonging to the same parent organization sharing a switchboard phone number are <strong>explicitly allowed</strong>.
-              The parser never automatically rejects valid branches for sharing phone credentials.
+              Multiple physical locations belonging to the same parent organization sharing a switchboard phone number are <strong>explicitly allowed</strong>.
+              The parser never automatically rejects valid locations for sharing phone credentials.
             </p>
           </div>
         </div>

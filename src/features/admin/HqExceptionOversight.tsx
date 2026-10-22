@@ -313,7 +313,7 @@ export const HqExceptionOversight: React.FC = () => {
               <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search exception ID, rep name, company, or branch..."
+                placeholder="Search exception ID, rep name, client, or location..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue bg-white"
@@ -372,7 +372,7 @@ export const HqExceptionOversight: React.FC = () => {
                 <th className="py-3 px-4">Exception ID & Type</th>
                 <th className="py-3 px-3">Salesperson</th>
                 <th className="py-3 px-3">Market Hub</th>
-                <th className="py-3 px-3">Client & Branch</th>
+                <th className="py-3 px-3">Client & Location</th>
                 <th className="py-3 px-3">Claim vs Recovery Time</th>
                 <th className="py-3 px-3">Status</th>
                 <th className="py-3 px-4 text-right">Actions</th>

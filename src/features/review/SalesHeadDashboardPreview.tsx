@@ -12,6 +12,7 @@ import { ClientAuditWorkbench } from '@/features/review/ClientAuditWorkbench';
 import { TeamAttendanceReview } from '@/features/review/TeamAttendanceReview';
 import { CountryReportingView } from '@/features/review/CountryReportingView';
 import { CountryCsvExportModal } from '@/features/review/CountryCsvExportModal';
+import { ClientsLocationsDirectory } from '@/features/review/ClientsLocationsDirectory';
 import { DesktopNavSection } from '@/components/layout/DesktopSidebar';
 import {
   Users,
@@ -26,6 +27,7 @@ import {
   FileSpreadsheet,
   Download,
   ArrowRight,
+  Building2,
 } from 'lucide-react';
 
 interface SalesHeadDashboardPreviewProps {
@@ -60,7 +62,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
       id: 'pin-01',
       type: 'pin_approval',
       title: 'Apex Heavy Logistics Fleet Depot',
-      subtitle: 'Apapa Commercial Port Zone • Branch #BR-LAG-014',
+      subtitle: 'Apapa Commercial Port Zone • Location #BR-LAG-014',
       repName: 'Tunde Adebayo',
       claimedTime: 'Today 09:15 WAT',
       accuracy: '±22m (Passes ≤50m threshold)',
@@ -71,7 +73,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
       id: 'pin-02',
       type: 'pin_approval',
       title: 'Apex Commercial Transit Hub (Ikeja)',
-      subtitle: 'Mobolaji Bank Anthony Way • Branch #BR-LAG-108',
+      subtitle: 'Mobolaji Bank Anthony Way • Location #BR-LAG-108',
       repName: 'Tunde Adebayo',
       claimedTime: 'Today 10:45 WAT',
       accuracy: '±18m (Passes ≤50m threshold)',
@@ -168,7 +170,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
           }`}
         >
-          <span>Branch Approvals</span>
+          <span>Client Approvals</span>
           <span className="bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded-full text-[10px]">
             4
           </span>
@@ -222,6 +224,17 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
           <span>Team Attendance</span>
         </button>
         <button
+          onClick={() => handleSectionChange('clients')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
+            currentSection === 'clients'
+              ? 'bg-brand-blue text-white shadow-xs'
+              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <Building2 className="w-3.5 h-3.5" />
+          <span>Clients &amp; Locations</span>
+        </button>
+        <button
           onClick={() => handleSectionChange('exports')}
           className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
             currentSection === 'exports'
@@ -242,7 +255,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
       {currentSection === 'audits' && <ClientAuditWorkbench />}
       {currentSection === 'attendance' && <TeamAttendanceReview />}
       {currentSection === 'exports' && <CountryReportingView marketName={currentUser.marketName} />}
-      {currentSection === 'clients' && <BranchApprovalsQueue />}
+      {currentSection === 'clients' && <ClientsLocationsDirectory />}
 
       {/* DEFAULT: Master Operational Dashboard */}
       {currentSection === 'dashboard' && (
@@ -477,12 +490,12 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
 
           {/* ================= REVIEW WORKBENCH: PENDING APPROVALS & EXCEPTIONS ================= */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Pending Branch & Pin Approvals Preview */}
+            {/* Pending Client & Pin Approvals Preview */}
             <Card className="border-slate-200 shadow-xs">
               <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
                 <div>
-                  <CardTitle className="text-base text-slate-900">Pending Branch &amp; Pin Approvals</CardTitle>
-                  <p className="text-xs text-slate-600 font-medium">Proposed client branches requiring manager pin verification</p>
+                  <CardTitle className="text-base text-slate-900">Pending Client &amp; GPS Approvals</CardTitle>
+                  <p className="text-xs text-slate-600 font-medium">Proposed client locations requiring manager GPS verification</p>
                 </div>
                 <Button
                   variant="outline"
@@ -515,7 +528,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
 
                     {item.sharedPhoneWarning && (
                       <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-brand-blue font-semibold">
-                        Note: Shared company telephone detected with Apapa branch (Permitted under PRD §4.2).
+                        Note: Shared company telephone detected with Apapa location (Permitted under PRD §4.2).
                       </div>
                     )}
 
@@ -538,7 +551,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
                           className="text-xs h-9 sm:h-8 px-3 font-bold bg-brand-green-700 hover:bg-brand-green-800 text-white flex-1 sm:flex-initial"
                           onClick={() => handleOpenReview(item)}
                         >
-                          Approve Pin
+                          Approve Location Pin
                         </Button>
                       </div>
                     </div>

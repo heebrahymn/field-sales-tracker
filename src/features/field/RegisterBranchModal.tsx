@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useFieldSession, ClientBranch } from '@/context/FieldSessionContext';
 import { Button } from '@/components/ui/button';
@@ -13,32 +13,53 @@ import {
   Phone,
   User,
   ShieldCheck,
+  AlertCircle,
 } from 'lucide-react';
 
 interface RegisterBranchModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: (newBranch: ClientBranch) => void;
+  defaultCompanyName?: string;
 }
 
-export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen, onClose }) => {
+export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
+  isOpen,
+  onClose,
+  onSuccess,
+  defaultCompanyName,
+}) => {
   const { currentUser } = useAuth();
-  const { registerBranch } = useFieldSession();
+  const { registerBranch, branches } = useFieldSession();
+
+  // Distinct list of registered client companies
+  const existingCompanies = useMemo(() => {
+    return Array.from(new Set(branches.map((b) => b.companyName))).sort();
+  }, [branches]);
+
+  // Mode: Register brand-new business vs add a location to an existing business
+  const [clientType, setClientType] = useState<'new' | 'existing'>(
+    defaultCompanyName && existingCompanies.includes(defaultCompanyName) ? 'existing' : 'new'
+  );
 
   // Form states
-  const [companyName, setCompanyName] = useState('Apex Heavy Logistics Ltd');
-  const [branchName, setBranchName] = useState('Apex Commercial Transit Hub (Ikeja)');
+  const [selectedExistingCompany, setSelectedExistingCompany] = useState<string>(
+    defaultCompanyName || (existingCompanies.length > 0 ? existingCompanies[0] : '')
+  );
+  const [newCompanyName, setNewCompanyName] = useState('');
+  const [branchName, setBranchName] = useState('');
   const [category, setCategory] = useState('Commercial Haulage Depot');
-  const [address, setAddress] = useState('Mobolaji Bank Anthony Way, Ikeja, Lagos');
-  const [landmark, setLandmark] = useState('Adjacent to Air Force Base Roundabout');
+  const [address, setAddress] = useState('');
+  const [landmark, setLandmark] = useState('');
 
   // Contact
-  const [contactName, setContactName] = useState('Alhaji Musa Danjuma');
-  const [contactRole, setContactRole] = useState('Depot Operations Manager');
-  const [contactPhone, setContactPhone] = useState('+234 802 111 8899');
+  const [contactName, setContactName] = useState('');
+  const [contactRole, setContactRole] = useState('Operations Manager');
+  const [contactPhone, setContactPhone] = useState('');
 
   // Shared Phone Rule (PRD §4.2)
-  const [hasSharedPhone, setHasSharedPhone] = useState<boolean>(true);
-  const [sharedCompanyPhone, setSharedCompanyPhone] = useState('+234 1 270 5000');
+  const [hasSharedPhone, setHasSharedPhone] = useState<boolean>(false);
+  const [sharedCompanyPhone, setSharedCompanyPhone] = useState('');
 
   // Pin & Camera
   const [gpsCaptured, setGpsCaptured] = useState<boolean>(true);
@@ -47,30 +68,60 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
 
   if (!isOpen) return null;
 
+  const effectiveCompanyName = clientType === 'existing' ? selectedExistingCompany : newCompanyName;
+
+  // Duplicate company check when typing a new company
+  const isDuplicateCompanyName =
+    clientType === 'new' &&
+    newCompanyName.trim().length > 2 &&
+    existingCompanies.some(
+      (c) => c.toLowerCase() === newCompanyName.trim().toLowerCase()
+    );
+
+  const handleExistingCompanyChange = (company: string) => {
+    setSelectedExistingCompany(company);
+    const existingBranch = branches.find((b) => b.companyName === company);
+    if (existingBranch?.hasSharedPhone && existingBranch.sharedCompanyPhone) {
+      setHasSharedPhone(true);
+      setSharedCompanyPhone(existingBranch.sharedCompanyPhone);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!effectiveCompanyName.trim() || !branchName.trim() || !address.trim()) {
+      return;
+    }
+
     setIsSubmitting(true);
 
     const newBranch: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'> = {
-      companyName,
-      branchName,
+      companyName: effectiveCompanyName.trim(),
+      branchName: branchName.trim(),
       branchCode: `BR-LAG-${Math.floor(100 + Math.random() * 900)}`,
       category,
-      address,
-      landmark,
-      contacts: [{ name: contactName, role: contactRole, phone: contactPhone }],
+      address: address.trim(),
+      landmark: landmark.trim() || undefined as any,
+      contacts: [
+        {
+          name: contactName.trim() || 'Site Operations Contact',
+          role: contactRole.trim() || 'Operations Manager',
+          phone: contactPhone.trim() || '+234 800 000 0000',
+        },
+      ],
       hasSharedPhone,
-      sharedCompanyPhone: hasSharedPhone ? sharedCompanyPhone : undefined,
+      sharedCompanyPhone: hasSharedPhone ? sharedCompanyPhone.trim() : undefined,
       approvedGpsLat: 6.5892,
       approvedGpsLng: 3.3581,
       isRegisteredByRep: true,
     };
 
     setTimeout(() => {
-      registerBranch(newBranch);
+      const created = registerBranch(newBranch);
       setIsSubmitting(false);
+      onSuccess?.(created);
       onClose();
-    }, 600);
+    }, 400);
   };
 
   return (
@@ -85,7 +136,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
               </span>
             </div>
             <h3 className="font-bold text-slate-900 text-base mt-1">
-              Register Client Branch & Propose Pin
+              Register Client & Propose Location Pin
             </h3>
             <p className="text-xs text-slate-500 font-medium">
               Market: {currentUser.marketName} • Subject to Sales Head Approval
@@ -105,82 +156,143 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
           <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-start gap-2.5">
             <Info className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
             <div className="text-[11px] text-slate-700 leading-relaxed">
-              <strong className="text-slate-900 font-semibold">Shared Telephone Approved Rule:</strong> Different branches of the same company are permitted to share a switchboard telephone. Shared numbers are reviewed but will <strong>never</strong> be automatically rejected.
+              <strong className="text-slate-900 font-semibold">B2B Structure:</strong> Register a brand-new business client or propose a new physical location for an existing client. Shared telephone numbers are supported per PRD §4.2.
             </div>
           </div>
 
-          {/* Company & Branch Names */}
+          {/* Client Organisation Selection / Creation */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5 text-brand-blue" /> Client Organisation Structure
+            </span>
+
+            {/* Mode Toggle */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setClientType('new')}
+                className={`py-2 px-3 rounded-lg font-bold text-xs border transition-colors ${
+                  clientType === 'new'
+                    ? 'bg-brand-blue text-white border-brand-blue shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                New Business Client
+              </button>
+              <button
+                type="button"
+                onClick={() => setClientType('existing')}
+                disabled={existingCompanies.length === 0}
+                className={`py-2 px-3 rounded-lg font-bold text-xs border transition-colors ${
+                  clientType === 'existing'
+                    ? 'bg-brand-blue text-white border-brand-blue shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Existing Client Location
+              </button>
+            </div>
+
+            {clientType === 'existing' ? (
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-900">
+                  Select Existing Client <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedExistingCompany}
+                  onChange={(e) => handleExistingCompanyChange(e.target.value)}
+                  className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-semibold focus:ring-2 focus:ring-brand-blue focus:outline-none"
+                >
+                  {existingCompanies.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-500">
+                  Adding a new physical location to this registered client.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-900">
+                  New Client Business Name <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={newCompanyName}
+                  onChange={(e) => setNewCompanyName(e.target.value)}
+                  placeholder="e.g. Saharan Haulage & Energy Logistics"
+                  required
+                  className="text-xs h-10 bg-white"
+                />
+                {isDuplicateCompanyName && (
+                  <div className="p-2 bg-amber-50 border border-amber-200 rounded-md text-[11px] text-amber-900 flex items-start gap-1.5 mt-1">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                    <span>
+                      A client with this name already exists. Consider switching to &quot;Existing Client Location&quot; to add a new location to it.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Physical Location Details */}
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="block font-bold text-slate-900">
-                Parent Company Name <span className="text-red-500">*</span>
-              </label>
-              <Input
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="e.g. Apex Heavy Logistics Ltd"
-                required
-                className="text-xs h-10"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="block font-bold text-slate-900">
-                Branch / Facility Name <span className="text-red-500">*</span>
+                Client Location Name <span className="text-red-500">*</span>
               </label>
               <Input
                 value={branchName}
                 onChange={(e) => setBranchName(e.target.value)}
-                placeholder="e.g. Apex Commercial Transit Hub (Ikeja)"
+                placeholder="e.g. Apapa Terminal 2 Depot or Central Workshop"
                 required
                 className="text-xs h-10"
               />
             </div>
-          </div>
 
-          {/* Category & Address */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="block font-bold text-slate-900">
-                Facility Category <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-brand-blue focus:outline-none"
-              >
-                <option value="Commercial Haulage Depot">Commercial Haulage Depot</option>
-                <option value="Bulk Fuel Terminal">Bulk Fuel Terminal</option>
-                <option value="Transit Maintenance Depot">Transit Maintenance Depot</option>
-                <option value="Commercial Fleet Workshop">Commercial Fleet Workshop</option>
-                <option value="Cargo Distribution Terminal">Cargo Distribution Terminal</option>
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-900">
+                  Facility Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-brand-blue focus:outline-none"
+                >
+                  <option value="Commercial Haulage Depot">Commercial Haulage Depot</option>
+                  <option value="Bulk Fuel Terminal">Bulk Fuel Terminal</option>
+                  <option value="Transit Maintenance Depot">Transit Maintenance Depot</option>
+                  <option value="Commercial Fleet Workshop">Commercial Fleet Workshop</option>
+                  <option value="Cargo Distribution Terminal">Cargo Distribution Terminal</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-900">Landmark Reference</label>
+                <Input
+                  value={landmark}
+                  onChange={(e) => setLandmark(e.target.value)}
+                  placeholder="e.g. Adjacent to Gate 3"
+                  className="text-xs h-10"
+                />
+              </div>
             </div>
 
             <div className="space-y-1">
               <label className="block font-bold text-slate-900">
-                Landmark Reference
+                Physical Street Address <span className="text-red-500">*</span>
               </label>
               <Input
-                value={landmark}
-                onChange={(e) => setLandmark(e.target.value)}
-                placeholder="e.g. Next to Berth 4 Gate"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="e.g. 14 Commercial Avenue, Apapa Industrial Area, Lagos"
+                required
                 className="text-xs h-10"
               />
             </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="block font-bold text-slate-900">
-              Physical Street Address <span className="text-red-500">*</span>
-            </label>
-            <Input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="e.g. Mobolaji Bank Anthony Way, Ikeja, Lagos"
-              required
-              className="text-xs h-10"
-            />
           </div>
 
           {/* Primary Contact Person */}
@@ -215,7 +327,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
             />
           </div>
 
-          {/* Shared Company Phone Number Section */}
+          {/* Shared Company Phone Number Section (PRD §4.2) */}
           <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl space-y-2">
             <div className="flex items-center gap-2">
               <input
@@ -225,7 +337,10 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
                 onChange={(e) => setHasSharedPhone(e.target.checked)}
                 className="w-4 h-4 rounded text-brand-blue cursor-pointer"
               />
-              <label htmlFor="sharedPhoneCheck" className="font-bold text-slate-900 text-xs cursor-pointer flex items-center gap-1">
+              <label
+                htmlFor="sharedPhoneCheck"
+                className="font-bold text-slate-900 text-xs cursor-pointer flex items-center gap-1"
+              >
                 <Phone className="w-3 h-3 text-amber-700" /> Uses Shared Company Phone Number
               </label>
             </div>
@@ -239,13 +354,13 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
                   className="text-xs h-9 bg-white font-mono"
                 />
                 <p className="text-[10px] text-amber-900">
-                  Multiple branches of <em>{companyName || 'this company'}</em> sharing this number will not trigger automatic duplicate rejection.
+                  Multiple locations of <em>{effectiveCompanyName || 'this company'}</em> sharing this number will not trigger automatic duplicate rejection.
                 </p>
               </div>
             )}
           </div>
 
-          {/* Proposed GPS Pin Status (PRD Rule: Accuracy <= 50m) */}
+          {/* Proposed GPS Pin Status (Accuracy <= 50m required) */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
@@ -259,7 +374,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
             <div className="bg-white p-2.5 rounded-lg border border-slate-200 font-mono flex items-center justify-between text-[11px]">
               <div>
                 <span className="font-bold text-slate-900">6.5892° N, 3.3581° E</span>
-                <span className="text-slate-500 block text-[10px]">Ikeja Transit Zone • Fix accuracy: ±22m</span>
+                <span className="text-slate-500 block text-[10px]">Fix accuracy: ±22m (GPS verified on-site)</span>
               </div>
               <Button
                 type="button"
@@ -291,7 +406,9 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
               </div>
               <div className="text-[11px] space-y-0.5 flex-1">
                 <p className="font-bold text-slate-900">Gate & Signage Verified</p>
-                <p className="text-slate-500 text-[10px]">Watermark: 6.5892° N, 3.3581° E • {new Date().toLocaleTimeString()}</p>
+                <p className="text-slate-500 text-[10px]">
+                  Watermark: 6.5892° N, 3.3581° E • {new Date().toLocaleTimeString()}
+                </p>
                 <button
                   type="button"
                   onClick={() => setPhotoCaptured((prev) => !prev)}
@@ -315,10 +432,17 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({ isOpen
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || !gpsCaptured || !photoCaptured}
+              disabled={
+                isSubmitting ||
+                !gpsCaptured ||
+                !photoCaptured ||
+                !effectiveCompanyName.trim() ||
+                !branchName.trim() ||
+                !address.trim()
+              }
               className="text-xs h-11 px-5 font-bold bg-brand-blue hover:bg-brand-blue-700 text-white shadow-sm flex items-center gap-1.5"
             >
-              <ShieldCheck className="w-4 h-4" /> Submit Branch for Approval
+              <ShieldCheck className="w-4 h-4" /> Submit Client Location for Approval
             </Button>
           </div>
         </form>
