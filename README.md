@@ -57,7 +57,7 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 0, 1 & 2 Approved & Completed)
+## 4. Current Milestone Status (Stages 0, 1, 2 & 3A Completed)
 
 ```
 [✓] Stage 0  — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
@@ -67,14 +67,16 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Stage 1D — HQ Admin Regional Oversight Console & Device Management (ADR 0005)
 [✓] Stage 1E — Final Frontend QA & Cross-Role Integration Review (ADR 0006)
 [✓] Stage 2  — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies (ADR 0007, ADR 0008)
-[ ] Stage 3  — Real Geolocation, Camera Integration & Visit Workflows
+[✓] Pre-3    — Product Audit, Terminology Standardization & Usability Fixes
+[✓] Stage 3A — Real Supabase Authentication & Role-Based Access Control (ADR 0009)
+[ ] Stage 3B — Real Attendance (Start/End Day), GPS Geofence & Camera Check-in Writes
 [ ] Stage 4  — Offline Dexie Sync, Idempotency Engine & Exception Resolution
 [ ] Stage 5  — Management Reports, Safe CSV Exports & Reconciliation
 [ ] Stage 6  — Security Audit, Real-Device QA & Pilot Deployment
 ```
 
 > [!IMPORTANT]
-> **Simulation Notice:** All functionality in Stage 1 operates on **simulated mock data**. Hardware APIs (GPS coordinates, camera captures), IndexedDB storage queues, and authentication sessions are simulated in-browser to thoroughly test and approve the UI/UX workflows before backend integration. All demonstrated corporate accounts use realistic fictional entities (*Apex Heavy Logistics*, *Equatorial Energy*, *Zenith Logistics*, *Pinnacle Cargo*).
+> **Operational Data Notice:** While **Stage 3A introduces real, cryptographic Supabase GoTrue authentication and server-side profile roles**, daily attendance writes, GPS geofence checks, and photo evidence captures remain simulated in-memory until Stage 3B activates live database write procedures. Authenticated sessions are clearly labelled with *"Signed in securely"* and *"Demo Field Data"* badges.
 
 ---
 
@@ -382,11 +384,15 @@ carbonSalesTracker/
 
 ---
 
-## 13. Backend Architecture & Hosted Supabase Setup (Stage 2)
+## 13. Authentication & Backend Architecture (Stage 2 & Stage 3A)
 
 The application backend runs on Supabase PostgreSQL (PostGIS) with strict Row-Level Security (RLS) and cryptographic sandboxing across Nigeria (`NG`), Zambia (`ZM`), and Malawi (`MW`).
 
-> **ENVIRONMENT SCOPE NOTICE:** **The backend is approved for development, not production deployment.** Production deployment requires dedicated VPC isolation, enterprise KMS key management, hardware Knox attestation, and individual corporate email invite onboarding.
+Stage 3A integrates real, cryptographic GoTrue authentication using publishable keys:
+- **Zero Service-Role Exposure:** Browser code never receives administrative credentials.
+- **Trusted Profile RBAC:** User roles (`salesperson`, `country_sales_head`, `hq_admin`) and country scoping (`NG`, `ZM`, `MW`) are derived server-side from `public.profiles`.
+- **Session Scoping & State Isolation:** All React operational contexts (`FieldSessionProvider`, `AuditProvider`, `DeviceReplacementProvider`) are dynamically keyed to `currentUser.id`. Signing out immediately purges in-memory operational state with zero multi-user state leakage.
+- **Production-Clean Sign-In:** The login view contains no hardcoded test account shortcuts or credentials.
 
 ### Environment Configuration
 
@@ -400,44 +406,77 @@ SUPABASE_SERVICE_ROLE_KEY=ey... # Required for administrative provisioning scrip
 
 > **Security Note:** Never commit `.env.local` to Git. It is automatically excluded by `.gitignore`. The repository and migrations contain zero hardcoded credentials.
 
-### Database Migrations & Account Provisioning
+---
 
-Database migrations are located under `supabase/migrations/` (25 sequential declarative migrations):
+## 14. Local Development, Testing & Verification
 
+### Prerequisites
+- Node.js 18.x or later
+- npm 9.x or later
+- Python 3.10+ (for Playwright browser automation scripts)
+
+### Installation & Local Dev Server
 ```bash
-# Push declarative migrations to hosted Supabase
-npx supabase db push
+# Install dependencies
+npm install
 
-# Provision authenticated seed users via official Auth Admin API
-npm run provision:users
+# Start Vite development server
+npm run dev
 ```
 
-### Automated Backend Verification Suite
-
-Run the Stage 2B backend verification suite to test tri-market RLS isolation, sole-author field evidence, PostGIS spatial geofence calculations, offline event ingestion, private storage policies, and 100% company handset fleet custody:
-
+### Static Analysis & Unit Tests
 ```bash
+# TypeScript strict type checking
+npx tsc --noEmit
+
+# ESLint static code quality audit
+npm run lint
+
+# Automated unit & integration tests (Vitest — 10 suites, 100 tests)
+npm test
+```
+
+### Supabase Backend & Live Authentication Tests
+```bash
+# Stage 2B automated backend verification suite (60 RLS, schema, and PostGIS tests)
 npm run test:backend
+
+# Stage 3A live GoTrue authentication verification (8 tests across NG, ZM, MW, HQ)
+npx tsx scripts/test-stage-3a-live.ts
+
+# Stage 3A direct API RLS negative security tests (13 tests enforcing country sandboxing)
+npx tsx scripts/test-stage-3a-direct-api-auth.ts
 ```
 
-All **60 backend tests** execute live against the hosted PostgreSQL/PostGIS database and pass at 100%.
+### Playwright Browser Automation Suite
+```bash
+# Execute headless browser verification across desktop (1280px) and mobile viewports (360px, 390px, 430px)
+python scripts/verify_stage_3a_browser.py
+```
+
+### Production Build (Vercel Preview / Production)
+```bash
+# Compile and bundle with strict tree-shaking and zero credential leakage
+npm run build
+```
 
 ---
 
-## 14. Architecture Decision Records (ADRs)
+## 15. Architecture Decision Records (ADRs)
 
-- [ADR 0001: Project Initiation & Architecture Baseline](docs/decisions/0001-project-initiation.md)
-- [ADR 0002: Stage 1A Approval & Technology Baseline](docs/decisions/0002-stage-1a-approval.md)
+- [ADR 0001: Project Initiation & Architecture Baseline](docs/decisions/0001-stage-0-approval.md)
+- [ADR 0002: Stage 1A Design System & Brand Compliance](docs/decisions/0002-stage-1a-approval.md)
 - [ADR 0003: Stage 1B Salesperson Mobile Experience](docs/decisions/0003-stage-1b-salesperson-mobile-interface.md)
 - [ADR 0004: Stage 1C Country Sales Head Console](docs/decisions/0004-stage-1c-country-sales-head-dashboard.md)
-- [ADR 0005: Stage 1D HQ Admin & Company Device Management](docs/decisions/0005-stage-1d-hq-admin-device-management.md)
-- [ADR 0006: Stage 1E Frontend Quality Assurance & Checkpoint](docs/decisions/0006-stage-1e-frontend-qa-and-checkpoint.md)
+- [ADR 0005: Stage 1D HQ Admin Regional Oversight & Device Fleet](docs/decisions/0005-stage-1d-hq-admin-interface.md)
+- [ADR 0006: Stage 1E Frontend Quality Assurance & Cross-Role Integration](docs/decisions/0006-stage-1e-frontend-qa-and-integration.md)
 - [ADR 0007: Stage 2A Backend Architecture & Planning](docs/decisions/0007-stage-2a-backend-architecture-and-planning.md)
 - [ADR 0008: Stage 2B Supabase Backend Implementation & Verification](docs/decisions/0008-stage-2b-supabase-backend-implementation.md)
+- [ADR 0009: Stage 3A Real Supabase Authentication & Role-Based Access Control](docs/decisions/0009-stage-3a-supabase-authentication-and-rbac.md)
 
 ---
 
-## 15. License
+## 16. License
 
 Proprietary — Internal application developed for **Carbon Car Care**. All rights reserved.
 

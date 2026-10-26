@@ -20,5 +20,14 @@ The complete, versioned project guide is included below. Treat it as a persisten
 8. **At the end of every task:** report what changed, files modified, tests performed, limitations, and whether approval is needed before advancing.
 9. **If new user instructions conflict with the guide**, identify the discrepancy, request clarification when material, and update the relevant project document after approval rather than silently changing scope.
 10. **Direct Salesperson → HQ Admin Device Replacement Workflow.** Per approved architectural decision, salespeople submit company device replacement requests directly to HQ Admin under Profile → My Device → Report Device Issue. Country Sales Heads have read-only visibility where operationally appropriate and do not act as an approval intermediary. Hardware replacement requests are administrative records and remain strictly separate from field visit exception logs.
+11. **Mandatory Documentation & Milestone Completion Standard.** Every Antigravity development milestone must include:
+    - Implementation of approved functionality.
+    - Automated and applicable manual testing.
+    - Security and permission verification.
+    - Documentation updates (`README.md`, `CHANGELOG.md`, `ROADMAP.md`, ADRs, and test reports).
+    - Updated development status and roadmap.
+    - Implementation completion report.
+    - GitHub commit only after required approval.
+    *Never mark a development stage complete without updating its documentation.* Future agents must read the existing project documentation (`docs/`, ADRs, architecture plans) before modifying the application, and must preserve all approved business rules without contradictory revisions.
 
 > Keep this file at the project root. Do not move the referenced guide unless you also update the include path above.

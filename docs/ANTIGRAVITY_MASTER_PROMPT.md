@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Initial execution authorised for Stage 0 and Stage 1 only  
+**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, and Stage 3A Completed; Stage 3B Authorisation Pending  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -217,15 +217,17 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 
 ## 13. Implementation phases and approval gates
 
-| Stage | Deliverables | Gate |
+| Stage | Deliverables | Gate / Status |
 |---|---|---|
-| **0** | PRD review, architecture, design plan, risks, open questions | Confirm plan |
-| **1** | Premium branded frontend for all roles with mock data; responsive UI walkthrough | **User approval required** |
-| **2** | Supabase dev project, migrations, Auth, roles, RLS, company device assignment | Security review and approval |
-| **3** | Attendance, clients/branches, GPS, live camera, visit check-in/out and meeting logs | Workflow tests and approval |
-| **4** | Offline sync, salesperson-created exceptions, verification, flags and audit reviews | Resilience tests and approval |
-| **5** | Operational dashboards, safe CSV export, notifications and reconciliation | Reconciled data review and approval |
-| **6** | Security audit, real-device GPS/camera/offline QA, deployment/pilot readiness | Stakeholder sign-off |
+| **0** | PRD review, architecture, design plan, risks, open questions | **Completed** (ADR 0001) |
+| **1** | Premium branded frontend for all roles with mock data; responsive UI walkthrough (1A–1E) | **Completed** (ADRs 0002–0006) |
+| **2** | Supabase dev project, migrations, Auth, roles, RLS, company device assignment (2A–2B) | **Completed** (ADRs 0007–0008) |
+| **Pre-3** | Pre-Stage 3 Product & UX Audit, Client terminology corrections, sync queue accessible navigation | **Completed** |
+| **3A** | Real Supabase Auth, GoTrue session lifecycle, trusted database profile RBAC, country isolation | **Completed** (ADR 0009) |
+| **3B** | Real attendance (Start/End Day), GPS capture, live camera selfie, check-in/out Supabase writes | **Next Phase (Awaiting Authorization)** |
+| **4** | Offline sync, salesperson-created exceptions, verification, flags and audit reviews | Planned |
+| **5** | Operational dashboards, safe CSV export, notifications and reconciliation | Planned |
+| **6** | Security audit, real-device GPS/camera/offline QA, deployment/pilot readiness | Planned |
 
 At the end of each stage:
 
@@ -234,7 +236,8 @@ At the end of each stage:
 3. Run and report relevant tests and failures.
 4. Show application/browser artifacts or screenshots when relevant.
 5. List limitations and blockers.
-6. **Stop and request approval** before moving to the next stage.
+6. Update all relevant documentation (`README.md`, `CHANGELOG.md`, `ROADMAP.md`, ADRs, and test reports).
+7. **Stop and request approval** before moving to the next stage.
 
 Use Git and preserve a stable commit at every approved checkpoint. Never overwrite approved UI without documenting it.
 
@@ -244,21 +247,24 @@ Use production-quality TypeScript, reusable components, input validation and cle
 
 Support privacy notices, limited event-based location capture, access controls, data retention review, backups, observability and appropriate jurisdictional reviews. Do not promise spoof-proof GPS, tamper-proof offline events or perfect sync across devices/browsers.
 
-## 15. Current authorised first task — Stage 0 + Stage 1 ONLY
+## 15. Current State & Architectural Baseline — Stage 3A Completed
 
-Unless the user has subsequently approved a later stage, only carry out the following:
+Stage 3A is fully implemented, verified, and locked. The current architecture establishes:
 
-1. Read this guide and the latest PRD; confirm approved MVP scope and technical blockers.
-2. Inspect official Carbon logo in `public/brand/carbon-car-care-logo.png`. Ask for it if missing.
-3. Propose project architecture, navigation map, design tokens, component model and staged delivery plan.
-4. Initialise React/TypeScript/Vite and configure Tailwind, shadcn/ui and related frontend dependencies.
-5. Build an attractive, coherent, responsive frontend for salesperson, Country Sales Head and HQ Admin with explicitly labelled **mock data**.
-6. Include operational sample statuses, functional demo navigation/filters/forms and representative approval screens.
-7. Run the local application, inspect desktop/mobile layouts, resolve UI regressions and show screenshots or browser walkthroughs.
-8. **Do not** implement production authentication, Supabase writes, GPS capture, live camera, offline sync or deployment in this stage.
-9. Report results and **STOP** for user design approval before Stage 2.
-
-For the very first interaction, provide a concise requirements summary, implementation plan, risks and blocking questions before editing code.
+1. **Real Supabase GoTrue Authentication:** All users authenticate via official GoTrue email/password authentication using publishable keys (`sb_publishable_...`). Zero service-role keys are exposed to the client.
+2. **Trusted Profile-Based Roles & RLS:** User roles (`salesperson`, `country_sales_head`, `hq_admin`) and market assignments (`NG`, `ZM`, `MW`) are loaded directly from `public.profiles` keyed to `auth.uid()`. RLS policies strictly sandbox Country Sales Heads to their assigned country and salespeople to their own records. Direct API attempts to alter `role` or `market_code` fail via PostgreSQL `WITH CHECK` triggers.
+3. **Role-Specific Navigation & Portals:**
+   - Field Salesperson: Mobile PWA shell, attendance, client directory, visit workflows, exception submission.
+   - Country Sales Head: Assigned market team attendance, visit reviews, registration/pin approvals, flag resolution, safe CSV export.
+   - HQ Administrator: Multi-market oversight, device inventory assignment, device replacement approvals, ERP client master imports, and audit log inspection.
+4. **Session Management & Isolation:**
+   - Sessions restore securely upon browser refresh via Supabase tokens.
+   - React contexts (`FieldSessionProvider`, `AuditProvider`, `DeviceReplacementProvider`) are dynamically keyed to `currentUser.id` (`key={`field-${currentUser.id}`}`). Logging out immediately unmounts and purges in-memory operational state with zero cross-user leakage.
+   - Suspended accounts (`is_active: false`) and missing profile records are denied application access.
+5. **Production-Clean Login Form:** The development test-accounts helper drawer has been completely removed from the login screen. No credentials, account lists, or fixed passwords exist in production client assets.
+6. **Company Device Display:** Salesperson profile screens display database-assigned asset tags (`CAR-SPR-117352`) and clearly label hardware attestation as *Future Knox MDM (Unattested in MVP)* without claiming cryptographic attestation.
+7. **Clear Operational State Separation:** Status badges distinguish real authentication (*"Signed in securely"* / *"Authenticated"*) from simulated operational field data (*"Demo Field Data"*).
+8. **Next Phase (Stage 3B):** Live Supabase database writes for daily attendance, fresh GPS location captures, live camera selfie checks, and check-in/out visit records. Do not begin Stage 3B without explicit user instruction.
 
 ## 16. Instructions for every future user prompt
 
