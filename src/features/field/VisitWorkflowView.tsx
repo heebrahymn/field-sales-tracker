@@ -831,61 +831,6 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
               )}
             </CardContent>
           </Card>
-
-          {/* ================= STEP 4: CHECK-IN ACTION ================= */}
-          <div className="space-y-2">
-            {!selectedBranch ? (
-              <Button
-                disabled
-                className="w-full h-12 min-h-[48px] font-bold text-xs bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
-              >
-                Select a Client in Step 1 to Proceed
-              </Button>
-            ) : isPendingApproval ? (
-              <Button
-                disabled
-                className="w-full h-12 min-h-[48px] font-bold text-xs bg-amber-100 text-amber-800 cursor-not-allowed border border-amber-300"
-              >
-                Check-In Blocked: Location Pending Approval
-              </Button>
-            ) : isPinRejected ? (
-              <Button
-                disabled
-                className="w-full h-12 min-h-[48px] font-bold text-xs bg-rose-100 text-rose-800 cursor-not-allowed border border-rose-300"
-              >
-                Check-In Blocked: Location Pin Rejected
-              </Button>
-            ) : !hasCapturedPhoto ? (
-              <Button
-                disabled
-                className="w-full h-12 min-h-[48px] font-bold text-xs bg-slate-200 text-slate-500 cursor-not-allowed"
-              >
-                Capture Live Photo in Step 3 to Proceed
-              </Button>
-            ) : (
-              <Button
-                onClick={handleCheckIn}
-                disabled={simulatedGpsAccuracy > maxGpsLimit}
-                className={`w-full h-12 min-h-[48px] font-bold text-xs shadow-sm flex items-center justify-center gap-2 ${
-                  simulatedGpsAccuracy <= maxGpsLimit
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4" /> Check In & Start Client Meeting
-              </Button>
-            )}
-
-            {simulatedGpsAccuracy > maxGpsLimit && (
-              <Button
-                variant="outline"
-                onClick={onNavigateToExceptions}
-                className="w-full text-xs h-10 border-amber-300 text-amber-900 bg-amber-50"
-              >
-                File GPS Failure Exception Instead
-              </Button>
-            )}
-          </div>
         </div>
       )}
 
@@ -912,7 +857,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
               disabled
               className="h-10 text-xs font-bold bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed shrink-0"
             >
-              Select Client Location
+              Select a Client in Step 1 to Proceed
             </Button>
           </div>
         ) : isPendingApproval ? (
@@ -924,7 +869,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
               disabled
               className="h-9 text-xs font-bold bg-amber-200/80 text-amber-900 cursor-not-allowed border border-amber-300 shrink-0"
             >
-              Pin Pending
+              Check-In Blocked: Location Pending Approval
             </Button>
           </div>
         ) : isPinRejected ? (
@@ -936,7 +881,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
               disabled
               className="h-9 text-xs font-bold bg-rose-200 text-rose-900 cursor-not-allowed border border-rose-300 shrink-0"
             >
-              Pin Rejected
+              Check-In Blocked: Location Pin Rejected
             </Button>
           </div>
         ) : !hasCapturedPhoto ? (

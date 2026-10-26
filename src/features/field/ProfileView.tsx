@@ -20,7 +20,6 @@ import {
   RotateCw,
   Info,
   BatteryCharging,
-  Fingerprint,
   Wifi,
   X,
 } from 'lucide-react';
@@ -209,27 +208,29 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
           {/* Handset Technical Specs */}
           <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
             <div className="flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Asset ID:</span>
+              <span className="text-slate-500 font-medium">Assigned Asset ID:</span>
               <span className="font-mono font-bold text-slate-900">{assignedDeviceTag}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Model:</span>
+              <span className="text-slate-500 font-medium">Device Model:</span>
               <span className="font-semibold text-slate-800">{assignedDeviceModel}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-500 font-medium">IMEI Hardware Hash:</span>
-              <span className="font-mono text-slate-600 text-[11px]">864209051999042</span>
+              <span className="text-slate-500 font-medium">Inventory Assignment:</span>
+              <span className="text-slate-800 font-semibold flex items-center gap-1">
+                <Smartphone className="w-3 h-3 text-brand-blue" /> HQ Database Assigned
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500 font-medium">Hardware Attestation:</span>
+              <span className="text-slate-500 text-[11px] italic">
+                Future Knox MDM (Unattested in MVP)
+              </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-500 font-medium">Battery Health:</span>
               <span className="text-emerald-700 font-semibold flex items-center gap-1">
                 <BatteryCharging className="w-3 h-3 text-emerald-600" /> 94% (Good)
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500 font-medium">MDM Knox Enrollment:</span>
-              <span className="text-slate-700 font-semibold flex items-center gap-1">
-                <Fingerprint className="w-3 h-3 text-brand-blue" /> Policy Active & Locked
               </span>
             </div>
           </div>

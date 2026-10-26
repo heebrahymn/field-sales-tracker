@@ -53,7 +53,7 @@ export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
       {/* 1. Global Interactive Demo Banner & Role Quick Switcher */}
-      <DemoDataBanner />
+      <DemoDataBanner onLogout={onLogout} />
 
       {/* 2. Role Specific Layout */}
       {isSalesperson ? (
@@ -183,7 +183,7 @@ export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
             />
 
             <main className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 lg:p-8">
-              {currentUser.role === 'sales_head' && (
+              {(currentUser.role === 'country_sales_head' || currentUser.role === 'sales_head') && (
                 <SalesHeadDashboardPreview
                   activeSection={activeDesktopSection}
                   onSelectSection={setActiveDesktopSection}
