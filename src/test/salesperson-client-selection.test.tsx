@@ -44,7 +44,7 @@ describe('Salesperson Client Selection & Add Client Improvements (Changes 1 - 7)
         const { cancelVisit } = useFieldSession();
         return (
           <div>
-            <button onClick={cancelVisit}>Cancel Active Visit For Directory Test</button>
+            <button onClick={() => cancelVisit(true)}>Cancel Active Visit For Directory Test</button>
             <ClientsDirectoryView />
           </div>
         );
@@ -82,7 +82,7 @@ describe('Salesperson Client Selection & Add Client Improvements (Changes 1 - 7)
           {!cancelled && (
             <button
               onClick={() => {
-                cancelVisit();
+                cancelVisit(true);
                 setCancelled(true);
               }}
             >
@@ -205,7 +205,7 @@ describe('Salesperson Client Selection & Add Client Improvements (Changes 1 - 7)
         const { cancelVisit } = useFieldSession();
         return (
           <div>
-            <button onClick={cancelVisit}>Reset Session</button>
+            <button onClick={() => cancelVisit(true)}>Reset Session</button>
             <VisitWorkflowView />
           </div>
         );
@@ -277,7 +277,7 @@ describe('Salesperson Client Selection & Add Client Improvements (Changes 1 - 7)
       const { cancelVisit } = useFieldSession();
       return (
         <div>
-          <button onClick={cancelVisit}>Reset Session</button>
+          <button onClick={() => cancelVisit(true)}>Reset Session</button>
           <VisitWorkflowView />
         </div>
       );
@@ -308,7 +308,7 @@ describe('Salesperson Client Selection & Add Client Improvements (Changes 1 - 7)
         const { cancelVisit, registerBranch } = useFieldSession();
         return (
           <div>
-            <button onClick={cancelVisit}>Reset Session</button>
+            <button onClick={() => cancelVisit(true)}>Reset Session</button>
             <button
               onClick={() => {
                 registerBranch({

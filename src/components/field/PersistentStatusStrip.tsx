@@ -4,7 +4,11 @@ import { useFieldSession } from '@/context/FieldSessionContext';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { MapPin, Wifi, WifiOff, Smartphone } from 'lucide-react';
 
-export const PersistentStatusStrip: React.FC = () => {
+interface PersistentStatusStripProps {
+  onNavigateTab?: (tab: 'sync' | 'home' | 'clients' | 'visit' | 'exceptions' | 'profile') => void;
+}
+
+export const PersistentStatusStrip: React.FC<PersistentStatusStripProps> = ({ onNavigateTab }) => {
   const { currentUser, attendanceStatus } = useAuth();
   const { simulatedGpsAccuracy, isOnline, syncQueue } = useFieldSession();
 
@@ -35,16 +39,20 @@ export const PersistentStatusStrip: React.FC = () => {
           <span>Simulated GPS: ±{gpsAccuracyMeters}m</span>
         </div>
 
-        {/* Sync Queue State - Explicitly labelled as simulated */}
-        <div
-          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-medium ${
+        {/* Sync Queue State - Accessible and Clickable Button (Fix P1) */}
+        <button
+          type="button"
+          id="btn-sync-queue-badge"
+          onClick={() => onNavigateTab?.('sync')}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-medium transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue focus-visible:ring-offset-1 hover:brightness-95 active:scale-95 ${
             !isOnline
               ? 'bg-red-50 text-red-800 border-red-300'
               : pendingCount === 0
-              ? 'bg-slate-100 text-slate-800 border-slate-300'
-              : 'bg-amber-50 text-amber-900 border-amber-300'
+              ? 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200/80'
+              : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
           }`}
-          title={!isOnline ? 'Device offline: events stored locally' : pendingCount === 0 ? 'All local events synced to server' : `${pendingCount} events queued in local IndexedDB`}
+          aria-label={`Sync Queue: ${!isOnline ? 'Offline Queue' : pendingCount === 0 ? 'Synced' : `${pendingCount} Queued`}. Tap to view offline queue and sync telemetry.`}
+          title={!isOnline ? 'Device offline: tap to view local event queue' : pendingCount === 0 ? 'All local events synced: tap to view queue logs' : `${pendingCount} events queued: tap to view queue and sync`}
         >
           {isOnline ? (
             <Wifi className="w-3 h-3 text-emerald-700 shrink-0" />
@@ -52,7 +60,7 @@ export const PersistentStatusStrip: React.FC = () => {
             <WifiOff className="w-3 h-3 text-red-600 shrink-0" />
           )}
           <span>Simulated: {!isOnline ? 'Offline Queue' : pendingCount === 0 ? 'Synced' : `${pendingCount} Queued`}</span>
-        </div>
+        </button>
       </div>
 
       {/* Device & Market identifier with improved contrast */}

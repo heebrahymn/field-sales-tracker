@@ -92,7 +92,7 @@ export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
           </header>
 
           {/* Persistent Operational Status Strip */}
-          <PersistentStatusStrip />
+          <PersistentStatusStrip onNavigateTab={setActiveMobileTab} />
 
           {/* Main Mobile Content Area */}
           <main className="flex-1 p-4 overflow-y-auto">

@@ -44,7 +44,6 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     branches,
     checkInVisit,
     checkOutVisit,
-    cancelVisit,
     simulatedGpsAccuracy,
     simulatedGeofenceDistance,
     setSimulatedGps,
@@ -253,7 +252,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   const isPinRejected = selectedBranch?.status === 'rejected';
 
   return (
-    <div className="space-y-4 pb-20 max-w-lg mx-auto select-none">
+    <div className="space-y-4 pb-28 max-w-lg mx-auto select-none relative">
       {/* ================= SIMULATION CONTROLS FOR TESTING ================= */}
       <div className="bg-slate-900 text-white p-3.5 rounded-xl text-xs space-y-2 border border-slate-800 shadow-sm">
         <div className="flex items-center justify-between">
@@ -379,11 +378,13 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                     Draft Meeting Log
                   </Button>
                   <Button
-                    variant="ghost"
-                    onClick={cancelVisit}
-                    className="w-1/2 h-11 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                    variant="outline"
+                    id="btn-report-visit-disruption"
+                    onClick={onNavigateToExceptions}
+                    className="w-1/2 h-11 text-xs font-semibold text-amber-800 border-amber-300 bg-amber-50 hover:bg-amber-100 transition-colors"
+                    title="Report disruption or submit visit exception"
                   >
-                    Cancel Session
+                    Report Disruption
                   </Button>
                 </div>
               </div>
@@ -888,16 +889,112 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
         </div>
       )}
 
+      {/* ================= STICKY MOBILE PRIMARY ACTION FOOTER (Fix P2) ================= */}
+      <div
+        id="sticky-visit-workflow-cta"
+        className="sticky bottom-16 -mx-4 px-4 py-3 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-lg z-30"
+      >
+        {activeVisit ? (
+          <Button
+            id="sticky-btn-checkout"
+            onClick={handleInitiateCheckOut}
+            className="w-full h-12 min-h-[48px] font-bold text-xs bg-brand-blue hover:bg-brand-blue-700 text-white shadow-sm flex items-center justify-center gap-2 active:scale-98 transition-transform"
+          >
+            <MapPin className="w-4 h-4 shrink-0" />
+            Check Out & Document Visit ({formatTimer(liveSeconds)})
+          </Button>
+        ) : !selectedBranch ? (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-500 font-medium text-[11px] truncate">
+              Step 1: Choose a client facility above
+            </span>
+            <Button
+              disabled
+              className="h-10 text-xs font-bold bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed shrink-0"
+            >
+              Select Client Location
+            </Button>
+          </div>
+        ) : isPendingApproval ? (
+          <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-lg border border-amber-200">
+            <span className="text-amber-900 font-medium text-[11px] leading-tight">
+              GPS pin review pending with Sales Head
+            </span>
+            <Button
+              disabled
+              className="h-9 text-xs font-bold bg-amber-200/80 text-amber-900 cursor-not-allowed border border-amber-300 shrink-0"
+            >
+              Pin Pending
+            </Button>
+          </div>
+        ) : isPinRejected ? (
+          <div className="flex items-center justify-between gap-2 bg-rose-50 p-2 rounded-lg border border-rose-200">
+            <span className="text-rose-900 font-medium text-[11px] leading-tight">
+              Proposed pin was rejected by Sales Head
+            </span>
+            <Button
+              disabled
+              className="h-9 text-xs font-bold bg-rose-200 text-rose-900 cursor-not-allowed border border-rose-300 shrink-0"
+            >
+              Pin Rejected
+            </Button>
+          </div>
+        ) : !hasCapturedPhoto ? (
+          <Button
+            id="sticky-btn-capture-photo"
+            type="button"
+            onClick={handleCapturePhoto}
+            disabled={isCapturing}
+            className="w-full h-12 min-h-[48px] font-bold text-xs bg-brand-blue hover:bg-blue-700 text-white shadow-sm flex items-center justify-center gap-2 active:scale-98 transition-transform"
+          >
+            <Camera className="w-4 h-4 shrink-0" />
+            {isCapturing ? 'Capturing Shutter Preview...' : 'Capture Live Premises Photo'}
+          </Button>
+        ) : simulatedGpsAccuracy <= maxGpsLimit ? (
+          <Button
+            id="sticky-btn-checkin"
+            type="button"
+            onClick={handleCheckIn}
+            className="w-full h-12 min-h-[48px] font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center justify-center gap-2 active:scale-98 transition-transform"
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            Check In & Start Client Meeting
+          </Button>
+        ) : (
+          <Button
+            id="sticky-btn-file-exception"
+            type="button"
+            onClick={onNavigateToExceptions}
+            className="w-full h-12 min-h-[48px] font-bold text-xs bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center justify-center gap-2"
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            File GPS Failure Exception Instead
+          </Button>
+        )}
+      </div>
+
       {/* ================= OUTSIDE GEOFENCE CHECKOUT WARNING (PRD §7.2 / AT-05) ================= */}
       {checkoutOutsideWarning && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-slate-200 space-y-4">
+        <div 
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="outside-geofence-modal-title"
+          onClick={(e) => {
+            // Prevent backdrop click dismissal from creating an ambiguous state (Fix P2)
+            e.stopPropagation();
+          }}
+        >
+          <div 
+            className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-slate-200 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-900 flex items-center justify-center mx-auto">
               <AlertTriangle className="w-6 h-6 text-amber-700" />
             </div>
 
             <div className="text-center space-y-1.5">
-              <h3 className="font-bold text-base text-slate-900">
+              <h3 id="outside-geofence-modal-title" className="font-bold text-base text-slate-900">
                 Checkout Outside Geofence ({simulatedGeofenceDistance}m &gt; {geofenceLimit}m)
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed">
@@ -906,22 +1003,26 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
             </div>
 
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
-              Your visit session will be successfully closed and documented. The record remains reviewable by your manager.
+              Cancelling keeps the visit active. Acknowledging continues checkout while retaining the outside-geofence flag and evidence for Country Sales Head review.
             </div>
 
             <div className="space-y-2 pt-1">
               <Button
+                id="btn-outside-geofence-acknowledge"
+                type="button"
                 onClick={handleConfirmCheckoutOutside}
-                className="w-full font-bold h-11 bg-amber-600 hover:bg-amber-700 text-white"
+                className="w-full font-bold h-11 bg-amber-600 hover:bg-amber-700 text-white min-h-[44px]"
               >
-                Acknowledge & Proceed to Checkout
+                Acknowledge & Continue
               </Button>
               <Button
+                id="btn-outside-geofence-cancel"
+                type="button"
                 variant="outline"
                 onClick={() => setCheckoutOutsideWarning(false)}
-                className="w-full text-xs h-10 border-slate-300"
+                className="w-full text-xs h-10 border-slate-300 text-slate-700 hover:bg-slate-100 min-h-[40px]"
               >
-                Cancel Checkout
+                Cancel (Keep Visit Active)
               </Button>
             </div>
           </div>

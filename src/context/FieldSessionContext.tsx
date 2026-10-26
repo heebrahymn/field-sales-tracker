@@ -115,7 +115,7 @@ interface FieldSessionContextType {
   activeVisit: ActiveVisitSession | null;
   checkInVisit: (branch: ClientBranch, photoUrl: string, accuracy: number, distance: number) => void;
   checkOutVisit: (outsideGeofence: boolean, meetingLogData?: any) => void;
-  cancelVisit: () => void;
+  cancelVisit: (force?: boolean | unknown) => void;
 
   // History & Operations
   completedVisits: CompletedVisitRecord[];
@@ -490,9 +490,17 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     );
   };
 
-  const cancelVisit = () => {
+  const cancelVisit = (force: boolean | unknown = false) => {
+    const isForced = force === true;
+    // PRD §5.2 Protection: An active checked-in visit can NEVER be silently discarded!
+    if (activeVisit && !isForced) {
+      notify('PRD §5.2 Protection: Checked-in visits cannot be silently deleted. Please check out or report an operational exception.');
+      return;
+    }
     setActiveVisit(null);
-    notify('Active visit cancelled without saving.');
+    if (isForced) {
+      notify('Active visit cleared for testing.');
+    }
   };
 
   const submitMeetingLog = (visitId: string, _logData: any) => {
