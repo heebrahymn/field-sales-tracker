@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, and Stage 3A Completed; Stage 3B Authorisation Pending  
+**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, and Stage 3B Completed; Stage 3C Authorisation Pending  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -224,7 +224,8 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **2** | Supabase dev project, migrations, Auth, roles, RLS, company device assignment (2A–2B) | **Completed** (ADRs 0007–0008) |
 | **Pre-3** | Pre-Stage 3 Product & UX Audit, Client terminology corrections, sync queue accessible navigation | **Completed** |
 | **3A** | Real Supabase Auth, GoTrue session lifecycle, trusted database profile RBAC, country isolation | **Completed** (ADR 0009) |
-| **3B** | Real attendance (Start/End Day), GPS capture, live camera selfie, check-in/out Supabase writes | **Next Phase (Awaiting Authorization)** |
+| **3B** | Real attendance (Start/End Day), GPS capture, live camera selfie, non-visit request governance | **Completed** (ADR 0010) |
+| **3C** | Real client visit check-in/out, GPS geofencing (200m), live premises photo, meeting logs | **Next Phase (Awaiting Authorization)** |
 | **4** | Offline sync, salesperson-created exceptions, verification, flags and audit reviews | Planned |
 | **5** | Operational dashboards, safe CSV export, notifications and reconciliation | Planned |
 | **6** | Security audit, real-device GPS/camera/offline QA, deployment/pilot readiness | Planned |
@@ -247,24 +248,18 @@ Use production-quality TypeScript, reusable components, input validation and cle
 
 Support privacy notices, limited event-based location capture, access controls, data retention review, backups, observability and appropriate jurisdictional reviews. Do not promise spoof-proof GPS, tamper-proof offline events or perfect sync across devices/browsers.
 
-## 15. Current State & Architectural Baseline — Stage 3A Completed
+## 15. Current State & Architectural Baseline — Stage 3B Completed
 
-Stage 3A is fully implemented, verified, and locked. The current architecture establishes:
+Stage 3B is fully implemented, verified, and locked. The current architecture establishes:
 
-1. **Real Supabase GoTrue Authentication:** All users authenticate via official GoTrue email/password authentication using publishable keys (`sb_publishable_...`). Zero service-role keys are exposed to the client.
-2. **Trusted Profile-Based Roles & RLS:** User roles (`salesperson`, `country_sales_head`, `hq_admin`) and market assignments (`NG`, `ZM`, `MW`) are loaded directly from `public.profiles` keyed to `auth.uid()`. RLS policies strictly sandbox Country Sales Heads to their assigned country and salespeople to their own records. Direct API attempts to alter `role` or `market_code` fail via PostgreSQL `WITH CHECK` triggers.
-3. **Role-Specific Navigation & Portals:**
-   - Field Salesperson: Mobile PWA shell, attendance, client directory, visit workflows, exception submission.
-   - Country Sales Head: Assigned market team attendance, visit reviews, registration/pin approvals, flag resolution, safe CSV export.
-   - HQ Administrator: Multi-market oversight, device inventory assignment, device replacement approvals, ERP client master imports, and audit log inspection.
-4. **Session Management & Isolation:**
-   - Sessions restore securely upon browser refresh via Supabase tokens.
-   - React contexts (`FieldSessionProvider`, `AuditProvider`, `DeviceReplacementProvider`) are dynamically keyed to `currentUser.id` (`key={`field-${currentUser.id}`}`). Logging out immediately unmounts and purges in-memory operational state with zero cross-user leakage.
-   - Suspended accounts (`is_active: false`) and missing profile records are denied application access.
-5. **Production-Clean Login Form:** The development test-accounts helper drawer has been completely removed from the login screen. No credentials, account lists, or fixed passwords exist in production client assets.
-6. **Company Device Display:** Salesperson profile screens display database-assigned asset tags (`CAR-SPR-117352`) and clearly label hardware attestation as *Future Knox MDM (Unattested in MVP)* without claiming cryptographic attestation.
-7. **Clear Operational State Separation:** Status badges distinguish real authentication (*"Signed in securely"* / *"Authenticated"*) from simulated operational field data (*"Demo Field Data"*).
-8. **Next Phase (Stage 3B):** Live Supabase database writes for daily attendance, fresh GPS location captures, live camera selfie checks, and check-in/out visit records. Do not begin Stage 3B without explicit user instruction.
+1. **Real Supabase Workday Attendance Persistence:** Daily Start Day and End Day records persist directly to `public.attendance_days` with authoritative PostGIS coordinates (`POINT(lng lat)`), reported accuracy, and UTC timestamps.
+2. **Sole-Author Principle (PRD §2, §6):** Enforced via PostgreSQL RLS policy `attendance_days_insert_salesperson_only`. Managers receive `HTTP 403 Forbidden` if attempting direct insertion into `attendance_days` on behalf of a salesperson.
+3. **Live Hardware Media & Geolocation:** Integrated HTML5 `getUserMedia` for live front-camera selfie capture with explicit track release (`track.stop()`) on capture/dismissal/unmount; fresh `getCurrentPosition` satellite fix enforcing the ≤ 100m horizontal accuracy threshold (AT-01, AT-02).
+4. **Private Storage & Time-Limited Audit URLs:** Selfies upload to private bucket `attendance-selfies/${userId}/...`. Country Sales Heads inspect evidence via 300-second ephemeral signed URLs (`createSignedUrl(path, 300)`). No public URLs or biometric matching claims.
+5. **Workday Persistence & Cross-Session Restoration:** On load, the app queries `attendance_days` for the user's market workday date (`Africa/Lagos`, `Africa/Lusaka`, `Africa/Blantyre`), restoring active `'started'` or completed `'ended'` states. Dynamic provider keys (`field-${currentUser.id}`) guarantee zero cross-user state leaks on logout.
+6. **Active Visit Workday Closure Guard (PRD §6.1 / AT-03):** End Day modal evaluates active visit state and strictly hard-blocks workday closure while a client visit session remains in progress.
+7. **Non-Visit Workday Governance:** Salesperson-authored non-visit requests (`request_non_visit_workday`) and manager reviews (`review_non_visit_workday`) populate `public.approved_absences` with `counts_as_attendance = TRUE, counts_as_visit_target = FALSE`, protecting attendance compliance with zero physical visit target credits.
+8. **Next Phase (Stage 3C):** Live Supabase database writes for physical client visit check-in/out (`public.visits`), server-side 200m geofencing, premises photography, and meeting log documentation. Do not begin Stage 3C without explicit user instruction.
 
 ## 16. Instructions for every future user prompt
 

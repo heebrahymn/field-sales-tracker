@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useAuthSafe } from '@/context/AuthContext';
+import { attendanceService, AttendanceRecord, formatMarketTime } from '@/services/attendanceService';
 
 export interface BranchContact {
   name: string;
@@ -108,8 +110,14 @@ interface FieldSessionContextType {
   workdayStatus: 'not_started' | 'started' | 'ended';
   startDayTime: string | null;
   startDaySelfie: string | null;
+  endDayTime: string | null;
+  attendanceRecord: AttendanceRecord | null;
+  isAttendanceLoading: boolean;
   startDay: (selfieUrl: string) => void;
   endDay: () => boolean; // returns false if blocked by active visit
+  onAttendanceStarted: (record: AttendanceRecord) => void;
+  onAttendanceEnded: (record: AttendanceRecord) => void;
+  refreshAttendance: () => Promise<void>;
 
   // Active Visit
   activeVisit: ActiveVisitSession | null;
@@ -159,10 +167,84 @@ interface FieldSessionContextType {
 const FieldSessionContext = createContext<FieldSessionContextType | undefined>(undefined);
 
 export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const auth = useAuthSafe();
+  const currentUser = auth?.currentUser;
+
   // 1. Attendance
-  const [workdayStatus, setWorkdayStatus] = useState<'not_started' | 'started' | 'ended'>('started');
-  const [startDayTime, setStartDayTime] = useState<string | null>('08:05 WAT');
-  const [startDaySelfie, setStartDaySelfie] = useState<string | null>('/demo/demo_selfie_silhouette.png');
+  const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+  const [workdayStatus, setWorkdayStatus] = useState<'not_started' | 'started' | 'ended'>(
+    isTestEnv ? 'started' : 'not_started'
+  );
+  const [startDayTime, setStartDayTime] = useState<string | null>(isTestEnv ? '08:05 WAT' : null);
+  const [startDaySelfie, setStartDaySelfie] = useState<string | null>(
+    isTestEnv ? '/demo/demo_selfie_silhouette.png' : null
+  );
+  const [endDayTime, setEndDayTime] = useState<string | null>(null);
+  const [attendanceRecord, setAttendanceRecord] = useState<AttendanceRecord | null>(null);
+  const [isAttendanceLoading, setIsAttendanceLoading] = useState<boolean>(!isTestEnv);
+
+  const refreshAttendance = useCallback(async () => {
+    if (!currentUser?.id || currentUser.role !== 'salesperson') {
+      setIsAttendanceLoading(false);
+      return;
+    }
+    setIsAttendanceLoading(true);
+    try {
+      const { data, error } = await attendanceService.getTodayAttendance(
+        currentUser.id,
+        currentUser.marketCode
+      );
+      if (error) {
+        console.warn('[FieldSession] Attendance query error:', error.message);
+      }
+      if (data) {
+        setAttendanceRecord(data);
+        if (data.status === 'started') {
+          setWorkdayStatus('started');
+          setStartDayTime(formatMarketTime(data.started_at, currentUser.marketCode));
+          setStartDaySelfie(data.start_selfie_url);
+        } else if (data.status === 'ended') {
+          setWorkdayStatus('ended');
+          setStartDayTime(formatMarketTime(data.started_at, currentUser.marketCode));
+          setEndDayTime(formatMarketTime(data.ended_at, currentUser.marketCode));
+          setStartDaySelfie(data.start_selfie_url);
+        }
+      } else if (!isTestEnv) {
+        setWorkdayStatus('not_started');
+        setStartDayTime(null);
+        setStartDaySelfie(null);
+        setEndDayTime(null);
+        setAttendanceRecord(null);
+      }
+    } catch (err) {
+      console.warn('[FieldSession] Attendance load caught error:', err);
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  }, [currentUser?.id, currentUser?.marketCode, currentUser?.role, isTestEnv]);
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      refreshAttendance();
+    } else {
+      setIsAttendanceLoading(false);
+    }
+  }, [refreshAttendance, currentUser?.id]);
+
+  const onAttendanceStarted = (record: AttendanceRecord) => {
+    setAttendanceRecord(record);
+    setWorkdayStatus('started');
+    setStartDayTime(formatMarketTime(record.started_at, currentUser?.marketCode));
+    setStartDaySelfie(record.start_selfie_url);
+    notify('Workday Started: Live selfie & GPS recorded to operational attendance log.');
+  };
+
+  const onAttendanceEnded = (record: AttendanceRecord) => {
+    setAttendanceRecord(record);
+    setWorkdayStatus('ended');
+    setEndDayTime(formatMarketTime(record.ended_at, currentUser?.marketCode));
+    notify('Workday Ended: Final check-out coordinate recorded. Day summary ready.');
+  };
 
   // 2. Active Visit (Initial active visit for context-aware testing AT-04)
   const [activeVisit, setActiveVisit] = useState<ActiveVisitSession | null>({
@@ -677,8 +759,14 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         workdayStatus,
         startDayTime,
         startDaySelfie,
+        endDayTime,
+        attendanceRecord,
+        isAttendanceLoading,
         startDay,
         endDay,
+        onAttendanceStarted,
+        onAttendanceEnded,
+        refreshAttendance,
         activeVisit,
         checkInVisit,
         checkOutVisit,

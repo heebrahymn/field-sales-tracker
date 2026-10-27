@@ -29,5 +29,7 @@ The complete, versioned project guide is included below. Treat it as a persisten
     - Implementation completion report.
     - GitHub commit only after required approval.
     *Never mark a development stage complete without updating its documentation.* Future agents must read the existing project documentation (`docs/`, ADRs, architecture plans) before modifying the application, and must preserve all approved business rules without contradictory revisions.
+12. **Real vs. Mock Operational Demarcation.** Live features backed by Supabase persistence (Stage 3A Auth, Stage 3B Attendance) must be clearly distinguished from mock or simulated components (Stage 3C Client Visits, Stage 3D Offline Journal). Real backend services must never silently fall back to mock data or fabricate GPS/selfie evidence upon failure.
+13. **Strict Deployment, Git Push & Cloud Boundaries.** Never push code to remote Git repositories (`origin/main`) or trigger Vercel production deployments without explicit user review and written approval of the completed milestone report. Never begin subsequent phases (Stage 3C) without explicit authorization.
 
 > Keep this file at the project root. Do not move the referenced guide unless you also update the include path above.

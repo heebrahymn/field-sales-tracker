@@ -57,7 +57,7 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 0, 1, 2 & 3A Completed)
+## 4. Current Milestone Status (Stages 0, 1, 2, 3A & 3B Completed)
 
 ```
 [✓] Stage 0  — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
@@ -69,14 +69,15 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Stage 2  — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies (ADR 0007, ADR 0008)
 [✓] Pre-3    — Product Audit, Terminology Standardization & Usability Fixes
 [✓] Stage 3A — Real Supabase Authentication & Role-Based Access Control (ADR 0009)
-[ ] Stage 3B — Real Attendance (Start/End Day), GPS Geofence & Camera Check-in Writes
+[✓] Stage 3B — Real Attendance & Workday Management (ADR 0010)
+[ ] Stage 3C — Real Client Visit Check-In/Out, GPS Geofencing & Camera Writes
 [ ] Stage 4  — Offline Dexie Sync, Idempotency Engine & Exception Resolution
 [ ] Stage 5  — Management Reports, Safe CSV Exports & Reconciliation
 [ ] Stage 6  — Security Audit, Real-Device QA & Pilot Deployment
 ```
 
 > [!IMPORTANT]
-> **Operational Data Notice:** While **Stage 3A introduces real, cryptographic Supabase GoTrue authentication and server-side profile roles**, daily attendance writes, GPS geofence checks, and photo evidence captures remain simulated in-memory until Stage 3B activates live database write procedures. Authenticated sessions are clearly labelled with *"Signed in securely"* and *"Demo Field Data"* badges.
+> **Operational Data Notice:** **Stage 3A (Supabase GoTrue Auth) and Stage 3B (Real Daily Attendance Persistence)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.absence_requests`) and private Storage (`attendance-selfies`). Daily Start/End Day, GPS acquisition (≤ 100m), front-camera selfie uploads, and non-visit approvals are real database writes. Physical client visit check-ins (`public.visits`) and premises photos remain simulated until Stage 3C activates live visit procedures.
 
 ---
 
@@ -432,11 +433,11 @@ npx tsc --noEmit
 # ESLint static code quality audit
 npm run lint
 
-# Automated unit & integration tests (Vitest — 10 suites, 100 tests)
+# Automated unit & integration tests (Vitest — 11 suites, 115 tests)
 npm test
 ```
 
-### Supabase Backend & Live Authentication Tests
+### Supabase Backend & Live Verification Tests
 ```bash
 # Stage 2B automated backend verification suite (60 RLS, schema, and PostGIS tests)
 npm run test:backend
@@ -446,12 +447,18 @@ npx tsx scripts/test-stage-3a-live.ts
 
 # Stage 3A direct API RLS negative security tests (13 tests enforcing country sandboxing)
 npx tsx scripts/test-stage-3a-direct-api-auth.ts
+
+# Stage 3B live attendance & non-visit governance verification (RPCs, RLS sole-author HTTP 403)
+python scripts/verify_stage_3b_live.py
+
+# Stage 3B final integration audit & evidence immutability verification (upsert: false, fail-closed)
+python scripts/verify_stage_3b_audit_corrections.py
 ```
 
 ### Playwright Browser Automation Suite
 ```bash
-# Execute headless browser verification across desktop (1280px) and mobile viewports (360px, 390px, 430px)
-python scripts/verify_stage_3a_browser.py
+# Execute browser verification across desktop (1280px) and mobile viewports (360px, 390px, 430px)
+python scripts/verify_stage_3b_browser.py
 ```
 
 ### Production Build (Vercel Preview / Production)
@@ -462,7 +469,7 @@ npm run build
 
 ---
 
-## 15. Architecture Decision Records (ADRs)
+## 15. Architecture Decision Records (ADRs) & Stage Documentation
 
 - [ADR 0001: Project Initiation & Architecture Baseline](docs/decisions/0001-stage-0-approval.md)
 - [ADR 0002: Stage 1A Design System & Brand Compliance](docs/decisions/0002-stage-1a-approval.md)
@@ -473,6 +480,11 @@ npm run build
 - [ADR 0007: Stage 2A Backend Architecture & Planning](docs/decisions/0007-stage-2a-backend-architecture-and-planning.md)
 - [ADR 0008: Stage 2B Supabase Backend Implementation & Verification](docs/decisions/0008-stage-2b-supabase-backend-implementation.md)
 - [ADR 0009: Stage 3A Real Supabase Authentication & Role-Based Access Control](docs/decisions/0009-stage-3a-supabase-authentication-and-rbac.md)
+- [ADR 0010: Stage 3B Real Workday Attendance & Non-Visit Governance](docs/decisions/0010-stage-3b-real-attendance-and-workday-management.md)
+
+### Technical Implementation & QA Reports
+- [Stage 3B Attendance Implementation Guide](docs/implementation/STAGE_3B_ATTENDANCE.md)
+- [Stage 3B QA & Security Verification Report](docs/testing/STAGE_3B_QA_REPORT.md)
 
 ---
 

@@ -6,6 +6,7 @@ export type UserRole = 'salesperson' | 'country_sales_head' | 'hq_admin' | 'sale
 export type MarketCode = 'NG' | 'ZM' | 'MW';
 
 export interface AssignedDeviceInfo {
+  deviceId?: string;
   assetTag: string;
   model: string;
   make?: string;
@@ -40,6 +41,7 @@ export const DEMO_PROFILES: Record<string, UserProfile> = {
     isActive: true,
     phoneNumber: '+2348031234567',
     assignedDevice: {
+      deviceId: 'd1111111-1111-4111-b111-111111111111',
       assetTag: 'CAR-SPR-117352',
       model: 'Samsung Galaxy A15',
       make: 'Samsung',
@@ -106,7 +108,9 @@ interface AuthContextType {
   syncQueueCount: number;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const useAuthSafe = () => useContext(AuthContext);
 
 interface AuthProviderProps {
   children: React.ReactNode;
@@ -206,6 +210,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         if (assignmentData && assignmentData.devices) {
           const dev = assignmentData.devices;
           assignedDevice = {
+            deviceId: dev.id,
             assetTag: dev.asset_tag || dev.asset_id || 'CAR-UNKNOWN',
             model: `${dev.make || ''} ${dev.model || ''}`.trim() || 'Company Handset',
             make: dev.make || 'Samsung',

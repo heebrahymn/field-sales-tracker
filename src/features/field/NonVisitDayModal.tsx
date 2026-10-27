@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useFieldSession } from '@/context/FieldSessionContext';
+import { attendanceService, getMarketWorkDate } from '@/services/attendanceService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   X,
-  Briefcase,
   AlertCircle,
-  Clock,
   CheckCircle2,
+  Loader2,
+  Send,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface NonVisitDayModalProps {
@@ -20,29 +22,65 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
   const { currentUser } = useAuth();
   const { submitNonVisitDayRequest } = useFieldSession();
 
-  const [category, setCategory] = useState<'proposal_prep' | 'training' | 'virtual_meeting' | 'internal_meeting' | 'admin_work'>('proposal_prep');
-  const [date, setDate] = useState<string>('2026-10-17');
+  const [category, setCategory] = useState<
+    'proposal_preparation_office' | 'training_development' | 'virtual_client_meeting' | 'internal_operations'
+  >('proposal_preparation_office');
+
+  const [date, setDate] = useState<string>(() => getMarketWorkDate(currentUser.marketCode));
   const [duration, setDuration] = useState<string>('Full Workday (8 hrs)');
   const [notes, setNotes] = useState<string>(
     'Office preparation of commercial fleet trial specifications and technical lubrication schedules for heavy-duty haulage accounts.'
   );
+
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    submitNonVisitDayRequest({
-      category,
-      date,
-      duration,
-      notes,
-    });
-    setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      onClose();
-    }, 1200);
+    if (!notes.trim()) {
+      setSubmitError('A detailed activity justification is required.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      // 1. Submit to Supabase via security definer RPC
+      const result = await attendanceService.submitNonVisitRequest({
+        date,
+        category,
+        justification: notes.trim(),
+      });
+
+      if (result.error) {
+        setSubmitError(result.error.message);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 2. Update local state
+      submitNonVisitDayRequest({
+        category: category as any,
+        date,
+        duration,
+        notes: notes.trim(),
+      });
+
+      setSubmitted(true);
+      setTimeout(() => {
+        setSubmitted(false);
+        onClose();
+      }, 1600);
+    } catch (err: any) {
+      console.error('[NonVisitDayModal] Submission error:', err);
+      setSubmitError(err.message || 'Failed to submit non-visit workday request.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -53,7 +91,7 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-bold text-purple-700 uppercase tracking-wider bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-                PRD §2 & §6.1 Non-Visit Workday
+                PRD §2 &amp; §6.1 Non-Visit Workday
               </span>
             </div>
             <h3 className="font-bold text-slate-900 text-base mt-1">
@@ -65,6 +103,7 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
           </div>
           <button
             onClick={onClose}
+            disabled={isSubmitting}
             className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -73,14 +112,17 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
 
         {/* Form Body */}
         {submitted ? (
-          <div className="p-8 text-center space-y-3">
-            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-6 h-6" />
+          <div className="p-8 text-center space-y-3 animate-in fade-in zoom-in-95">
+            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-xs">
+              <CheckCircle2 className="w-7 h-7" />
             </div>
-            <h4 className="font-bold text-slate-900 text-base">Request Submitted</h4>
-            <p className="text-xs text-slate-600 max-w-xs mx-auto">
-              Your non-visit workday request has been submitted to your Country Sales Head for approval.
+            <h4 className="font-bold text-slate-900 text-base">Request Submitted as Pending</h4>
+            <p className="text-xs text-slate-600 max-w-xs mx-auto leading-relaxed">
+              Your non-visit workday request has been recorded in the Supabase authorization queue for your Country Sales Head.
             </p>
+            <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-[11px] text-purple-950 text-left">
+              <strong>Attendance Note:</strong> If approved, this workday will credit daily attendance but strictly <strong>zero</strong> physical-visit targets.
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4 text-xs text-slate-700">
@@ -88,7 +130,7 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
             <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-purple-800 shrink-0 mt-0.5" />
               <div className="text-[11px] text-purple-950 leading-relaxed">
-                <strong>PRD Rule:</strong> An authorised non-visit working day counts toward <strong>attendance</strong>, but strictly <strong>zero</strong> physical-visit targets. Manager approval is required.
+                <strong>PRD Rule:</strong> An authorised non-visit working day counts toward <strong>attendance</strong>, but strictly <strong>zero</strong> physical-visit targets. Country Sales Head approval is required.
               </div>
             </div>
 
@@ -102,11 +144,10 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
                 onChange={(e) => setCategory(e.target.value as any)}
                 className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-brand-blue focus:outline-none"
               >
-                <option value="proposal_prep">Proposal Preparation (Office)</option>
-                <option value="training">Technical Product Training</option>
-                <option value="virtual_meeting">Virtual Client Meeting</option>
-                <option value="internal_meeting">Internal Operations / Review Meeting</option>
-                <option value="admin_work">Office Administrative / Reporting Work</option>
+                <option value="proposal_preparation_office">Proposal Preparation (Office)</option>
+                <option value="training_development">Technical Product Training</option>
+                <option value="virtual_client_meeting">Virtual Client Meeting</option>
+                <option value="internal_operations">Internal Operations / Review Meeting</option>
               </select>
             </div>
 
@@ -121,6 +162,7 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                   className="text-xs h-10"
+                  required
                 />
               </div>
 
@@ -158,27 +200,43 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
               </p>
             </div>
 
-            {/* Turnaround Note */}
-            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-600 flex items-center gap-2">
-              <Clock className="w-3.5 h-3.5 text-slate-400" />
-              <span>Review turnaround: Typically approved by Country Sales Head within 24 hours.</span>
-            </div>
+            {/* Submission Error Banner */}
+            {submitError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-red-900">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <div className="text-[11px]">
+                  <strong>Request Failed:</strong> {submitError}
+                </div>
+              </div>
+            )}
 
             {/* Footer Actions */}
-            <div className="p-4 -mx-4 -mb-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2.5 rounded-b-2xl">
+            <div className="pt-2 border-t border-slate-200 flex items-center justify-end gap-2.5">
               <Button
                 type="button"
                 variant="outline"
                 onClick={onClose}
-                className="text-xs h-11 px-4 border-slate-300"
+                disabled={isSubmitting}
+                className="text-xs h-10 px-4 border-slate-300"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
-                className="text-xs h-11 px-5 font-bold bg-purple-700 hover:bg-purple-800 text-white shadow-sm flex items-center gap-1.5"
+                disabled={isSubmitting}
+                className="text-xs h-10 px-4 font-bold bg-purple-700 hover:bg-purple-800 text-white shadow-sm flex items-center gap-1.5"
               >
-                <Briefcase className="w-3.5 h-3.5" /> Submit for Approval
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    Submit Request
+                  </>
+                )}
               </Button>
             </div>
           </form>

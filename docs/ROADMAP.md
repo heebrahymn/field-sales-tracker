@@ -3,8 +3,8 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
-**Last Updated:** October 26, 2026  
-**Current Milestone:** Stage 3A Completed & Validated  
+**Last Updated:** October 27, 2026  
+**Current Milestone:** Stage 3B Completed & Validated (Stage 3C Awaiting Authorization)  
 
 ---
 
@@ -23,8 +23,8 @@
                └─ 2B: 25 SQL Migrations, PostGIS, Storage, RLS Policies
 [✓] Pre-3    — Product Audit, Terminology Standardization & Usability Fixes
 [✓] Stage 3A — Real Supabase Authentication & Role-Based Access Control (ADR 0009)
-[ ] Stage 3B — Real Attendance & Workday Management (Awaiting Authorization)
-[ ] Stage 3C — Real GPS Geofencing, Live Camera Capture & Client Visit Integration
+[✓] Stage 3B — Real Attendance & Workday Management (ADR 0010)
+[ ] Stage 3C — Real GPS Geofencing, Live Camera Capture & Client Visit Integration (Awaiting Authorization)
 [ ] Stage 3D — Offline IndexedDB Journal, Media Queuing & Dependency Sync
 [ ] Stage 3E — Management Dashboards, Safe CSV Exports & Dispute Resolution
 [ ] Stage 3F — Security Audit, Real-Device QA & Pilot Deployment
@@ -65,19 +65,21 @@
 - Removed development account helper drawers for production readiness.
 - Company handset inventory asset tag display (`CAR-SPR-117352`).
 
+### Stage 3B: Real Attendance & Workday Management (ADR 0010)
+- Canonical PostgreSQL persistence in `public.attendance_days` with PostGIS point geometry.
+- Live front-camera selfie capture via HTML5 MediaStreams; auto-released camera hardware tracks.
+- Private Cloud Storage uploads to `attendance-selfies/${userId}/...` with 300-second signed URL inspection for managers.
+- Fresh GPS satellite fix acquisition validating accuracy ≤ 100m (AT-01, AT-02).
+- Automatic workday persistence and cross-session restoration across reload/login.
+- AT-03 hard block on End Day when open client visit session exists.
+- Non-visit workday governance via RPCs (`request_non_visit_workday`, `review_non_visit_workday`), strictly enforcing attendance compliance with zero physical-visit target credits.
+- PostgreSQL RLS enforcement of salesperson sole-authorship (CSH direct insert returns HTTP 403).
+
 ---
 
 ## 3. Upcoming Implementation Phases
 
-### Stage 3B: Real Attendance & Workday Management
-- **Objective:** Activate live database writes to `public.attendance_days`.
-- **Scope:**
-  - Start Day workflow: capture browser GPS fix, capture front-camera selfie, upload selfie to private `attendance-selfies` storage bucket, and insert record into `attendance_days`.
-  - Authorized absence & non-visit workday requests: integrate `public.absence_requests` and manager approval RPCs.
-  - End Day workflow: record end coordinates, calculate attended workday duration, and enforce visit closure rules (AT-03).
-- **Approval Gate:** Vitest attendance lifecycle tests and real-device camera/GPS validation.
-
-### Stage 3C: Real GPS Geofencing, Live Camera Capture & Client Visit Integration
+### Stage 3C: Real GPS Geofencing, Live Camera Capture & Client Visit Integration (Next Phase — Awaiting Authorization)
 - **Objective:** Activate live database writes to `public.visits`, `public.meeting_logs`, and `public.visit_photos`.
 - **Scope:**
   - Live Browser Geolocation API integration with satellite accuracy checks (≤ 100m for visits, ≤ 50m for proposed pins).

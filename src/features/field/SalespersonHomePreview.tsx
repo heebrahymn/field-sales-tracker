@@ -57,6 +57,8 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
   const handleStartEndDayClick = () => {
     if (workdayStatus === 'started') {
       setIsEndDayModalOpen(true);
+    } else if (workdayStatus === 'ended') {
+      setSessionNotice("Today's field workday has already concluded. Attendance is recorded.");
     } else {
       setIsStartDayModalOpen(true);
     }
@@ -234,12 +236,16 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
                 ? 'bg-amber-100 text-amber-900 border border-amber-300'
                 : workdayStatus === 'started'
                 ? 'bg-amber-100 text-amber-900'
+                : workdayStatus === 'ended'
+                ? 'bg-slate-100 text-slate-700'
                 : 'bg-emerald-100 text-emerald-900'
             }`}>
               {activeVisit && workdayStatus === 'started' ? (
                 <Lock className="w-5 h-5 text-amber-900" />
               ) : workdayStatus === 'started' ? (
                 <Square className="w-5 h-5 fill-current" />
+              ) : workdayStatus === 'ended' ? (
+                <CheckCircle2 className="w-5 h-5 text-slate-700" />
               ) : (
                 <Play className="w-5 h-5 fill-current" />
               )}
@@ -250,6 +256,8 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
                 ? 'End Day (Blocked)'
                 : workdayStatus === 'started'
                 ? 'End Workday'
+                : workdayStatus === 'ended'
+                ? 'Workday Completed'
                 : 'Start Workday'}
             </span>
 
@@ -258,6 +266,8 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
                 ? 'Active visit must close first (PRD §6.1)'
                 : workdayStatus === 'started'
                 ? 'Capture final GPS & close'
+                : workdayStatus === 'ended'
+                ? "Today's operational log saved"
                 : 'Selfie & GPS check'}
             </span>
           </button>

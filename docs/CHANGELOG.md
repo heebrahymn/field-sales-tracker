@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Stage 3B] - Real Attendance & Workday Management (2026-10-27)
+
+### Added
+- **Supabase-Backed Attendance Persistence:** Created `src/services/attendanceService.ts` providing authoritative PostgreSQL writes to `public.attendance_days`, PostGIS point geometry storage, and timezone-aware business date formatting (`Africa/Lagos`, `Africa/Lusaka`, `Africa/Blantyre`).
+- **Live Hardware Camera Viewfinder:** Integrated HTML5 `navigator.mediaDevices.getUserMedia` in `StartDayModal.tsx` displaying live front-camera video preview with `<video>` element and canvas snapshot to JPEG Blob. Explicitly releases hardware tracks (`track.stop()`) on capture, modal dismissal, or unmount.
+- **Fresh GPS Satellite Fix Acquisition:** Live Geolocation API integration enforcing PRD horizontal accuracy threshold (≤ 100m for normal capture) with amber guidance on degraded signals.
+- **Private Supabase Storage Uploads:** Secure front-camera selfie storage in private bucket `attendance-selfies/${userId}/${workDate}_selfie_${timestamp}.jpg`.
+- **Ephemeral Signed URLs for CSH Audit:** `TeamAttendanceReview.tsx` dynamically generates 300-second time-limited signed URLs (`supabase.storage.createSignedUrl`) for private selfie inspection.
+- **Workday State Durability:** Connected `FieldSessionContext.tsx` to automatically restore active `'started'` or completed `'ended'` workday status from PostgreSQL across browser reloads and sessions.
+- **PRD §6.1 / AT-03 Hard Block:** `EndDayModal.tsx` strictly blocks workday closure while an active client visit session remains in progress.
+- **Non-Visit Workday Governance:** Connected `NonVisitDayModal.tsx` to RPC `request_non_visit_workday` and `TeamAttendanceReview.tsx` to RPC `review_non_visit_workday`. Strictly enforces: approved non-visit days credit daily attendance but grant zero physical-visit target credits.
+- **Sole-Author Principle Verification:** Direct API security test verifying PostgreSQL RLS policy `attendance_days_insert_salesperson_only` returns `HTTP 403 Forbidden` if a manager attempts to insert attendance for a salesperson.
+- **Stage 3B Automated Test Suites:** Created `src/test/stage-3b-attendance.test.tsx` (25 Vitest tests, 125/125 passed across suite), `scripts/verify_stage_3b_live.py` (5 live Supabase tests), `scripts/verify_stage_3b_audit_corrections.py` (12 direct integration and storage tests), and Playwright browser suite capturing 7 full-fidelity screenshots.
+- **Documentation & Decision Records:** Created ADR `docs/decisions/0010-stage-3b-real-attendance-and-workday-management.md`, `docs/implementation/STAGE_3B_ATTENDANCE.md`, and `docs/testing/STAGE_3B_QA_REPORT.md`.
+
+### Changed
+- **Selfie Evidence Immutability Safeguards:** Hardened selfie upload path to unique submission identifier `${userId}/${workDate}_${submissionId}.jpg` with `upsert: false`. Direct API tests confirm duplicate uploads are rejected (`HTTP 400 Bad Request`), confirmed attendance records skip uploads entirely, failed inserts clean up uncommitted files, and concurrent conflicts (`23505`) clean only uncommitted files without deleting winner evidence.
+- **Fail-Closed Active Visit Query Error Handling:** Updated `attendanceService.endDayAttendance` to explicitly handle query failures (`visitError !== null`). End Day halts immediately without modifying `attendance_days`, returns a clear error message, and allows safe retry without assuming empty results means zero visits.
+- **Multi-Tiered Active Visit Protection:** Enforces UI warning guard (`activeVisitId !== null`), service layer fail-closed check on `public.visits`, and documents the Stage 3C database trigger contract (`trg_prevent_attendance_close_with_open_visit` with `FOR UPDATE` and `trg_prevent_visit_start_on_ended_workday`).
+- **Duplicate End Day Guard:** Hardened `attendanceService.endDayAttendance` to verify current record status and reject calls if status is already `'ended'`.
+- **Salesperson Home Preview:** Updated Tile 1 in `src/features/field/SalespersonHomePreview.tsx` to display *"Workday Completed — Today's operational log saved"* when `workdayStatus === 'ended'`.
+- **Context Type Expansion:** Added `attendanceRecord`, `isAttendanceLoading`, `onAttendanceStarted`, `onAttendanceEnded`, and `refreshAttendance` to `FieldSessionContextType`.
+- **Team Attendance Review:** Connected manager review table directly to live Supabase queries filtered by `market_code`.
+
+---
+
 ## [Stage 3A] - Real Supabase Authentication & Role-Based Access Control (2026-10-26)
 
 ### Added
