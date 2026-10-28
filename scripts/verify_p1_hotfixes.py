@@ -6,7 +6,7 @@ from playwright.sync_api import sync_playwright
 OUTPUT_DIR = r"C:\Users\HQ Administrator\.gemini\antigravity\brain\fc573132-6d8d-4550-b06f-9eb28f426230"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-TARGET_URL = "http://localhost:4173/"
+TARGET_URL = "https://field-sales-tracker-b6l7.vercel.app/"
 
 def get_env_var(key_name):
     val = os.environ.get(key_name)
