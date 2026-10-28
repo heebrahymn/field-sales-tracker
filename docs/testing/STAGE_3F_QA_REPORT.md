@@ -192,3 +192,63 @@ Following the initial Stage 3F deployment, a critical issue was discovered durin
   4. Logged out, switched to mobile viewport (390x844), and authenticated as `zainab.lawal.test0480@carboncarcare.com`.
   5. Successfully landed on salesperson dashboard displaying 'Hello, Zainab', 'Nigeria (Africa/Lagos)', and 'Start Workday'.
 - **Evidence:** 8 screenshots recorded in `docs/screenshots/stage3f/p0_fix_*.png`.
+
+---
+
+## 9. Post-Stage 3F Functional Defect Verification (P1 — Fleet Device Assignment & Live Camera Preview)
+
+Following the resolution of the P0 user provisioning defect, manual testing identified two P1 operational defects:
+1. **Issue A — "Assign Company Device" Dropdown:** When provisioning an employee, the device dropdown did not dynamically load real, unassigned company devices for the selected country market.
+2. **Issue B — Salesperson Live Camera Preview:** When opening the Start Workday & Attendance modal, the camera feed remained a black box with a dotted face outline while indicating "Live Stream".
+
+### Root Cause Analysis
+1. **Issue A (Device Dropdown & Assignment Enum):**
+   - In `public.devices`, existing seed devices had either `returned`, `under_maintenance`, or `active` statuses—none had `available` status for ZM/MW or spare in NG.
+   - In `admin-provision-user`, device assignment attempted to update device status to `inventory_status: "assigned_active"`, which violated the PostgreSQL enum constraint `device_inventory_status` (valid values: `'available'`, `'assigned'`, `'active'`, `'under_maintenance'`, etc.).
+   - The query in `adminService.getHqDevices()` checked `a.is_current || a.returned_at === null`, so even unassigned devices with null return dates were treated as occupied.
+2. **Issue B (Black Video Stream on Start Day Modal):**
+   - In `src/features/field/StartDayModal.tsx`, the `<video>` element was conditionally rendered in the JSX only when `cameraState === 'active'`.
+   - During initial camera startup (`cameraState === 'requesting'`), the `<video>` element was NOT mounted in the DOM.
+   - When `navigator.mediaDevices.getUserMedia` resolved and called `videoRef.current.srcObject = stream`, `videoRef.current` was `null`!
+   - React subsequently transitioned to `'active'`, mounting a fresh `<video>` element whose `srcObject` was undefined and remained black with a dotted outline while the badge displayed "Live Stream".
+
+### Architectural & Code Corrections
+1. **Migration 00029 & Fleet Seeding (`supabase/migrations/20261028000029_seed_available_fleet_devices.sql`):**
+   - Seeded 6 canonical unassigned fleet handsets across Nigeria (`CAR-NG-001`, `CAR-NG-002`), Zambia (`CAR-ZM-001`, `CAR-ZM-002`), and Malawi (`CAR-MW-001`, `CAR-MW-002`) with `inventory_status = 'available'`.
+   - Reset `CC-DEV-LOS-SPARE-01` to `available` if unassigned.
+2. **Edge Function Hardening (`supabase/functions/admin-provision-user/index.ts`):**
+   - Corrected PostgreSQL enum update to `inventory_status: 'assigned'`.
+   - Added market isolation checks (`device.market_code === profile.market_code`) and active assignment checks (`is_current = true`).
+   - Implemented error isolation: device assignment failures do not roll back the user account, but return `deviceAssignmentError` so HQ Admin can assign later.
+3. **HQ User Management Console Polish (`src/features/admin/HqUserManagement.tsx`):**
+   - Connected `deviceId` dropdown to live `availableDevices` matching `newUser.marketCode`.
+   - Retained top option: `"No device assigned initially (Assign later)"`.
+   - Added amber warning notice when no unassigned handsets exist for the selected market.
+   - Added "Assign Device" inline action on directory rows for unassigned sales reps with an interactive `AssignHandsetModal`.
+4. **Permanent DOM Video Mounting (`src/features/field/StartDayModal.tsx`):**
+   - Kept `<video>` element permanently in the DOM with Tailwind class toggling (`block`/`hidden`).
+   - Added dedicated `mediaStream` state and synchronization `useEffect` that guarantees `videoRef.current.srcObject = mediaStream` is bound whenever the stream or DOM node changes.
+   - Hooked `onLoadedMetadata`, `onPlaying`, and `onError` events with non-zero dimension assertions (`videoWidth > 0 && videoHeight > 0`).
+   - Disabled "Capture Live Photo" CTA until `cameraReady` is verified.
+   - Implemented canvas-to-JPEG blob extraction with instant preview, Retake button, and `URL.revokeObjectURL` cleanup.
+   - Preserved strict GPS accuracy threshold (≤ 100m for attendance).
+
+### Verification & Automated Testing
+- **Vitest Unit & Integration Tests:** 195 / 195 tests passing across all 14 test suites (added 5 new regression tests in `stage-3e-manager-hq.test.tsx` and `stage-3b-attendance.test.tsx`).
+- **End-to-End Browser Verification Suite (`scripts/verify_p1_hotfixes.py`):**
+  - **Part 1 (HQ Admin Device Dropdown & Assignment):**
+    - Authenticated as HQ Admin (`hq.admin@carboncarcare.com`).
+    - Verified NG available handsets in dropdown (`CAR-NG-001`, `CAR-NG-002`, `CC-DEV-LOS-SPARE-01`) alongside `"No device assigned initially"`.
+    - Switched market to Zambia (`ZM`): verified dropdown dynamically filtered to `CAR-ZM-001` and `CAR-ZM-002` with 0 Nigerian leakage.
+    - Switched market to Malawi (`MW`): verified dropdown dynamically filtered to `CAR-MW-001` and `CAR-MW-002` with 0 cross-market leakage.
+    - Provisioned new salesperson with `CAR-NG-001`; verified credentials modal reported assigned handset and directory row updated with `CAR-NG-001`.
+    - Tested "Assign Device" modal on directory row: verified assigned device `CAR-NG-001` was absent from available inventory pool.
+  - **Part 2 (Salesperson Live Camera & Workday):**
+    - Authenticated as Field Salesperson (`kondwani.banda@carboncarcare.com`).
+    - Opened Start Workday modal with simulated synthetic media stream.
+    - Verified live video telemetry: `exists: true`, `hasSrcObject: true`, `videoWidth: 640`, `videoHeight: 480`, `paused: false`, `readyState: 4`.
+    - Confirmed "Live Stream" indicator badge is active.
+    - Triggered "Capture Live Photo": canvas captured frame, converted to JPEG data URL (`naturalWidth: 640`, `naturalHeight: 480`).
+    - Clicked "Retake": live video stream restored seamlessly.
+    - Recaptured photo: confirmed GPS telemetry (accuracy ≤ 100m) and selfie capture valid.
+- **Evidence:** 13 verification screenshots recorded in artifacts (`p1_hotfix_01_*.png` through `p1_hotfix_13_*.png`).

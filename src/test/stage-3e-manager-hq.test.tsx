@@ -614,5 +614,233 @@ describe('Stage 3E: Management & HQ Administration Integration Tests', () => {
       expect(res.error).not.toBeNull();
       expect(res.error?.message).toBe('A valid corporate email address is required.');
     });
+
+    it('provisions user with optional company device and handles device assignment status', async () => {
+      mockFunctionsInvoke.mockResolvedValueOnce({
+        data: {
+          success: true,
+          message: 'Employee account provisioned successfully with role salesperson.',
+          user: {
+            id: 'new-rep-99',
+            name: 'Zainab Lawal',
+            email: 'zainab.lawal@carboncarcare.com',
+            role: 'salesperson',
+            marketCode: 'NG',
+            assignedDeviceTag: 'CAR-NG-001 — Samsung Galaxy A15',
+          },
+          credentialSetup: {
+            temporaryPassword: 'SecureTempPassword123!',
+          },
+        },
+        error: null,
+      });
+
+      const res = await adminService.provisionUser({
+        first_name: 'Zainab',
+        last_name: 'Lawal',
+        email: 'zainab.lawal@carboncarcare.com',
+        role: 'salesperson',
+        market_code: 'NG',
+        assigned_device_id: 'dev-ng-001',
+      });
+
+      expect(res.data).not.toBeNull();
+      expect(res.data?.user.assignedDeviceTag).toBe('CAR-NG-001 — Samsung Galaxy A15');
+      expect(mockFunctionsInvoke).toHaveBeenCalledWith(
+        'admin-provision-user',
+        expect.objectContaining({
+          body: expect.objectContaining({
+            assigned_device_id: 'dev-ng-001',
+          }),
+        })
+      );
+    });
+
+    it('assignDevice successfully assigns an available device to an unassigned salesperson', async () => {
+      let insertedAssignment: any = null;
+      let updatedDeviceStatus: any = null;
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'profiles') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'rep-uuid-1',
+                full_name: 'Tunde Adebayo',
+                role: 'salesperson',
+                market_code: 'NG',
+                is_active: true,
+              },
+              error: null,
+            }),
+          };
+        }
+        if (table === 'devices') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockImplementation((col: string, val: any) => {
+              if (col === 'id') {
+                return {
+                  single: vi.fn().mockResolvedValue({
+                    data: {
+                      id: val,
+                      asset_tag: 'CAR-NG-001',
+                      make: 'Samsung',
+                      model: 'Galaxy A15',
+                      market_code: 'NG',
+                      inventory_status: 'available',
+                    },
+                    error: null,
+                  }),
+                };
+              }
+              return {
+                eq: vi.fn().mockReturnThis(),
+              };
+            }),
+            update: vi.fn().mockImplementation((payload) => {
+              updatedDeviceStatus = payload.inventory_status;
+              return {
+                eq: vi.fn().mockResolvedValue({ error: null }),
+              };
+            }),
+          };
+        }
+        if (table === 'device_assignments') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockImplementation((_col: string) => {
+              return {
+                eq: vi.fn().mockReturnThis(),
+                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }), // No active assignment
+              };
+            }),
+            insert: vi.fn().mockImplementation((payload) => {
+              insertedAssignment = payload;
+              return { error: null };
+            }),
+          };
+        }
+        if (table === 'approval_audit') {
+          return {
+            insert: vi.fn().mockResolvedValue({ error: null }),
+          };
+        }
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+        };
+      });
+
+      const res = await adminService.assignDevice('dev-ng-001', 'rep-uuid-1', 'Initial phone issue');
+
+      expect(res.success).toBe(true);
+      expect(insertedAssignment).not.toBeNull();
+      expect(insertedAssignment.device_id).toBe('dev-ng-001');
+      expect(insertedAssignment.salesperson_id).toBe('rep-uuid-1');
+      expect(insertedAssignment.is_current).toBe(true);
+      expect(updatedDeviceStatus).toBe('assigned');
+    });
+
+    it('assignDevice rejects assignment if salesperson already has an active company device', async () => {
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'profiles') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'rep-uuid-1',
+                full_name: 'Tunde Adebayo',
+                role: 'salesperson',
+                market_code: 'NG',
+                is_active: true,
+              },
+              error: null,
+            }),
+          };
+        }
+        if (table === 'device_assignments') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockImplementation(() => ({
+              eq: vi.fn().mockReturnThis(),
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { id: 'existing-assign-id', device_id: 'old-dev' },
+                error: null,
+              }),
+            })),
+          };
+        }
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          single: vi.fn().mockResolvedValue({ data: null, error: null }),
+        };
+      });
+
+      const res = await adminService.assignDevice('dev-ng-002', 'rep-uuid-1');
+
+      expect(res.success).toBe(false);
+      expect(res.error?.message).toContain('Employee already has an active company device assigned');
+    });
+
+    it('assignDevice rejects cross-market device assignment', async () => {
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'profiles') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'rep-zm-1',
+                full_name: 'Peter Mwale',
+                role: 'salesperson',
+                market_code: 'ZM',
+                is_active: true,
+              },
+              error: null,
+            }),
+          };
+        }
+        if (table === 'device_assignments') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockImplementation(() => ({
+              eq: vi.fn().mockReturnThis(),
+              maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+            })),
+          };
+        }
+        if (table === 'devices') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockImplementation(() => ({
+              single: vi.fn().mockResolvedValue({
+                data: {
+                  id: 'dev-ng-001',
+                  asset_tag: 'CAR-NG-001',
+                  market_code: 'NG', // Nigeria device
+                  inventory_status: 'available',
+                },
+                error: null,
+              }),
+            })),
+          };
+        }
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+        };
+      });
+
+      const res = await adminService.assignDevice('dev-ng-001', 'rep-zm-1');
+
+      expect(res.success).toBe(false);
+      expect(res.error?.message).toContain('Cross-market assignment restricted');
+    });
   });
 });

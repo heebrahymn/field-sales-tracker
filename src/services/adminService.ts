@@ -56,6 +56,7 @@ export interface ProvisionUserPayload {
 export interface ProvisionUserResponse {
   success: boolean;
   message: string;
+  deviceAssignmentError?: string | null;
   user: {
     id: string;
     name: string;
@@ -558,6 +559,7 @@ export const adminService = {
 
   /**
    * Assigns an available device to a field salesperson.
+   * Enforces single active device, market isolation, and audit trail.
    */
   async assignDevice(
     deviceId: string,
@@ -567,6 +569,57 @@ export const adminService = {
     try {
       const { data: userResp } = await supabase.auth.getUser();
       const currentUserId = userResp?.user?.id || '00000000-0000-0000-0000-000000000000';
+
+      // Verify employee profile & current device
+      const { data: repProfile, error: profErr } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, market_code, is_active')
+        .eq('id', salespersonId)
+        .single();
+
+      if (profErr || !repProfile) {
+        return { success: false, error: new Error('Salesperson profile not found.') };
+      }
+
+      // Verify employee does not already have an active device
+      const { data: existingActive } = await supabase
+        .from('device_assignments')
+        .select('id, device_id')
+        .eq('salesperson_id', salespersonId)
+        .eq('is_current', true)
+        .maybeSingle();
+
+      if (existingActive) {
+        return {
+          success: false,
+          error: new Error('Employee already has an active company device assigned. Please use the Device Replacement Workflow.'),
+        };
+      }
+
+      // Verify device exists and is available
+      const { data: dev, error: devErr } = await supabase
+        .from('devices')
+        .select('id, asset_tag, make, model, market_code, inventory_status')
+        .eq('id', deviceId)
+        .single();
+
+      if (devErr || !dev) {
+        return { success: false, error: new Error('Device not found in inventory.') };
+      }
+
+      if (dev.inventory_status !== 'available') {
+        return {
+          success: false,
+          error: new Error(`Device ${dev.asset_tag} is not available for assignment (Status: ${dev.inventory_status}).`),
+        };
+      }
+
+      if (repProfile.market_code && dev.market_code !== repProfile.market_code) {
+        return {
+          success: false,
+          error: new Error(`Cross-market assignment restricted: Device is ${dev.market_code}, but employee is in ${repProfile.market_code}.`),
+        };
+      }
 
       // 1. Insert active assignment
       const { error: assignErr } = await supabase.from('device_assignments').insert({
@@ -591,6 +644,22 @@ export const adminService = {
       if (updateErr) {
         return { success: false, error: new Error(updateErr.message) };
       }
+
+      // 3. Append to approval_audit
+      await supabase.from('approval_audit').insert({
+        action: 'device_assigned',
+        entity_type: 'device_assignments',
+        entity_id: deviceId,
+        actor_id: currentUserId,
+        new_state: JSON.stringify({
+          device_id: deviceId,
+          device_tag: dev.asset_tag,
+          salesperson_id: salespersonId,
+          salesperson_name: repProfile.full_name,
+          handover_reason: notes || 'Assigned by HQ Administrator',
+        }),
+        mandatory_reason: `HQ Administrator assigned device ${dev.asset_tag} to employee ${repProfile.full_name} (${repProfile.market_code}).`,
+      });
 
       return { success: true, error: null };
     } catch (err: any) {

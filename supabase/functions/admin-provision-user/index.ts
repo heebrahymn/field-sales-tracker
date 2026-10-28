@@ -238,31 +238,69 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 7. Optional Device Assignment
+    // 7. Optional Company Device Assignment
     let assignedDeviceTag: string | undefined = undefined;
-    if (assigned_device_id && role === "salesperson") {
-      const { data: deviceRecord, error: devErr } = await adminClient
-        .from("devices")
-        .select("id, asset_id, make, model, inventory_status")
-        .eq("id", assigned_device_id)
-        .maybeSingle();
+    let assignedDeviceModel: string | undefined = undefined;
+    let deviceAssignmentError: string | undefined = undefined;
 
-      if (!devErr && deviceRecord) {
-        assignedDeviceTag = deviceRecord.asset_id;
-        // Record device assignment
-        await adminClient
+    if (assigned_device_id) {
+      try {
+        const { data: deviceRecord, error: devErr } = await adminClient
           .from("devices")
-          .update({
-            inventory_status: "assigned_active",
-          })
-          .eq("id", assigned_device_id);
+          .select("id, asset_id, asset_tag, make, model, market_code, inventory_status")
+          .eq("id", assigned_device_id)
+          .maybeSingle();
 
-        await adminClient.from("device_assignments").insert({
-          device_id: assigned_device_id,
-          salesperson_id: newUserId,
-          assigned_by: callerUser.id,
-          is_current: true,
-        });
+        if (devErr || !deviceRecord) {
+          deviceAssignmentError = "Selected company device could not be found in fleet inventory.";
+        } else if (deviceRecord.inventory_status !== "available") {
+          deviceAssignmentError = `Device ${deviceRecord.asset_tag} is no longer available (Status: ${deviceRecord.inventory_status}).`;
+        } else if (sanitizedMarketCode && deviceRecord.market_code !== sanitizedMarketCode) {
+          deviceAssignmentError = `Device ${deviceRecord.asset_tag} (${deviceRecord.market_code}) cannot be assigned to an employee in ${sanitizedMarketCode}. Cross-market assignment is restricted.`;
+        } else {
+          // Check for any concurrent active assignment
+          const { data: activeAssign } = await adminClient
+            .from("device_assignments")
+            .select("id")
+            .eq("device_id", assigned_device_id)
+            .eq("is_current", true)
+            .maybeSingle();
+
+          if (activeAssign) {
+            deviceAssignmentError = `Device ${deviceRecord.asset_tag} is already actively assigned to another employee.`;
+          } else {
+            // 1. Insert device assignment record
+            const { error: assignInsertErr } = await adminClient
+              .from("device_assignments")
+              .insert({
+                device_id: assigned_device_id,
+                salesperson_id: newUserId,
+                assigned_by: callerUser.id,
+                assigned_at: new Date().toISOString(),
+                is_current: true,
+                handover_reason: "Initial company handset issue upon employee provisioning",
+              });
+
+            if (assignInsertErr) {
+              deviceAssignmentError = `Failed to create device assignment record: ${assignInsertErr.message}`;
+            } else {
+              // 2. Update device inventory status to canonical 'assigned'
+              const { error: devUpdateErr } = await adminClient
+                .from("devices")
+                .update({ inventory_status: "assigned" })
+                .eq("id", assigned_device_id);
+
+              if (devUpdateErr) {
+                deviceAssignmentError = `Assigned device but failed to update status: ${devUpdateErr.message}`;
+              } else {
+                assignedDeviceTag = deviceRecord.asset_tag || deviceRecord.asset_id;
+                assignedDeviceModel = `${deviceRecord.make} ${deviceRecord.model}`;
+              }
+            }
+          }
+        }
+      } catch (dErr: any) {
+        deviceAssignmentError = `Unexpected device assignment error: ${dErr.message || String(dErr)}`;
       }
     }
 
@@ -279,16 +317,22 @@ Deno.serve(async (req: Request) => {
         role: role,
         market_code: sanitizedMarketCode,
         is_active: true,
-        assigned_device: assignedDeviceTag,
+        assigned_device: assignedDeviceTag || null,
+        device_assignment_error: deviceAssignmentError || null,
       }),
-      mandatory_reason: `HQ Admin (${callerProfile.full_name}) provisioned new ${role} employee account for ${cleanFullName} (${cleanEmail}).`,
+      mandatory_reason: `HQ Admin (${callerProfile.full_name}) provisioned new ${role} employee account for ${cleanFullName} (${cleanEmail})${
+        assignedDeviceTag ? ` with company device ${assignedDeviceTag}` : ""
+      }.`,
     });
 
     // 9. Return Confirmed Persistence Response
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Employee account ${cleanEmail} provisioned successfully with role ${role}.`,
+        message: deviceAssignmentError
+          ? `Employee account ${cleanEmail} provisioned successfully, but device assignment encountered an issue: ${deviceAssignmentError}`
+          : `Employee account ${cleanEmail} provisioned successfully with role ${role}.`,
+        deviceAssignmentError: deviceAssignmentError || null,
         user: {
           id: newUserId,
           name: cleanFullName,
@@ -306,7 +350,7 @@ Deno.serve(async (req: Request) => {
               : "All Markets (HQ Regional)",
           status: "active",
           assignedDeviceTag: assignedDeviceTag || "Unassigned Handset",
-          assignedDeviceModel: assignedDeviceTag ? "Samsung Galaxy A15 Enterprise" : undefined,
+          assignedDeviceModel: assignedDeviceModel || undefined,
           lastLogin: "Never (Pending First Login)",
           mfaEnabled: false,
           createdAt: new Date().toISOString().split("T")[0],

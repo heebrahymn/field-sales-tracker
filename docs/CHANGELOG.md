@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Post-Stage 3F Hotfix] - P1 Hotfix: Real Fleet Device Assignment Dropdown & Salesperson Live Camera Preview (2026-10-28)
+
+### Fixed (P1 Functional Corrections)
+- **Issue A — HQ Admin "Assign Company Device" Dropdown & Fleet Assignment:**
+  - Connected the "Assign Company Device" select dropdown in Provision New System User modal (`src/features/admin/HqUserManagement.tsx`) directly to real Supabase device inventory (`public.devices`).
+  - Added reactive market filtering: changing the employee market dynamically filters devices by matching `market_code` (`NG`, `ZM`, `MW`) and `inventory_status = 'available'`, excluding currently assigned or non-functional devices.
+  - Added canonical first option: `"No device assigned initially (Assign later)"`.
+  - Added informative warning message if no unassigned devices are available for the selected market.
+  - Updated `admin-provision-user` Edge Function to execute device assignment with valid enum value `'assigned'` (fixing PostgreSQL constraint error on `'assigned_active'`), market isolation, and rollback isolation (device failure does not block account creation).
+  - Added "Assign Device" inline button in directory for unassigned salespeople with an interactive `AssignHandsetModal`.
+  - Seeded 6 canonical unassigned fleet handsets across Nigeria, Zambia, and Malawi in Migration `00029` (`supabase/migrations/20261028000029_seed_available_fleet_devices.sql`).
+- **Issue B — Salesperson Live Camera Preview & Frame Capture:**
+  - Resolved root cause of black camera preview in `src/features/field/StartDayModal.tsx` where conditional mounting on `cameraState === 'active'` caused `videoRef.current` to be `null` when `getUserMedia` stream resolved.
+  - Kept `<video>` permanently mounted in DOM with class toggling (`block`/`hidden`) and direct stream binding via `useEffect`.
+  - Added video telemetry monitoring (`onLoadedMetadata`, `onPlaying`, `onError`) verifying `videoWidth > 0 && videoHeight > 0`.
+  - Ensured "Capture Live Photo" CTA is strictly disabled until the live camera stream is verified ready and playing.
+  - Implemented canvas-based frame capture to standard JPEG blob with full preview, retake action, and automatic memory cleanup (`URL.revokeObjectURL`).
+  - Preserved strict GPS accuracy validation: maximum allowable threshold ≤ 100m.
+
+### Verified
+- Automated Vitest Suite: 195/195 tests passing across 14 test suites (added 5 new tests in `stage-3e-manager-hq.test.tsx` and `stage-3b-attendance.test.tsx`).
+- Edge Function deployed and verified on Supabase project `[SUPABASE_PROJECT_ID]`.
+- End-to-End Browser Verification (`scripts/verify_p1_hotfixes.py`):
+  - HQ Admin authenticated, verified available handsets for NG (`CAR-NG-001`, `CAR-NG-002`, `CC-DEV-LOS-SPARE-01`).
+  - Reactive market filtering verified for Zambia (`CAR-ZM-001`, `CAR-ZM-002`) and Malawi (`CAR-MW-001`, `CAR-MW-002`) with zero cross-market leakage.
+  - Provisioned new salesperson with assigned device `CAR-NG-001`; verified credentials modal and directory row update.
+  - Verified assigned device was immediately removed from available pool in Assign Device modal.
+  - Salesperson authenticated, opened Start Workday modal, verified `<video>` stream telemetry (640x480, `paused: false`, `readyState: 4`, "Live Stream" badge).
+  - Captured live selfie onto canvas (640x480 natural dimensions, valid JPEG data URL).
+  - Tested Retake Photo button; verified live video stream restored seamlessly and recaptured.
+- Captured 13 verification screenshots in artifacts directory (`p1_hotfix_01_*.png` through `p1_hotfix_13_*.png`).
+
+---
+
 ## [Post-Stage 3F Hotfix] - P0 Defect Resolution: Secure Server-Side HQ Admin User Provisioning & Directory Disambiguation (2026-10-28)
 
 ### Fixed (P0 Critical Defect)

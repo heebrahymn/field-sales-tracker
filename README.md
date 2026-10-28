@@ -365,25 +365,27 @@ carbonSalesTracker/
 │   │   └── utils.ts                     # UI styling utilities
 │   ├── types/                           # Strongly-typed schemas
 │   │   └── database.types.ts            # Supabase database TypeScript definitions
-│   └── test/                            # Vitest unit test suites (14 suites, 190 tests)
+│   └── test/                            # Vitest unit test suites (14 suites, 195 tests)
 │       ├── at15-exclusions.test.tsx     # Strict MVP scope boundary assertions
 │       ├── brand-logo.test.tsx          # Brand identity compliance assertions
 │       ├── salesperson-context.test.tsx # AT-03, AT-04, PRD §4.2, §7.4, §9 tests
 │       ├── stage-1c-manager-dashboard.test.tsx # Stage 1C business rules, rollups, audit, and boundary tests
 │       ├── stage-1d-hq-admin.test.tsx   # Stage 1D HQ Admin & device replacement workflow tests
 │       ├── stage-1e-cross-role-integration.test.tsx # Cross-role state integration tests (Workflows A-E)
-│       ├── stage-3c-client-visits.test.tsx # Stage 3C real client visits, geofencing & meeting logs (18 tests)
-│       ├── stage-3d-offline-sync.test.tsx  # Stage 3D durable IndexedDB journal & dependency sync (27 scenarios)
-│       ├── stage-3e-manager-hq.test.tsx    # Stage 3E management dashboards, review queues & user provisioning (20 tests)
+│       ├── stage-3b-attendance.test.tsx # Stage 3B real attendance, GPS accuracy & camera streaming tests (26 tests)
+│       ├── stage-3c-client-visits.test.tsx # Stage 3C real client visits, geofencing & meeting logs (19 tests)
+│       ├── stage-3d-offline-sync.test.tsx  # Stage 3D durable IndexedDB journal & dependency sync (26 scenarios)
+│       ├── stage-3e-manager-hq.test.tsx    # Stage 3E management dashboards, review queues & user provisioning (24 tests)
 │       └── status-badge.test.tsx        # Operational status badge tests
 ├── scripts/
 │   ├── provision-users.ts               # Official Supabase Auth Admin API account provisioning
+│   ├── verify_p1_hotfixes.py            # Automated browser E2E verification for device dropdown & live camera
 │   ├── verify_stage_3f_vercel_e2e.py    # Live Vercel staging E2E QA suite (27 tests)
 │   ├── verify_live_user_provisioning.py # Live HQ Admin user provisioning and mobile login verification
 │   └── test-backend.ts                  # Stage 2B automated backend verification suite (60 tests)
 ├── supabase/
 │   ├── functions/admin-provision-user/  # Secure GoTrue admin user provisioning Edge Function
-│   └── migrations/                      # 28 sequential declarative SQL migrations
+│   └── migrations/                      # 29 sequential declarative SQL migrations
 ├── docs/
 │   ├── provisioning.md                  # Account provisioning & credential security protocol
 │   └── decisions/                       # Architecture Decision Records (ADRs 0001–0014)
@@ -441,7 +443,7 @@ npx tsc --noEmit
 # ESLint static code quality audit
 npm run lint
 
-# Automated unit & integration tests (Vitest — 14 suites, 190 tests)
+# Automated unit & integration tests (Vitest — 14 suites, 195 tests)
 npm test
 ```
 

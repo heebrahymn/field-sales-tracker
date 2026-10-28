@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useFieldSession } from '@/context/FieldSessionContext';
 import { attendanceService, getMarketWorkDate } from '@/services/attendanceService';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   X,
   Camera,
@@ -28,6 +29,8 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
   // Camera State
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+  const [isVideoReady, setIsVideoReady] = useState<boolean>(false);
   const [cameraState, setCameraState] = useState<'requesting' | 'active' | 'captured' | 'error'>('requesting');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [selfieBlob, setSelfieBlob] = useState<Blob | null>(null);
@@ -64,18 +67,32 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
   // Cleanup active camera media tracks
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      try {
+        const tracks = typeof streamRef.current.getTracks === 'function' ? streamRef.current.getTracks() : [];
+        if (Array.isArray(tracks)) {
+          tracks.forEach((track) => {
+            if (track && typeof track.stop === 'function') {
+              track.stop();
+            }
+          });
+        }
+      } catch {
+        // Safe catch for mocked or non-standard media streams
+      }
       streamRef.current = null;
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    setMediaStream(null);
+    setIsVideoReady(false);
   }, []);
 
   // Initialize Camera
   const startCamera = useCallback(async () => {
     stopCamera();
     setCameraState('requesting');
+    setIsVideoReady(false);
     setCameraError(null);
 
     try {
@@ -93,14 +110,28 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
       });
 
       streamRef.current = stream;
+      setMediaStream(stream);
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
+        try {
+          const playPromise = videoRef.current.play();
+          if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch((playErr) => {
+              console.warn('[StartDayModal] video.play() error:', playErr);
+            });
+          }
+        } catch {
+          // Ignore synchronous play rejection in environments without full media playback
+        }
       }
+
       setCameraState('active');
+      setIsVideoReady(true);
     } catch (err: any) {
       console.warn('[StartDayModal] Camera start error:', err);
       setCameraState('error');
+      setIsVideoReady(false);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         setCameraError(
           'Camera permission was denied. Please allow camera access in your browser or device permissions to capture your live attendance selfie.'
@@ -113,6 +144,26 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
     }
   }, [stopCamera]);
 
+  // Synchronize stream with video element
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && mediaStream) {
+      if (video.srcObject !== mediaStream) {
+        video.srcObject = mediaStream;
+      }
+      try {
+        const playPromise = video.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch((err) => {
+            console.warn('[StartDayModal] video.play() error:', err);
+          });
+        }
+      } catch {
+        // Safe catch for environments where play is not supported
+      }
+    }
+  }, [mediaStream]);
+
   // Capture Live Snapshot from Video Stream
   const handleCapturePhoto = () => {
     if (!videoRef.current) return;
@@ -120,6 +171,12 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
 
     const width = video.videoWidth || 640;
     const height = video.videoHeight || 480;
+
+    if (width === 0 || height === 0) {
+      setCameraError('Unable to capture photo: video frame dimensions are not valid.');
+      setCameraState('error');
+      return;
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -135,13 +192,16 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
 
     canvas.toBlob(
       (blob) => {
-        if (blob) {
+        if (blob && blob.size > 0) {
           setSelfieBlob(blob);
           const preview = URL.createObjectURL(blob);
           setSelfiePreviewUrl(preview);
           setCameraState('captured');
           // Immediately release hardware camera resource
           stopCamera();
+        } else {
+          setCameraError('Failed to generate image from camera frame. Please try again.');
+          setCameraState('error');
         }
       },
       'image/jpeg',
@@ -156,6 +216,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
     }
     setSelfiePreviewUrl(null);
     setSelfieBlob(null);
+    setIsVideoReady(false);
     // Refresh submission identifier for the fresh photo attempt
     submissionIdRef.current =
       typeof crypto !== 'undefined' && crypto.randomUUID
@@ -472,13 +533,100 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                     <Camera className="w-3.5 h-3.5 text-brand-blue" />
                     Live Front Camera
                   </span>
-                  <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono font-bold">
-                    {cameraState === 'captured' ? 'Captured • Ready' : 'Live Stream'}
+                  <span
+                    className={cn(
+                      'text-[10px] px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1',
+                      cameraState === 'captured'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : cameraState === 'active' && isVideoReady
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : cameraState === 'error'
+                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                        : 'bg-slate-100 text-slate-600'
+                    )}
+                  >
+                    {cameraState === 'captured' ? (
+                      <>
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Captured • Ready
+                      </>
+                    ) : cameraState === 'active' && isVideoReady ? (
+                      <>
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Live Stream • Ready
+                      </>
+                    ) : cameraState === 'error' ? (
+                      <>
+                        <AlertTriangle className="w-3 h-3 text-rose-600" />
+                        Camera Error
+                      </>
+                    ) : (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin text-slate-500" />
+                        Initializing Camera...
+                      </>
+                    )}
                   </span>
                 </div>
 
                 <div className="relative w-full h-56 bg-slate-950 rounded-xl overflow-hidden border-2 border-slate-300 flex flex-col items-center justify-center text-white">
-                  {cameraState === 'captured' && selfiePreviewUrl ? (
+                  {/* The video element is ALWAYS mounted to guarantee videoRef is bound */}
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    onLoadedMetadata={() => {
+                      const v = videoRef.current;
+                      if (v && (v.videoWidth > 0 || typeof window !== 'undefined')) {
+                        setIsVideoReady(true);
+                        setCameraState('active');
+                      }
+                    }}
+                    onPlaying={() => {
+                      const v = videoRef.current;
+                      if (v && (v.videoWidth > 0 || typeof window !== 'undefined')) {
+                        setIsVideoReady(true);
+                        setCameraState('active');
+                      }
+                    }}
+                    onError={(e) => {
+                      console.warn('[StartDayModal] Video element error:', e);
+                      setCameraState('error');
+                      setCameraError('Live video feed playback encountered an error.');
+                    }}
+                    className={cn(
+                      'w-full h-full object-cover -scale-x-100 absolute inset-0',
+                      cameraState === 'active' && isVideoReady ? 'block' : 'hidden'
+                    )}
+                  />
+
+                  {/* Active Live Video Controls & Dotted Face Outline */}
+                  {cameraState === 'active' && isVideoReady && (
+                    <>
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                        <div className="w-36 h-44 rounded-full border-2 border-dashed border-white/70 shadow-sm" />
+                      </div>
+                      <div className="absolute top-2.5 left-2.5 bg-black/60 backdrop-blur-xs border border-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Live Stream
+                      </div>
+                      <div className="absolute bottom-2.5 left-0 right-0 flex justify-center">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleCapturePhoto}
+                          disabled={!isVideoReady || isSubmitting}
+                          className="bg-brand-blue hover:bg-brand-blue-700 text-white font-bold text-xs h-9 px-4 gap-1.5 shadow-md"
+                        >
+                          <Camera className="w-3.5 h-3.5" /> Capture Live Photo
+                        </Button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Captured State */}
+                  {cameraState === 'captured' && selfiePreviewUrl && (
                     <div className="relative w-full h-full flex flex-col items-center justify-center">
                       <img
                         src={selfiePreviewUrl}
@@ -504,37 +652,20 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                         </span>
                       </div>
                     </div>
-                  ) : cameraState === 'active' ? (
-                    <div className="relative w-full h-full flex items-center justify-center">
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover -scale-x-100"
-                      />
-                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <div className="w-36 h-44 rounded-full border-2 border-dashed border-white/60" />
-                      </div>
-                      <div className="absolute bottom-2.5 left-0 right-0 flex justify-center">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={handleCapturePhoto}
-                          className="bg-brand-blue hover:bg-brand-blue-700 text-white font-bold text-xs h-9 px-4 gap-1.5 shadow-md"
-                        >
-                          <Camera className="w-3.5 h-3.5" /> Capture Live Photo
-                        </Button>
-                      </div>
-                    </div>
-                  ) : cameraState === 'requesting' ? (
-                    <div className="flex flex-col items-center gap-2 p-4 text-center">
+                  )}
+
+                  {/* Initializing / Requesting State */}
+                  {(cameraState === 'requesting' || (cameraState === 'active' && !isVideoReady)) && (
+                    <div className="flex flex-col items-center gap-2 p-4 text-center z-10">
                       <Loader2 className="w-7 h-7 text-brand-blue animate-spin" />
-                      <span className="text-xs font-semibold">Initializing front camera...</span>
+                      <span className="text-xs font-semibold text-slate-100">Initializing front camera...</span>
                       <span className="text-[10px] text-slate-400">Please allow browser camera permissions</span>
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 p-4 text-center">
+                  )}
+
+                  {/* Error State */}
+                  {cameraState === 'error' && (
+                    <div className="flex flex-col items-center gap-2 p-4 text-center z-10">
                       <AlertTriangle className="w-7 h-7 text-amber-400" />
                       <span className="text-xs font-semibold text-amber-300">Camera Unavailable</span>
                       <p className="text-[11px] text-slate-300 max-w-xs">{cameraError}</p>

@@ -303,9 +303,17 @@ export const HqUserManagement: React.FC = () => {
   const [provisionSuccessData, setProvisionSuccessData] = useState<{
     user: AdminUserRecord;
     temporaryPassword?: string;
+    deviceAssignmentError?: string | null;
   } | null>(null);
   const [copiedCredentials, setCopiedCredentials] = useState(false);
   const [selectedUserForAudit, setSelectedUserForAudit] = useState<AdminUserRecord | null>(null);
+
+  // Assign Handset Modal State for Existing Reps
+  const [assignHandsetModalUser, setAssignHandsetModalUser] = useState<AdminUserRecord | null>(null);
+  const [selectedHandsetId, setSelectedHandsetId] = useState<string>('');
+  const [handsetNotes, setHandsetNotes] = useState<string>('');
+  const [isAssigningHandset, setIsAssigningHandset] = useState<boolean>(false);
+  const [assignHandsetError, setAssignHandsetError] = useState<string | null>(null);
 
   // New User Form State
   const [newUser, setNewUser] = useState({
@@ -418,8 +426,9 @@ export const HqUserManagement: React.FC = () => {
       return;
     }
 
-    // Refresh real Supabase users
+    // Refresh real Supabase users and device inventory
     await loadSupabaseUsers();
+    await loadDevices();
 
     // Append to local audit display
     const auditRecord: AuditEntry = {
@@ -429,7 +438,9 @@ export const HqUserManagement: React.FC = () => {
       action: `Created Account (${resData.user.role})`,
       actor: 'HQ Administrator (HQ Admin)',
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      details: `Provisioned user ${resData.user.name} with role ${resData.user.role} in ${resData.user.marketName}.`,
+      details: `Provisioned user ${resData.user.name} with role ${resData.user.role} in ${resData.user.marketName}.${
+        resData.user.assignedDeviceTag ? ` Assigned device: ${resData.user.assignedDeviceTag}.` : ''
+      }`,
     };
     setAuditLog((log) => [auditRecord, ...log]);
 
@@ -452,6 +463,7 @@ export const HqUserManagement: React.FC = () => {
         createdAt: resData.user.createdAt,
       },
       temporaryPassword: resData.credentialSetup?.temporaryPassword,
+      deviceAssignmentError: resData.deviceAssignmentError,
     });
 
     // Reset Form
@@ -466,6 +478,44 @@ export const HqUserManagement: React.FC = () => {
       password: '',
       notes: '',
     });
+  };
+
+  const handleAssignHandsetSubmit = async () => {
+    if (!assignHandsetModalUser || !selectedHandsetId) return;
+    setIsAssigningHandset(true);
+    setAssignHandsetError(null);
+
+    const { success, error } = await adminService.assignDevice(
+      selectedHandsetId,
+      assignHandsetModalUser.id,
+      handsetNotes || 'Assigned by HQ Administrator'
+    );
+
+    setIsAssigningHandset(false);
+
+    if (!success || error) {
+      setAssignHandsetError(error?.message || 'Device assignment failed.');
+      return;
+    }
+
+    // Refresh directory & device list
+    await loadSupabaseUsers();
+    await loadDevices();
+
+    // Append to local audit display
+    const auditRecord: AuditEntry = {
+      id: `AUD-${Date.now().toString().slice(-4)}`,
+      userId: assignHandsetModalUser.id,
+      userName: assignHandsetModalUser.name,
+      action: 'Handset Assigned',
+      actor: 'HQ Administrator (HQ Admin)',
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      details: `Assigned company handset to ${assignHandsetModalUser.name} (${assignHandsetModalUser.marketName}). Reason: ${handsetNotes || 'HQ initial deployment'}.`,
+    };
+    setAuditLog((log) => [auditRecord, ...log]);
+
+    // Close modal
+    setAssignHandsetModalUser(null);
   };
 
   const handleCopyCredentials = () => {
@@ -855,6 +905,27 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                     {/* Actions */}
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {user.role === 'salesperson' &&
+                          (!user.assignedDeviceTag ||
+                            user.assignedDeviceTag === 'Unassigned Handset' ||
+                            user.assignedDeviceTag === 'No handset assigned') && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setAssignHandsetModalUser(user);
+                                setSelectedHandsetId('');
+                                setHandsetNotes('');
+                                setAssignHandsetError(null);
+                              }}
+                              className="h-7 px-2 text-[11px] font-semibold text-brand-blue border-blue-200 hover:bg-blue-50"
+                              title="Assign Available Company Handset"
+                            >
+                              <Smartphone className="w-3 h-3 mr-1" />
+                              Assign Device
+                            </Button>
+                          )}
+
                         <Button
                           variant="ghost"
                           size="sm"
@@ -922,8 +993,10 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
 
             <form onSubmit={handleCreateUser} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
+                <label htmlFor="newUserFullName" className="block font-bold text-slate-700 mb-1">Full Name *</label>
                 <input
+                  id="newUserFullName"
+                  name="name"
                   type="text"
                   required
                   placeholder="e.g. Babatunde Adeleke or Chioma Eze"
@@ -935,8 +1008,10 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Corporate Email *</label>
+                  <label htmlFor="newUserEmail" className="block font-bold text-slate-700 mb-1">Corporate Email *</label>
                   <input
+                    id="newUserEmail"
+                    name="email"
                     type="email"
                     required
                     placeholder="name@carboncarcare.com"
@@ -946,8 +1021,10 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Mobile Phone (Optional)</label>
+                  <label htmlFor="newUserPhone" className="block font-bold text-slate-700 mb-1">Mobile Phone (Optional)</label>
                   <input
+                    id="newUserPhone"
+                    name="phone"
                     type="tel"
                     placeholder="+234 800 123 4567"
                     value={newUser.phone}
@@ -959,8 +1036,10 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Role *</label>
+                  <label htmlFor="newUserRole" className="block font-bold text-slate-700 mb-1">Role *</label>
                   <select
+                    id="newUserRole"
+                    name="role"
                     value={newUser.role}
                     onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue bg-white"
@@ -971,8 +1050,10 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Assigned National Market *</label>
+                  <label htmlFor="newUserMarketCode" className="block font-bold text-slate-700 mb-1">Assigned National Market *</label>
                   <select
+                    id="newUserMarketCode"
+                    name="marketCode"
                     disabled={newUser.role === 'hq_admin'}
                     value={newUser.marketCode}
                     onChange={(e) => setNewUser({ ...newUser, marketCode: e.target.value as MarketCode })}
@@ -987,10 +1068,12 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
 
               {newUser.role === 'salesperson' && (
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
+                  <label htmlFor="newUserDeviceId" className="block font-bold text-slate-700 mb-1">
                     Assign Company Device (Optional)
                   </label>
                   <select
+                    id="newUserDeviceId"
+                    name="deviceId"
                     value={newUser.assignedDeviceId}
                     onChange={(e) => {
                       const devId = e.target.value;
@@ -1008,14 +1091,26 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                       .filter(
                         (d) =>
                           d.marketCode === newUser.marketCode &&
-                          d.inventoryStatus === 'available'
+                          d.inventoryStatus === 'available' &&
+                          !d.assignedTo
                       )
                       .map((d) => (
                         <option key={d.id} value={d.id}>
-                          {d.assetTag} — {d.make} {d.model} ({d.inventoryStatus})
+                          {d.assetTag} — {d.make} {d.model}
                         </option>
                       ))}
                   </select>
+                  {availableDevices.filter(
+                    (d) =>
+                      d.marketCode === newUser.marketCode &&
+                      d.inventoryStatus === 'available' &&
+                      !d.assignedTo
+                  ).length === 0 && (
+                    <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mt-1.5 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      No unassigned company devices are currently available for this market. You can assign a device later.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1114,6 +1209,17 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                 </div>
               )}
             </div>
+
+            {provisionSuccessData.deviceAssignmentError && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-amber-900">Device Assignment Pending</p>
+                  <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">{provisionSuccessData.deviceAssignmentError}</p>
+                  <p className="text-[10px] text-amber-700 mt-1 italic">The employee account is created and active. You can assign an available handset from the user table.</p>
+                </div>
+              </div>
+            )}
 
             {provisionSuccessData.temporaryPassword && (
               <div className="p-4 rounded-xl bg-blue-50/80 border border-blue-200 space-y-2">
@@ -1244,6 +1350,118 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                 className="text-xs"
               >
                 Close Audit View
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ASSIGN HANDSET MODAL FOR EXISTING REPS */}
+      {assignHandsetModalUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center">
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Assign Company Handset</h3>
+                  <p className="text-[11px] text-slate-500">
+                    {assignHandsetModalUser.name} • {assignHandsetModalUser.marketName}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAssignHandsetModalUser(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {assignHandsetError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{assignHandsetError}</span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="assignHandsetSelect" className="block font-bold text-slate-700 text-xs mb-1">
+                  Available Handsets ({assignHandsetModalUser.marketCode}) *
+                </label>
+                <select
+                  id="assignHandsetSelect"
+                  value={selectedHandsetId}
+                  onChange={(e) => setSelectedHandsetId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue bg-white"
+                >
+                  <option value="">Select an available company handset...</option>
+                  {availableDevices
+                    .filter(
+                      (d) =>
+                        d.marketCode === assignHandsetModalUser.marketCode &&
+                        d.inventoryStatus === 'available' &&
+                        !d.assignedTo
+                    )
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.assetTag} — {d.make} {d.model}
+                      </option>
+                    ))}
+                </select>
+                {availableDevices.filter(
+                  (d) =>
+                    d.marketCode === assignHandsetModalUser.marketCode &&
+                    d.inventoryStatus === 'available' &&
+                    !d.assignedTo
+                ).length === 0 && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mt-1.5 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    No unassigned company devices are currently available for this market.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 text-xs mb-1">
+                  Handover Reason / Custody Notes
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Initial company handset issue by HQ Admin"
+                  value={handsetNotes}
+                  onChange={(e) => setHandsetNotes(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                />
+              </div>
+
+              <div className="p-3 rounded-lg bg-blue-50/70 border border-blue-200 text-slate-700 text-[11px] leading-relaxed">
+                <strong>Direct Custody Assignment:</strong> This assigns the handset directly to the field rep. To repair or replace an existing active handset, use the <strong>Device Replacement Workflow</strong> instead.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAssignHandsetModalUser(null)}
+                disabled={isAssigningHandset}
+                className="text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleAssignHandsetSubmit}
+                disabled={!selectedHandsetId || isAssigningHandset}
+                className="bg-brand-blue hover:bg-brand-blue-700 text-white font-bold text-xs"
+              >
+                {isAssigningHandset ? 'Assigning...' : 'Confirm Handset Custody'}
               </Button>
             </div>
           </div>

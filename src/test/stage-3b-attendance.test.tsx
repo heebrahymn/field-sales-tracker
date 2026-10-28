@@ -674,6 +674,59 @@ describe('Stage 3B: Real Attendance & Workday Management Tests', () => {
         value: originalGeolocation,
       });
     });
+
+    it('initializes live front camera stream with facingMode user and mounts video element', async () => {
+      const mockStopTrack = vi.fn();
+      const mockTrack = { stop: mockStopTrack, kind: 'video' };
+      const mockStream = {
+        getTracks: vi.fn().mockReturnValue([mockTrack]),
+      };
+
+      const originalMediaDevices = navigator.mediaDevices;
+      const getUserMediaMock = vi.fn().mockResolvedValue(mockStream);
+      Object.defineProperty(navigator, 'mediaDevices', {
+        writable: true,
+        value: {
+          getUserMedia: getUserMediaMock,
+        },
+      });
+
+      const { container } = render(
+        <AuthProvider>
+          <FieldSessionProvider>
+            <StartDayModal isOpen={true} onClose={vi.fn()} />
+          </FieldSessionProvider>
+        </AuthProvider>
+      );
+
+      // Verify getUserMedia was invoked with facingMode: 'user'
+      await waitFor(() => {
+        expect(getUserMediaMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            video: expect.objectContaining({
+              facingMode: 'user',
+            }),
+          })
+        );
+      });
+
+      // Assert video element exists in container
+      const videoEl = container.querySelector('video');
+      expect(videoEl).toBeInTheDocument();
+      expect(videoEl).toHaveAttribute('playsinline');
+      expect(videoEl).toHaveAttribute('autoplay');
+
+      // Assert Capture Live Photo button is visible
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Capture Live Photo/i })).toBeInTheDocument();
+      });
+
+      // Restore
+      Object.defineProperty(navigator, 'mediaDevices', {
+        writable: true,
+        value: originalMediaDevices,
+      });
+    });
   });
 
   // =========================================================================
