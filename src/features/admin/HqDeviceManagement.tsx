@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +20,7 @@ import {
   Sliders,
   UserCheck,
   ShieldAlert,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketCode } from '@/context/AuthContext';
@@ -34,7 +35,17 @@ import {
 } from '@/context/DeviceReplacementContext';
 import { adminService } from '@/services/adminService';
 
-const FIELD_SALESPEOPLE = [
+export interface SalespersonOption {
+  id: string;
+  name: string;
+  email?: string;
+  marketCode: string;
+  marketName: string;
+  hasActiveHandset?: boolean;
+  activeDeviceTag?: string;
+}
+
+const FIELD_SALESPEOPLE: SalespersonOption[] = [
   { id: 'USR-NG-002', name: 'Chukwudi Okafor', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
   { id: 'USR-NG-003', name: 'Amina Bello', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
   { id: 'USR-NG-004', name: 'Oluwaseun Fashola', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
@@ -121,6 +132,83 @@ export const HqDeviceManagement: React.FC = () => {
   const [reassignReason, setReassignReason] = useState('');
   const [reassignError, setReassignError] = useState<string | null>(null);
 
+  // Live Salespeople state from Supabase
+  const [liveSalespeople, setLiveSalespeople] = useState<SalespersonOption[]>([]);
+  const [isLoadingSalespeople, setIsLoadingSalespeople] = useState(false);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [isReassigning, setIsReassigning] = useState(false);
+
+  const loadLiveSalespeople = async () => {
+    setIsLoadingSalespeople(true);
+    try {
+      const { data, error } = await adminService.getHqUsers();
+      if (data && data.length > 0) {
+        const mapped: SalespersonOption[] = data
+          .filter((u) => u.role === 'salesperson' && u.isActive)
+          .map((u) => {
+            const marketName =
+              u.marketCode === 'NG'
+                ? 'Nigeria (Lagos Hub)'
+                : u.marketCode === 'ZM'
+                ? 'Zambia (Lusaka Hub)'
+                : u.marketCode === 'MW'
+                ? 'Malawi (Blantyre Hub)'
+                : `${u.marketCode} Hub`;
+
+            return {
+              id: u.id,
+              name: u.fullName,
+              email: u.email,
+              marketCode: u.marketCode,
+              marketName,
+              hasActiveHandset: u.assignedDevice !== null,
+              activeDeviceTag: u.assignedDevice?.assetTag,
+            };
+          });
+        setLiveSalespeople(mapped);
+      } else if (error) {
+        console.warn('[HqDeviceManagement] Failed to fetch live salespeople:', error.message);
+      }
+    } catch (err) {
+      console.warn('[HqDeviceManagement] Error fetching live salespeople:', err);
+    } finally {
+      setIsLoadingSalespeople(false);
+    }
+  };
+
+  useEffect(() => {
+    loadLiveSalespeople();
+  }, []);
+
+  useEffect(() => {
+    if (deviceToAssign || deviceToReassign) {
+      loadLiveSalespeople();
+    }
+  }, [deviceToAssign, deviceToReassign]);
+
+  // Combined live + fallback mock salespeople (de-duplicated by ID / name)
+  const combinedSalespeople = useMemo(() => {
+    const list: SalespersonOption[] = [...liveSalespeople];
+    for (const mock of FIELD_SALESPEOPLE) {
+      const alreadyExists = list.some(
+        (u) =>
+          u.id === mock.id ||
+          (u.name.toLowerCase().trim() === mock.name.toLowerCase().trim() &&
+            u.marketCode === mock.marketCode)
+      );
+      if (!alreadyExists) {
+        list.push({
+          id: mock.id,
+          name: mock.name,
+          marketCode: mock.marketCode,
+          marketName: mock.marketName,
+          hasActiveHandset: false,
+        });
+      }
+    }
+    return list;
+  }, [liveSalespeople]);
+
   // Device Lifecycle Status Update Modal State
   const [deviceForStatusUpdate, setDeviceForStatusUpdate] = useState<CompanyDevice | null>(null);
   const [targetLifecycleStatus, setTargetLifecycleStatus] = useState<DeviceInventoryStatus>('Available');
@@ -192,27 +280,56 @@ export const HqDeviceManagement: React.FC = () => {
   };
 
   // 2. Submit Device Assignment
-  const handleAssignSubmit = (e: React.FormEvent) => {
+  const handleAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deviceToAssign || !assigneeId) return;
     setAssignError(null);
 
-    const person = FIELD_SALESPEOPLE.find((p) => p.id === assigneeId);
-    if (!person) return;
-
-    const res = assignDevice(deviceToAssign.assetId, person.id, person.name, assignmentReason);
-    if (!res.success) {
-      setAssignError(res.error || 'Failed to assign device.');
+    const person = combinedSalespeople.find((p) => p.id === assigneeId);
+    if (!person) {
+      setAssignError('Selected salesperson not found.');
       return;
     }
 
-    setDeviceToAssign(null);
-    setAssigneeId('');
-    setAssignmentReason('');
+    setIsAssigning(true);
+    try {
+      const res = assignDevice(deviceToAssign.assetId, person.id, person.name, assignmentReason);
+      if (!res.success) {
+        setAssignError(res.error || 'Failed to assign device.');
+        setIsAssigning(false);
+        return;
+      }
+
+      // If this is a real Supabase user UUID, persist to Supabase PostgreSQL as well
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (isUuid.test(person.id)) {
+        try {
+          const { data: supaDevs } = await adminService.getHqDevices();
+          const matchedDev = (supaDevs || []).find(
+            (d) =>
+              d.assetTag === deviceToAssign.assetId ||
+              d.id === deviceToAssign.id ||
+              d.serialNumber === deviceToAssign.serialNumber
+          );
+          if (matchedDev) {
+            await adminService.assignDevice(matchedDev.id, person.id, assignmentReason);
+          }
+        } catch (dbErr) {
+          console.warn('[HqDeviceManagement] Supabase device assignment sync note:', dbErr);
+        }
+      }
+
+      setDeviceToAssign(null);
+      setAssigneeId('');
+      setAssignmentReason('');
+      await loadLiveSalespeople();
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   // 3. Submit Reassignment (Custody Transfer)
-  const handleReassignSubmit = (e: React.FormEvent) => {
+  const handleReassignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deviceToReassign || !reassignSalespersonId) return;
     setReassignError(null);
@@ -222,18 +339,47 @@ export const HqDeviceManagement: React.FC = () => {
       return;
     }
 
-    const person = FIELD_SALESPEOPLE.find((p) => p.id === reassignSalespersonId);
-    if (!person) return;
-
-    const res = reassignDevice(deviceToReassign.assetId, person.id, person.name, reassignReason.trim());
-    if (!res.success) {
-      setReassignError(res.error || 'Failed to reassign device.');
+    const person = combinedSalespeople.find((p) => p.id === reassignSalespersonId);
+    if (!person) {
+      setReassignError('Selected new custodian not found.');
       return;
     }
 
-    setDeviceToReassign(null);
-    setReassignSalespersonId('');
-    setReassignReason('');
+    setIsReassigning(true);
+    try {
+      const res = reassignDevice(deviceToReassign.assetId, person.id, person.name, reassignReason.trim());
+      if (!res.success) {
+        setReassignError(res.error || 'Failed to reassign device.');
+        setIsReassigning(false);
+        return;
+      }
+
+      // If this is a real Supabase user UUID, persist to Supabase PostgreSQL as well
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (isUuid.test(person.id)) {
+        try {
+          const { data: supaDevs } = await adminService.getHqDevices();
+          const matchedDev = (supaDevs || []).find(
+            (d) =>
+              d.assetTag === deviceToReassign.assetId ||
+              d.id === deviceToReassign.id ||
+              d.serialNumber === deviceToReassign.serialNumber
+          );
+          if (matchedDev) {
+            await adminService.reassignDevice(matchedDev.id, person.id, reassignReason.trim());
+          }
+        } catch (dbErr) {
+          console.warn('[HqDeviceManagement] Supabase device reassignment sync note:', dbErr);
+        }
+      }
+
+      setDeviceToReassign(null);
+      setReassignSalespersonId('');
+      setReassignReason('');
+      await loadLiveSalespeople();
+    } finally {
+      setIsReassigning(false);
+    }
   };
 
   // 4. Submit Lifecycle Status Update
@@ -1326,26 +1472,41 @@ export const HqDeviceManagement: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Select Salesperson Custodian *</label>
+                <label
+                  className="block font-bold text-slate-700 mb-1"
+                  htmlFor="salespersonCustodianSelect"
+                >
+                  Select Salesperson Custodian *
+                </label>
                 <select
+                  id="salespersonCustodianSelect"
+                  data-testid="salesperson-custodian-select"
                   required
                   value={assigneeId}
                   onChange={(e) => setAssigneeId(e.target.value)}
                   className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
                 >
-                  <option value="">-- Choose Sales Representative --</option>
-                  {FIELD_SALESPEOPLE.filter((p) => p.marketCode === deviceToAssign.marketCode).map((rep) => {
-                    const alreadyHasDevice = devices.some(
-                      (d) =>
-                        d.assignedSalespersonId === rep.id &&
-                        (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
-                    );
-                    return (
-                      <option key={rep.id} value={rep.id}>
-                        {rep.name} ({rep.id}) {alreadyHasDevice ? '⚠️ Currently has active handset' : '✓ Unassigned'}
-                      </option>
-                    );
-                  })}
+                  <option value="">
+                    {isLoadingSalespeople ? 'Loading representatives...' : '-- Choose Sales Representative --'}
+                  </option>
+                  {combinedSalespeople
+                    .filter((p) => p.marketCode === deviceToAssign.marketCode)
+                    .map((rep) => {
+                      const alreadyHasDevice =
+                        Boolean(rep.hasActiveHandset) ||
+                        devices.some(
+                          (d) =>
+                            (d.assignedSalespersonId === rep.id ||
+                              (rep.name && d.assignedSalespersonName?.toLowerCase() === rep.name.toLowerCase())) &&
+                            (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
+                        );
+                      const displayTag = rep.email || rep.id;
+                      return (
+                        <option key={rep.id} value={rep.id}>
+                          {rep.name} ({displayTag}) {alreadyHasDevice ? '⚠️ Currently has active handset' : '✓ Unassigned'}
+                        </option>
+                      );
+                    })}
                 </select>
                 <span className="text-[10px] text-slate-400">Rule: A salesperson cannot hold multiple active handsets simultaneously.</span>
               </div>
@@ -1371,11 +1532,13 @@ export const HqDeviceManagement: React.FC = () => {
                   Cancel
                 </Button>
                 <Button
+                  id="btn-confirm-handover"
                   type="submit"
-                  disabled={!assigneeId}
-                  className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold"
+                  disabled={!assigneeId || isAssigning}
+                  className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5"
                 >
-                  Confirm Handover
+                  {isAssigning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {isAssigning ? 'Assigning...' : 'Confirm Handover'}
                 </Button>
               </div>
             </form>
@@ -1419,19 +1582,37 @@ export const HqDeviceManagement: React.FC = () => {
 
             <form onSubmit={handleReassignSubmit} className="space-y-3 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Select New Salesperson Custodian *</label>
+                <label
+                  className="block font-bold text-slate-700 mb-1"
+                  htmlFor="reassignCustodianSelect"
+                >
+                  Select New Salesperson Custodian *
+                </label>
                 <select
+                  id="reassignCustodianSelect"
+                  data-testid="reassign-custodian-select"
                   required
                   value={reassignSalespersonId}
                   onChange={(e) => setReassignSalespersonId(e.target.value)}
                   className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
                 >
-                  <option value="">-- Choose New Custodian --</option>
-                  {FIELD_SALESPEOPLE.filter((p) => p.id !== deviceToReassign.assignedSalespersonId).map((rep) => (
-                    <option key={rep.id} value={rep.id}>
-                      {rep.name} ({rep.marketName})
-                    </option>
-                  ))}
+                  <option value="">
+                    {isLoadingSalespeople ? 'Loading representatives...' : '-- Choose New Custodian --'}
+                  </option>
+                  {combinedSalespeople
+                    .filter(
+                      (p) =>
+                        p.id !== deviceToReassign.assignedSalespersonId &&
+                        p.marketCode === deviceToReassign.marketCode
+                    )
+                    .map((rep) => {
+                      const displayTag = rep.email || rep.id;
+                      return (
+                        <option key={rep.id} value={rep.id}>
+                          {rep.name} ({displayTag}) - {rep.marketName}
+                        </option>
+                      );
+                    })}
                 </select>
               </div>
 
@@ -1457,11 +1638,13 @@ export const HqDeviceManagement: React.FC = () => {
                   Cancel
                 </Button>
                 <Button
+                  id="btn-confirm-custody-transfer"
                   type="submit"
-                  disabled={!reassignSalespersonId || !reassignReason.trim()}
-                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+                  disabled={!reassignSalespersonId || !reassignReason.trim() || isReassigning}
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex items-center gap-1.5"
                 >
-                  Confirm Custody Transfer
+                  {isReassigning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {isReassigning ? 'Reassigning...' : 'Confirm Custody Transfer'}
                 </Button>
               </div>
             </form>

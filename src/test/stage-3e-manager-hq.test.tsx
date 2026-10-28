@@ -842,5 +842,137 @@ describe('Stage 3E: Management & HQ Administration Integration Tests', () => {
       expect(res.success).toBe(false);
       expect(res.error?.message).toContain('Cross-market assignment restricted');
     });
+
+    it('reassignDevice revokes prior assignment and reassigns to new custodian in same market', async () => {
+      const mockUpdate = vi.fn().mockReturnThis();
+      const mockInsert = vi.fn().mockResolvedValue({ error: null });
+
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'profiles') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({
+              data: {
+                id: 'new-rep-uuid',
+                full_name: 'Femi Alabi',
+                role: 'salesperson',
+                market_code: 'NG',
+                is_active: true,
+              },
+              error: null,
+            }),
+          };
+        }
+        if (table === 'device_assignments') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockImplementation(() => ({
+              eq: vi.fn().mockReturnThis(),
+              maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+            })),
+            update: mockUpdate,
+            insert: mockInsert,
+          };
+        }
+        if (table === 'devices') {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockImplementation(() => ({
+              single: vi.fn().mockResolvedValue({
+                data: {
+                  id: 'dev-ng-002',
+                  asset_tag: 'CC-DEV-LOS-002',
+                  market_code: 'NG',
+                  inventory_status: 'assigned',
+                },
+                error: null,
+              }),
+            })),
+            update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+          };
+        }
+        if (table === 'approval_audit') {
+          return { insert: vi.fn().mockResolvedValue({ error: null }) };
+        }
+        return { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis() };
+      });
+
+      const res = await adminService.reassignDevice(
+        'dev-ng-002',
+        'new-rep-uuid',
+        'Staff territory handover approved by HQ'
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.error).toBeNull();
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          device_id: 'dev-ng-002',
+          salesperson_id: 'new-rep-uuid',
+          is_current: true,
+          handover_reason: 'Staff territory handover approved by HQ',
+        })
+      );
+    });
+
+    it('HqDeviceManagement renders newly provisioned salesperson in Assign Handset modal dropdown', async () => {
+      // Mock adminService.getHqUsers to return a newly created salesperson from HQ Admin
+      const getHqUsersSpy = vi.spyOn(adminService, 'getHqUsers').mockResolvedValue({
+        data: [
+          {
+            id: 'newly-created-rep-uuid-001',
+            fullName: 'Zainab Lawal (Newly Provisioned)',
+            email: 'zainab.lawal.prov@carboncarcare.com',
+            phone: '+2348099887766',
+            role: 'salesperson',
+            marketCode: 'NG',
+            isActive: true,
+            assignedDevice: null,
+            createdAt: '2026-10-28T14:00:00Z',
+          },
+        ],
+        error: null,
+      });
+
+      const { HqDeviceManagement } = await import('@/features/admin/HqDeviceManagement');
+      const { DeviceReplacementProvider } = await import('@/context/DeviceReplacementContext');
+      const { fireEvent, waitFor } = await import('@testing-library/react');
+
+      render(
+        <DeviceReplacementProvider>
+          <HqDeviceManagement />
+        </DeviceReplacementProvider>
+      );
+
+      // Verify getHqUsers was called on mount
+      expect(getHqUsersSpy).toHaveBeenCalled();
+
+      // Find an "Assign" button on an available device (e.g. CC-DEV-LOS-SPARE-01)
+      const assignButtons = screen.getAllByRole('button', { name: /^Assign$/i });
+      expect(assignButtons.length).toBeGreaterThan(0);
+      fireEvent.click(assignButtons[0]);
+
+      // Wait for modal "Assign Handset to Salesperson" to appear
+      await waitFor(() => {
+        expect(screen.getByText('Assign Handset to Salesperson')).toBeInTheDocument();
+      });
+
+      // Check the custodian select dropdown
+      const custodianSelect = screen.getByTestId('salesperson-custodian-select') as HTMLSelectElement;
+      expect(custodianSelect).toBeInTheDocument();
+
+      // Verify that the newly provisioned salesperson option is rendered
+      const optionTexts = Array.from(custodianSelect.options).map((opt) => opt.textContent);
+      const newlyProvisionedOption = optionTexts.find((text) =>
+        text?.includes('Zainab Lawal (Newly Provisioned)')
+      );
+
+      expect(newlyProvisionedOption).toBeDefined();
+      expect(newlyProvisionedOption).toContain('zainab.lawal.prov@carboncarcare.com');
+      expect(newlyProvisionedOption).toContain('✓ Unassigned');
+
+      getHqUsersSpy.mockRestore();
+    });
   });
 });

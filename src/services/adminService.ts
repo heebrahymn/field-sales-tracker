@@ -668,6 +668,112 @@ export const adminService = {
   },
 
   /**
+   * Reassigns an already assigned company device to a new salesperson custodian.
+   * Revokes the current custodian's assignment and creates a new active assignment.
+   */
+  async reassignDevice(
+    deviceId: string,
+    newSalespersonId: string,
+    reason: string
+  ): Promise<{ success: boolean; error: Error | null }> {
+    try {
+      const { data: userResp } = await supabase.auth.getUser();
+      const currentUserId = userResp?.user?.id || '00000000-0000-0000-0000-000000000000';
+
+      // Verify new custodian profile
+      const { data: repProfile, error: profErr } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, market_code, is_active')
+        .eq('id', newSalespersonId)
+        .single();
+
+      if (profErr || !repProfile) {
+        return { success: false, error: new Error('Salesperson profile not found.') };
+      }
+
+      // Verify new custodian does not already have an active device
+      const { data: existingActive } = await supabase
+        .from('device_assignments')
+        .select('id, device_id')
+        .eq('salesperson_id', newSalespersonId)
+        .eq('is_current', true)
+        .maybeSingle();
+
+      if (existingActive && existingActive.device_id !== deviceId) {
+        return {
+          success: false,
+          error: new Error('New custodian already has an active company device assigned.'),
+        };
+      }
+
+      // Verify device exists
+      const { data: dev, error: devErr } = await supabase
+        .from('devices')
+        .select('id, asset_tag, make, model, market_code, inventory_status')
+        .eq('id', deviceId)
+        .single();
+
+      if (devErr || !dev) {
+        return { success: false, error: new Error('Device not found in inventory.') };
+      }
+
+      if (repProfile.market_code && dev.market_code !== repProfile.market_code) {
+        return {
+          success: false,
+          error: new Error(
+            `Cross-market assignment restricted: Device is ${dev.market_code}, but employee is in ${repProfile.market_code}.`
+          ),
+        };
+      }
+
+      // 1. Revoke current active assignment on this device
+      const nowIso = new Date().toISOString();
+      await supabase
+        .from('device_assignments')
+        .update({ is_current: false, returned_at: nowIso })
+        .eq('device_id', deviceId)
+        .eq('is_current', true);
+
+      // 2. Insert new active assignment
+      const { error: assignErr } = await supabase.from('device_assignments').insert({
+        device_id: deviceId,
+        salesperson_id: newSalespersonId,
+        assigned_by: currentUserId,
+        assigned_at: nowIso,
+        is_current: true,
+        handover_reason: reason || 'Reassigned by HQ Administrator',
+      });
+
+      if (assignErr) {
+        return { success: false, error: new Error(assignErr.message) };
+      }
+
+      // 3. Ensure device status is assigned
+      await supabase.from('devices').update({ inventory_status: 'assigned' }).eq('id', deviceId);
+
+      // 4. Record in audit ledger
+      await supabase.from('approval_audit').insert({
+        action: 'device_reassigned',
+        entity_type: 'device_assignments',
+        entity_id: deviceId,
+        actor_id: currentUserId,
+        new_state: JSON.stringify({
+          device_id: deviceId,
+          device_tag: dev.asset_tag,
+          new_salesperson_id: newSalespersonId,
+          new_salesperson_name: repProfile.full_name,
+          reason,
+        }),
+        mandatory_reason: `HQ Administrator reassigned device ${dev.asset_tag} to employee ${repProfile.full_name} (${repProfile.market_code}). Reason: ${reason}`,
+      });
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
    * Queries salesperson company device replacement requests for HQ review.
    * Strictly Direct-to-HQ with zero Country Sales Head bottleneck.
    */
