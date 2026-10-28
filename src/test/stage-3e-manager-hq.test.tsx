@@ -21,6 +21,7 @@ import { CountryCsvExportModal } from '@/features/review/CountryCsvExportModal';
 // Mock Supabase
 const mockRpc = vi.fn();
 const mockFrom = vi.fn();
+const mockFunctionsInvoke = vi.fn();
 const mockGetUser = vi.fn().mockResolvedValue({
   data: { user: { id: '00000000-0000-0000-0000-000000000001' } },
   error: null,
@@ -36,6 +37,9 @@ vi.mock('@/lib/supabase', () => {
       },
       from: (table: string) => mockFrom(table),
       rpc: (fn: string, params: any) => mockRpc(fn, params),
+      functions: {
+        invoke: (fn: string, options: any) => mockFunctionsInvoke(fn, options),
+      },
       storage: {
         from: vi.fn().mockReturnValue({
           createSignedUrl: vi.fn().mockResolvedValue({ data: { signedUrl: 'https://test.co/signed.jpg' }, error: null }),
@@ -497,6 +501,118 @@ describe('Stage 3E: Management & HQ Administration Integration Tests', () => {
       expect(res.locationPendingRows).toBe(1);
       expect(insertedBranch).not.toBeNull();
       expect(insertedBranch.operating_status).toBe('location_pending');
+    });
+  });
+
+  // =========================================================================
+  // 7. Secure HQ Admin User Provisioning via Edge Function (PRD §3, §4.2)
+  // =========================================================================
+  describe('7. Secure HQ Admin User Provisioning via Edge Function', () => {
+    it('successfully provisions user in Supabase Auth & profiles via admin-provision-user', async () => {
+      mockFunctionsInvoke.mockResolvedValueOnce({
+        data: {
+          success: true,
+          message: 'Employee account provisioned successfully',
+          user: {
+            id: '99999999-0000-0000-0000-000000000099',
+            name: 'Chioma Eze',
+            email: 'chioma.eze@carboncarcare.com',
+            phone: '+234 802 111 2233',
+            role: 'salesperson',
+            marketCode: 'NG',
+            marketName: 'Nigeria (Lagos Hub)',
+            status: 'active',
+            assignedDeviceTag: 'CC-DEV-LOS-005',
+            assignedDeviceModel: 'Samsung Galaxy A15 Enterprise',
+            lastLogin: 'Never (Pending First Login)',
+            mfaEnabled: false,
+            createdAt: '2026-10-28',
+          },
+          credentialSetup: {
+            temporaryPassword: 'C3!GeneratedPassword2026',
+            loginReady: true,
+            mustChangeOnFirstLogin: false,
+          },
+        },
+        error: null,
+      });
+
+      const res = await adminService.provisionUser({
+        first_name: 'Chioma',
+        last_name: 'Eze',
+        email: 'chioma.eze@carboncarcare.com',
+        phone_number: '+234 802 111 2233',
+        role: 'salesperson',
+        market_code: 'NG',
+        assigned_device_id: 'DEV-UUID-005',
+      });
+
+      expect(res.error).toBeNull();
+      expect(res.data).not.toBeNull();
+      expect(res.data?.success).toBe(true);
+      expect(res.data?.user.email).toBe('chioma.eze@carboncarcare.com');
+      expect(res.data?.credentialSetup.temporaryPassword).toBe('C3!GeneratedPassword2026');
+      expect(mockFunctionsInvoke).toHaveBeenCalledWith('admin-provision-user', expect.objectContaining({
+        body: expect.objectContaining({
+          first_name: 'Chioma',
+          last_name: 'Eze',
+          email: 'chioma.eze@carboncarcare.com',
+          role: 'salesperson',
+          market_code: 'NG',
+        }),
+      }));
+    });
+
+    it('handles duplicate email conflict error from Edge Function (HTTP 409)', async () => {
+      const mockHttpError: any = new Error('FunctionsHttpError');
+      mockHttpError.context = {
+        json: async () => ({
+          error: "An employee account with email 'chioma.eze@carboncarcare.com' already exists in profiles.",
+        }),
+      };
+
+      mockFunctionsInvoke.mockResolvedValueOnce({
+        data: null,
+        error: mockHttpError,
+      });
+
+      const res = await adminService.provisionUser({
+        first_name: 'Chioma',
+        last_name: 'Eze',
+        email: 'chioma.eze@carboncarcare.com',
+        role: 'salesperson',
+        market_code: 'NG',
+      });
+
+      expect(res.data).toBeNull();
+      expect(res.error).not.toBeNull();
+      expect(res.error?.message).toContain('already exists in profiles');
+    });
+
+    it('handles validation error from Edge Function (HTTP 400)', async () => {
+      const mockHttpError: any = new Error('FunctionsHttpError');
+      mockHttpError.context = {
+        json: async () => ({
+          error: 'A valid corporate email address is required.',
+        }),
+      };
+
+      mockFunctionsInvoke.mockResolvedValueOnce({
+        data: null,
+        error: mockHttpError,
+      });
+
+      const res = await adminService.provisionUser({
+        first_name: 'Chioma',
+        last_name: 'Eze',
+        email: 'invalid-email',
+        role: 'salesperson',
+        market_code: 'NG',
+      });
+
+      expect(res.data).toBeNull();
+      expect(res.error).not.toBeNull();
+      expect(res.error?.message).toBe('A valid corporate email address is required.');
     });
   });
 });

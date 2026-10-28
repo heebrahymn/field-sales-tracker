@@ -42,6 +42,42 @@ export interface HqUserRecord {
   createdAt: string;
 }
 
+export interface ProvisionUserPayload {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number?: string;
+  role: 'salesperson' | 'country_sales_head' | 'hq_admin';
+  market_code?: 'NG' | 'ZM' | 'MW' | null;
+  assigned_device_id?: string;
+  password?: string;
+}
+
+export interface ProvisionUserResponse {
+  success: boolean;
+  message: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    role: string;
+    marketCode: string;
+    marketName: string;
+    status: string;
+    assignedDeviceTag?: string;
+    assignedDeviceModel?: string;
+    lastLogin: string;
+    mfaEnabled: boolean;
+    createdAt: string;
+  };
+  credentialSetup: {
+    temporaryPassword: string;
+    loginReady: boolean;
+    mustChangeOnFirstLogin: boolean;
+  };
+}
+
 export interface HqDeviceRecord {
   id: string;
   assetTag: string;
@@ -271,7 +307,7 @@ export const adminService = {
           market_code,
           is_active,
           created_at,
-          device_assignments (
+          device_assignments!device_assignments_salesperson_id_fkey (
             id,
             device_id,
             assigned_at,
@@ -298,7 +334,7 @@ export const adminService = {
       }
 
       const records: HqUserRecord[] = (data || []).map((row: any) => {
-        const assignments = row.device_assignments || [];
+        const assignments = row['device_assignments!device_assignments_salesperson_id_fkey'] || row.device_assignments || [];
         const activeAssignment = assignments.find((a: any) => a.is_current || a.returned_at === null) || assignments[0];
         const dev = activeAssignment?.devices;
 
@@ -326,6 +362,55 @@ export const adminService = {
       return { data: records, error: null };
     } catch (err: any) {
       return { data: [], error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Provisions a new employee user in Supabase Auth and public.profiles via server-side Edge Function.
+   * Only active HQ Administrators can call this.
+   */
+  async provisionUser(
+    payload: ProvisionUserPayload
+  ): Promise<{ data: ProvisionUserResponse | null; error: Error | null }> {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      const headers: Record<string, string> = {};
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
+      const { data, error } = await supabase.functions.invoke<ProvisionUserResponse>('admin-provision-user', {
+        body: payload,
+        headers,
+      });
+
+      if (error) {
+        let detailMessage = error.message;
+        // FunctionsHttpError contains the response body in context
+        if ('context' in error && (error as any).context) {
+          try {
+            const body = await (error as any).context.json();
+            if (body?.error) {
+              detailMessage = body.error;
+            }
+          } catch {
+            // ignore if context.json() fails or is already consumed
+          }
+        }
+        return { data: null, error: new Error(detailMessage) };
+      }
+
+      if (!data || !data.success) {
+        return {
+          data: null,
+          error: new Error((data as any)?.error || 'User provisioning failed on server.'),
+        };
+      }
+
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
     }
   },
 

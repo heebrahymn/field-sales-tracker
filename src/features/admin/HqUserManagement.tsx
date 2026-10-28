@@ -16,10 +16,15 @@ import {
   Mail,
   AlertTriangle,
   X,
+  Loader2,
+  Copy,
+  Check,
+  KeyRound,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UserRole, MarketCode } from '@/context/AuthContext';
-import { adminService } from '@/services/adminService';
+import { adminService, ProvisionUserPayload, HqDeviceRecord } from '@/services/adminService';
 
 export interface AdminUserRecord {
   id: string;
@@ -237,6 +242,8 @@ interface AuditEntry {
 
 export const HqUserManagement: React.FC = () => {
   const [users, setUsers] = useState<AdminUserRecord[]>(INITIAL_MOCK_USERS);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [availableDevices, setAvailableDevices] = useState<HqDeviceRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [marketFilter, setMarketFilter] = useState<'ALL' | MarketCode>('ALL');
   const [roleFilter, setRoleFilter] = useState<'ALL' | UserRole>('ALL');
@@ -244,14 +251,17 @@ export const HqUserManagement: React.FC = () => {
 
   // Load real profiles from Supabase
   const loadSupabaseUsers = async () => {
-    const { data } = await adminService.getHqUsers();
+    setIsLoadingUsers(true);
+    const { data, error } = await adminService.getHqUsers();
+    setIsLoadingUsers(false);
+
     if (data && data.length > 0) {
       const mappedLiveUsers: AdminUserRecord[] = data.map((p) => ({
         id: p.id,
         name: p.fullName,
         email: p.email,
         phone: p.phone || '—',
-        role: p.role as UserRole,
+        role: (p.role === 'sales_head' ? 'country_sales_head' : p.role) as UserRole,
         marketCode: (p.marketCode as MarketCode) || 'ALL',
         marketName:
           p.marketCode === 'NG'
@@ -260,31 +270,41 @@ export const HqUserManagement: React.FC = () => {
             ? 'Zambia (Lusaka Hub)'
             : p.marketCode === 'MW'
             ? 'Malawi (Blantyre Hub)'
-            : 'All Markets',
+            : 'All Markets (HQ Regional)',
         status: p.isActive ? 'active' : 'deactivated',
         assignedDeviceTag: p.assignedDevice?.assetTag || 'Unassigned Handset',
         assignedDeviceModel: p.assignedDevice?.model || undefined,
-        lastLogin: 'Active Field Session',
-        mfaEnabled: true,
-        createdAt: p.createdAt.split('T')[0],
+        lastLogin: 'Active / Pending First Login',
+        mfaEnabled: p.role === 'hq_admin',
+        createdAt: p.createdAt ? p.createdAt.split('T')[0] : new Date().toISOString().split('T')[0],
       }));
 
-      // Merge real users, filtering duplicates by email
-      setUsers(() => {
-        const nonDuplicateLive = mappedLiveUsers.filter(
-          (live) => !INITIAL_MOCK_USERS.some((demo) => demo.email.toLowerCase() === live.email.toLowerCase())
-        );
-        return [...nonDuplicateLive, ...INITIAL_MOCK_USERS];
-      });
+      setUsers(mappedLiveUsers);
+    } else if (error) {
+      console.warn('[HqUserManagement] Unable to fetch real profiles from Supabase:', error.message);
+    }
+  };
+
+  const loadDevices = async () => {
+    const { data } = await adminService.getHqDevices();
+    if (data) {
+      setAvailableDevices(data);
     }
   };
 
   useEffect(() => {
     loadSupabaseUsers();
+    loadDevices();
   }, []);
 
   // Modals & Drawers
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [provisionSuccessData, setProvisionSuccessData] = useState<{
+    user: AdminUserRecord;
+    temporaryPassword?: string;
+  } | null>(null);
+  const [copiedCredentials, setCopiedCredentials] = useState(false);
   const [selectedUserForAudit, setSelectedUserForAudit] = useState<AdminUserRecord | null>(null);
 
   // New User Form State
@@ -294,7 +314,9 @@ export const HqUserManagement: React.FC = () => {
     phone: '',
     role: 'salesperson' as UserRole,
     marketCode: 'NG' as MarketCode,
+    assignedDeviceId: '',
     assignedDeviceTag: '',
+    password: '',
     notes: '',
   });
 
@@ -351,63 +373,117 @@ export const HqUserManagement: React.FC = () => {
     });
   }, [users, searchQuery, marketFilter, roleFilter, statusFilter]);
 
-  // Handle Create User
-  const handleCreateUser = (e: React.FormEvent) => {
+  // Handle Create User (Real Backend Edge Function + Supabase Auth)
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUser.name.trim() || !newUser.email.trim() || !newUser.phone.trim()) {
-      setFormFeedback('Please fill out all required fields.');
+    setFormFeedback(null);
+
+    if (!newUser.name.trim() || !newUser.email.trim()) {
+      setFormFeedback('Please enter both Full Name and Corporate Email.');
       return;
     }
 
-    const marketMap: Record<MarketCode, string> = {
-      NG: 'Nigeria (Lagos Hub)',
-      ZM: 'Zambia (Lusaka Hub)',
-      MW: 'Malawi (Blantyre Hub)',
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newUser.email.trim())) {
+      setFormFeedback('Please enter a valid corporate email address (e.g. employee@carboncarcare.com).');
+      return;
+    }
+
+    const nameParts = newUser.name.trim().split(/\s+/);
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ') || firstName;
+
+    const mappedRole = (newUser.role === 'sales_head' ? 'country_sales_head' : newUser.role) as
+      | 'salesperson'
+      | 'country_sales_head'
+      | 'hq_admin';
+
+    const payload: ProvisionUserPayload = {
+      first_name: firstName,
+      last_name: lastName,
+      email: newUser.email.trim().toLowerCase(),
+      phone_number: newUser.phone.trim() || undefined,
+      role: mappedRole,
+      market_code: mappedRole === 'hq_admin' ? null : newUser.marketCode,
+      assigned_device_id: newUser.assignedDeviceId || undefined,
+      password: newUser.password.trim() || undefined,
     };
 
-    const newId = `USR-${newUser.marketCode}-${String(users.length + 1).padStart(3, '0')}`;
-    const createdUserRecord: AdminUserRecord = {
-      id: newId,
-      name: newUser.name.trim(),
-      email: newUser.email.trim(),
-      phone: newUser.phone.trim(),
-      role: newUser.role,
-      marketCode: newUser.role === 'hq_admin' ? 'ALL' : newUser.marketCode,
-      marketName: newUser.role === 'hq_admin' ? 'All Markets (HQ Regional)' : marketMap[newUser.marketCode],
-      status: 'active',
-      assignedDeviceTag: newUser.assignedDeviceTag.trim() || undefined,
-      assignedDeviceModel: newUser.assignedDeviceTag.trim() ? 'Samsung Galaxy A15 Enterprise' : undefined,
-      lastLogin: 'Never (Pending First Login)',
-      mfaEnabled: false,
-      createdAt: new Date().toISOString().split('T')[0],
-      notes: newUser.notes.trim() || undefined,
-    };
+    setIsSubmitting(true);
+    const { data: resData, error: resError } = await adminService.provisionUser(payload);
+    setIsSubmitting(false);
 
-    setUsers([createdUserRecord, ...users]);
+    if (resError || !resData) {
+      setFormFeedback(resError?.message || 'User provisioning failed. Please check inputs and try again.');
+      return;
+    }
 
-    // Append to audit log
+    // Refresh real Supabase users
+    await loadSupabaseUsers();
+
+    // Append to local audit display
     const auditRecord: AuditEntry = {
       id: `AUD-${Date.now().toString().slice(-4)}`,
-      userId: newId,
-      userName: createdUserRecord.name,
-      action: `Created Account (${createdUserRecord.role})`,
+      userId: resData.user.id,
+      userName: resData.user.name,
+      action: `Created Account (${resData.user.role})`,
       actor: 'HQ Administrator (HQ Admin)',
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      details: `Created new user ${createdUserRecord.name} with role ${createdUserRecord.role} assigned to ${createdUserRecord.marketName}.`,
+      details: `Provisioned user ${resData.user.name} with role ${resData.user.role} in ${resData.user.marketName}.`,
     };
-    setAuditLog([auditRecord, ...auditLog]);
+    setAuditLog((log) => [auditRecord, ...log]);
 
+    // Close create modal and open Success Credential Modal
     setIsCreateModalOpen(false);
+    setProvisionSuccessData({
+      user: {
+        id: resData.user.id,
+        name: resData.user.name,
+        email: resData.user.email,
+        phone: resData.user.phone,
+        role: resData.user.role as UserRole,
+        marketCode: (resData.user.marketCode as MarketCode) || 'ALL',
+        marketName: resData.user.marketName,
+        status: 'active',
+        assignedDeviceTag: resData.user.assignedDeviceTag,
+        assignedDeviceModel: resData.user.assignedDeviceModel,
+        lastLogin: resData.user.lastLogin,
+        mfaEnabled: resData.user.mfaEnabled,
+        createdAt: resData.user.createdAt,
+      },
+      temporaryPassword: resData.credentialSetup?.temporaryPassword,
+    });
+
+    // Reset Form
     setNewUser({
       name: '',
       email: '',
       phone: '',
       role: 'salesperson',
       marketCode: 'NG',
+      assignedDeviceId: '',
       assignedDeviceTag: '',
+      password: '',
       notes: '',
     });
-    setFormFeedback(null);
+  };
+
+  const handleCopyCredentials = () => {
+    if (!provisionSuccessData) return;
+    const { user, temporaryPassword } = provisionSuccessData;
+    const credText = `Carbon Field Sales Tracker - Employee Login Credentials:
+Employee Name: ${user.name}
+Corporate Email: ${user.email}
+System Role: ${user.role}
+Assigned Market: ${user.marketName}
+Temporary Password: ${temporaryPassword || '(Password chosen during provisioning)'}
+Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://field-sales-tracker-b6l7.vercel.app'}`;
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(credText);
+      setCopiedCredentials(true);
+      setTimeout(() => setCopiedCredentials(false), 3000);
+    }
   };
 
   // Handle Toggle Status (Activate / Deactivate)
@@ -465,6 +541,17 @@ export const HqUserManagement: React.FC = () => {
 
         <div className="flex items-center gap-2.5">
           <Button
+            variant="outline"
+            size="sm"
+            onClick={loadSupabaseUsers}
+            disabled={isLoadingUsers}
+            className="border-slate-700 text-slate-200 hover:bg-slate-800 text-xs flex items-center gap-1.5"
+            title="Refresh Directory from Supabase"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', isLoadingUsers && 'animate-spin')} />
+            {isLoadingUsers ? 'Syncing...' : 'Refresh'}
+          </Button>
+          <Button
             onClick={() => setIsCreateModalOpen(true)}
             className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
           >
@@ -518,7 +605,7 @@ export const HqUserManagement: React.FC = () => {
           <div>
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Country Sales Heads</p>
             <p className="text-2xl font-black text-slate-900 mt-0.5">
-              {users.filter((u) => u.role === 'sales_head').length}
+              {users.filter((u) => u.role === 'sales_head' || u.role === 'country_sales_head').length}
             </p>
             <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
               1 per National Market
@@ -807,7 +894,7 @@ export const HqUserManagement: React.FC = () => {
       {/* CREATE USER MODAL */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center">
@@ -819,6 +906,7 @@ export const HqUserManagement: React.FC = () => {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsCreateModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 p-1"
               >
@@ -838,7 +926,7 @@ export const HqUserManagement: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Tunde Balogun or Joseph Mwape"
+                  placeholder="e.g. Babatunde Adeleke or Chioma Eze"
                   value={newUser.name}
                   onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
@@ -851,17 +939,16 @@ export const HqUserManagement: React.FC = () => {
                   <input
                     type="email"
                     required
-                    placeholder="name@carboncare.ng"
+                    placeholder="name@carboncarcare.com"
                     value={newUser.email}
                     onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Mobile Phone *</label>
+                  <label className="block font-bold text-slate-700 mb-1">Mobile Phone (Optional)</label>
                   <input
                     type="tel"
-                    required
                     placeholder="+234 800 123 4567"
                     value={newUser.phone}
                     onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
@@ -879,7 +966,7 @@ export const HqUserManagement: React.FC = () => {
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue bg-white"
                   >
                     <option value="salesperson">Salesperson (Field Mobile)</option>
-                    <option value="sales_head">Country Sales Head</option>
+                    <option value="country_sales_head">Country Sales Head</option>
                     <option value="hq_admin">HQ Administrator</option>
                   </select>
                 </div>
@@ -898,21 +985,58 @@ export const HqUserManagement: React.FC = () => {
                 </div>
               </div>
 
+              {newUser.role === 'salesperson' && (
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Assign Company Device (Optional)
+                  </label>
+                  <select
+                    value={newUser.assignedDeviceId}
+                    onChange={(e) => {
+                      const devId = e.target.value;
+                      const selectedDev = availableDevices.find((d) => d.id === devId);
+                      setNewUser({
+                        ...newUser,
+                        assignedDeviceId: devId,
+                        assignedDeviceTag: selectedDev?.assetTag || '',
+                      });
+                    }}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue bg-white"
+                  >
+                    <option value="">No device assigned initially (Assign later)</option>
+                    {availableDevices
+                      .filter(
+                        (d) =>
+                          d.marketCode === newUser.marketCode &&
+                          d.inventoryStatus === 'available'
+                      )
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.assetTag} — {d.make} {d.model} ({d.inventoryStatus})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
-                  Assigned Device Identifier (Optional)
+                  Temporary Initial Password (Optional)
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. CC-DEV-LOS-009"
-                  value={newUser.assignedDeviceTag}
-                  onChange={(e) => setNewUser({ ...newUser, assignedDeviceTag: e.target.value })}
+                  placeholder="Leave blank to auto-generate secure 20-character password"
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  If left blank, a high-entropy password will be generated automatically and displayed upon successful provisioning.
+                </p>
               </div>
 
               <div className="p-3 rounded-lg bg-blue-50/70 border border-blue-200 text-slate-700 text-[11px] leading-relaxed">
-                <strong>Simulated Security Provisioning:</strong> A temporary one-time password and enrolment link will be dispatched to the provided corporate email. Device binding will complete on first launch.
+                <strong>Cryptographic Server-Side Provisioning:</strong> The employee account is provisioned in Supabase GoTrue Auth and PostgreSQL profiles via server-side Edge Function. The employee can authenticate immediately with these credentials.
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -920,18 +1044,121 @@ export const HqUserManagement: React.FC = () => {
                   type="button"
                   variant="outline"
                   onClick={() => setIsCreateModalOpen(false)}
+                  disabled={isSubmitting}
                   className="text-xs"
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
-                  className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold"
+                  disabled={isSubmitting}
+                  className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5"
                 >
-                  Provision User Account
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Provisioning Account...
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="w-3.5 h-3.5" />
+                      Provision User Account
+                    </>
+                  )}
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* PROVISION SUCCESS CREDENTIAL MODAL */}
+      {provisionSuccessData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">User Account Provisioned</h3>
+                <p className="text-xs text-slate-500">Persisted in Supabase Auth & PostgreSQL Profiles</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Full Name:</span>
+                <span className="font-bold text-slate-900">{provisionSuccessData.user.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Email:</span>
+                <span className="font-mono font-semibold text-slate-800">{provisionSuccessData.user.email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Role:</span>
+                <span className="font-semibold text-brand-blue capitalize">
+                  {provisionSuccessData.user.role.replace(/_/g, ' ')}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Assigned Market:</span>
+                <span className="font-semibold text-slate-800">{provisionSuccessData.user.marketName}</span>
+              </div>
+              {provisionSuccessData.user.assignedDeviceTag && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">Assigned Device:</span>
+                  <span className="font-mono font-semibold text-slate-800">
+                    {provisionSuccessData.user.assignedDeviceTag}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {provisionSuccessData.temporaryPassword && (
+              <div className="p-4 rounded-xl bg-blue-50/80 border border-blue-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-blue-900 uppercase tracking-wide flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                    Temporary Initial Password
+                  </span>
+                </div>
+                <div className="p-2.5 bg-white rounded-lg border border-blue-200 font-mono text-xs text-slate-900 font-bold select-all break-all">
+                  {provisionSuccessData.temporaryPassword}
+                </div>
+                <p className="text-[11px] text-blue-700 leading-relaxed">
+                  Share this temporary password securely with the employee. The account is active and ready to log in immediately.
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCopyCredentials}
+                className="text-xs flex items-center gap-1.5 border-slate-300 hover:bg-slate-50"
+              >
+                {copiedCredentials ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    Copied to Clipboard!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    Copy Credentials
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => setProvisionSuccessData(null)}
+                className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold px-4"
+              >
+                Done
+              </Button>
+            </div>
           </div>
         </div>
       )}
