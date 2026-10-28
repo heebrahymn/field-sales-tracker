@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, and Stage 3B Completed; Stage 3C Authorisation Pending  
+**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, and Stage 3C Completed; Stage 3D Authorisation Pending  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -225,7 +225,7 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **Pre-3** | Pre-Stage 3 Product & UX Audit, Client terminology corrections, sync queue accessible navigation | **Completed** |
 | **3A** | Real Supabase Auth, GoTrue session lifecycle, trusted database profile RBAC, country isolation | **Completed** (ADR 0009) |
 | **3B** | Real attendance (Start/End Day), GPS capture, live camera selfie, non-visit request governance | **Completed** (ADR 0010) |
-| **3C** | Real client visit check-in/out, GPS geofencing (200m), live premises photo, meeting logs | **Next Phase (Awaiting Authorization)** |
+| **3C** | Real client visits, authoritative PostGIS geofencing, rear-camera premises photo capture, active visit restoration, and meeting logs (ADR 0011, Migrations 00026–00027) | **Completed** (Verified via 143 Vitest Tests, 10/10 Direct API/PostGIS/Storage Tests, Concurrency Race Test & Playwright E2E) |
 | **4** | Offline sync, salesperson-created exceptions, verification, flags and audit reviews | Planned |
 | **5** | Operational dashboards, safe CSV export, notifications and reconciliation | Planned |
 | **6** | Security audit, real-device GPS/camera/offline QA, deployment/pilot readiness | Planned |
@@ -248,18 +248,25 @@ Use production-quality TypeScript, reusable components, input validation and cle
 
 Support privacy notices, limited event-based location capture, access controls, data retention review, backups, observability and appropriate jurisdictional reviews. Do not promise spoof-proof GPS, tamper-proof offline events or perfect sync across devices/browsers.
 
-## 15. Current State & Architectural Baseline — Stage 3B Completed
+## 15. Current State & Architectural Baseline — Stage 3C Completed
 
-Stage 3B is fully implemented, verified, and locked. The current architecture establishes:
+Stage 3B is accepted (tag `stage-3b-attendance-approved`), and **Stage 3C (Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs)** is fully implemented and verified (ADR 0011). The current architecture establishes:
 
-1. **Real Supabase Workday Attendance Persistence:** Daily Start Day and End Day records persist directly to `public.attendance_days` with authoritative PostGIS coordinates (`POINT(lng lat)`), reported accuracy, and UTC timestamps.
-2. **Sole-Author Principle (PRD §2, §6):** Enforced via PostgreSQL RLS policy `attendance_days_insert_salesperson_only`. Managers receive `HTTP 403 Forbidden` if attempting direct insertion into `attendance_days` on behalf of a salesperson.
-3. **Live Hardware Media & Geolocation:** Integrated HTML5 `getUserMedia` for live front-camera selfie capture with explicit track release (`track.stop()`) on capture/dismissal/unmount; fresh `getCurrentPosition` satellite fix enforcing the ≤ 100m horizontal accuracy threshold (AT-01, AT-02).
-4. **Private Storage & Time-Limited Audit URLs:** Selfies upload to private bucket `attendance-selfies/${userId}/...`. Country Sales Heads inspect evidence via 300-second ephemeral signed URLs (`createSignedUrl(path, 300)`). No public URLs or biometric matching claims.
-5. **Workday Persistence & Cross-Session Restoration:** On load, the app queries `attendance_days` for the user's market workday date (`Africa/Lagos`, `Africa/Lusaka`, `Africa/Blantyre`), restoring active `'started'` or completed `'ended'` states. Dynamic provider keys (`field-${currentUser.id}`) guarantee zero cross-user state leaks on logout.
-6. **Active Visit Workday Closure Guard (PRD §6.1 / AT-03):** End Day modal evaluates active visit state and strictly hard-blocks workday closure while a client visit session remains in progress.
-7. **Non-Visit Workday Governance:** Salesperson-authored non-visit requests (`request_non_visit_workday`) and manager reviews (`review_non_visit_workday`) populate `public.approved_absences` with `counts_as_attendance = TRUE, counts_as_visit_target = FALSE`, protecting attendance compliance with zero physical visit target credits.
-8. **Next Phase (Stage 3C):** Live Supabase database writes for physical client visit check-in/out (`public.visits`), server-side 200m geofencing, premises photography, and meeting log documentation. Do not begin Stage 3C without explicit user instruction.
+1. **Applied Migrations 00026 & 00027:** `supabase/migrations/20261028000026_stage_3c_visit_integrity_and_triggers.sql` and `supabase/migrations/20261028000027_stage_3c_authoritative_geofence_verification.sql` are applied to remote Supabase dev project `[SUPABASE_PROJECT_ID]`.
+2. **Authoritative Backend PostGIS Geofencing & Anti-Spoofing (PRD §7.1, §8.4):**
+   - Trigger `trg_validate_visit_location_verification` independently computes WGS84 ellipsoidal distance via `ST_Distance(NEW.check_in_geom::geography, v_pin_geom::geography)` and overrides client-supplied `location_classification` so spoofed `inside_confident` payloads are rejected with `23514`.
+   - Enforces cross-market isolation (`profiles.market_code = branches.market_code`), attendance ownership (`attendance_days.user_id = NEW.user_id`), active approved pin validation, and mandatory private premises photo (`visit-premises-photos`).
+3. **Bi-Directional Transaction-Safe Locking (PRD §6.1 / AT-03, AT-04):**
+   - End Day acquires row-level `FOR UPDATE` lock on open normal visits for the workday; raises `23514` check_violation if an active visit is in progress.
+   - Normal visit check-in acquires `FOR SHARE` lock on parent `public.attendance_days` row; raises `23514` check_violation if workday status != `'started'`.
+   - Concurrent race conditions between End Day and Check-In are serialized and verified via `scripts/test_stage_3c_concurrency_race.py`.
+4. **Checkout Immutability & Outside-Geofence Preservation (`trg_preserve_visit_checkin_evidence_on_update`):**
+   - Blocks tampering with historical check-in coordinates, accuracy, premises photo path, `branch_pin_id`, or `rule_version_id` during or after checkout.
+   - Outside-geofence checkout is permitted with acknowledgement and raises an audit flag (`Checkout Outside Geofence (>200m)`) while preserving the original `location_verified` check-in classification.
+5. **Client Visit UI, Rear-Camera Evidence & Meeting Logs (`src/services/visitService.ts`, `src/features/field/VisitWorkflowView.tsx`, `src/features/field/MeetingLogModal.tsx`):**
+   - Real client (`public.organisations`) and location (`public.branches`) selection starting with no client preselected, live geolocation, rear-camera premises photo upload (`visit-premises-photos`, `upsert: false`), active visit restoration across reload/re-login, and canonical `public.meeting_logs` persistence with free-text next steps only (AT-15).
+6. **Hardware Testing Acceptance Standard:** Physical Android GPS and camera hardware acceptance is explicitly documented as **NOT TESTED** in local/CI environment, with an acceptance test plan established for deployment.
+7. **Next Step:** Stage 3D (Offline IndexedDB Journal, Media Queuing & Dependency Sync). Do not begin Stage 3D or push to GitHub without explicit review and approval.
 
 ## 16. Instructions for every future user prompt
 

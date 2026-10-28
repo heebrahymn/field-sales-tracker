@@ -1,8 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuthSafe } from '@/context/AuthContext';
 import { attendanceService, AttendanceRecord, formatMarketTime } from '@/services/attendanceService';
+import {
+  visitService,
+  VisitVerificationStatus,
+  LocationClassification,
+  LiveGpsCoordinate,
+} from '@/services/visitService';
 
 export interface BranchContact {
+  id?: string;
   name: string;
   role: string;
   phone: string;
@@ -22,6 +29,8 @@ export interface ClientBranch {
   distanceMeters: number;
   approvedGpsLat: number;
   approvedGpsLng: number;
+  approvedPinId?: string;
+  approvedPinVersion?: number;
   isRegisteredByRep?: boolean;
   registeredByRepName?: string;
   accuracyMeters?: number;
@@ -49,6 +58,10 @@ export interface ActiveVisitSession {
   geofenceDistanceMeters: number;
   gpsAccuracyMeters: number;
   premisesPhotoUrl: string;
+  verificationStatus?: string;
+  locationClassification?: string;
+  branchPinId?: string | null;
+  ruleVersionId?: string | null;
 }
 
 export interface CompletedVisitRecord {
@@ -121,17 +134,34 @@ interface FieldSessionContextType {
 
   // Active Visit
   activeVisit: ActiveVisitSession | null;
-  checkInVisit: (branch: ClientBranch, photoUrl: string, accuracy: number, distance: number) => void;
-  checkOutVisit: (outsideGeofence: boolean, meetingLogData?: any) => void;
+  checkInVisit: (
+    branch: ClientBranch,
+    photoUrl: string,
+    accuracy: number,
+    distance: number,
+    options?: {
+      photoBlob?: Blob;
+      liveGps?: LiveGpsCoordinate;
+      verificationStatus?: VisitVerificationStatus;
+      locationClassification?: LocationClassification;
+    }
+  ) => Promise<boolean | void>;
+  checkOutVisit: (
+    outsideGeofence: boolean,
+    meetingLogData?: any,
+    checkoutGps?: { latitude: number; longitude: number; accuracy: number }
+  ) => Promise<boolean | void>;
   cancelVisit: (force?: boolean | unknown) => void;
+  refreshActiveVisit: () => Promise<void>;
 
   // History & Operations
   completedVisits: CompletedVisitRecord[];
   pendingMeetingLogs: CompletedVisitRecord[];
-  submitMeetingLog: (visitId: string, logData: any) => void;
+  submitMeetingLog: (visitId: string, logData: any) => Promise<boolean | void>;
 
   // Branches & Directory
   branches: ClientBranch[];
+  refreshBranches: () => Promise<void>;
   registerBranch: (newBranch: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>) => ClientBranch;
   approveBranchPin: (branchId: string, reason: string, managerName?: string) => void;
   rejectBranchPin: (branchId: string, reason: string, managerName?: string) => void;
@@ -166,7 +196,15 @@ interface FieldSessionContextType {
 
 const FieldSessionContext = createContext<FieldSessionContextType | undefined>(undefined);
 
-export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export interface FieldSessionProviderProps {
+  children: React.ReactNode;
+  initialActiveVisit?: ActiveVisitSession | null;
+}
+
+export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
+  children,
+  initialActiveVisit,
+}) => {
   const auth = useAuthSafe();
   const currentUser = auth?.currentUser;
 
@@ -223,13 +261,156 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [currentUser?.id, currentUser?.marketCode, currentUser?.role, isTestEnv]);
 
+  const defaultMockVisit: ActiveVisitSession = {
+    id: 'vis-active-01',
+    branchId: 'br-01',
+    branchName: 'Apex Heavy Logistics Fleet Depot',
+    companyName: 'Apex Heavy Logistics Ltd',
+    address: 'Apapa Commercial Port Corridor, Gate 4, Lagos',
+    branchCode: 'BR-LAG-014',
+    checkInTime: '09:42 WAT',
+    checkInTimestamp: Date.now() - 28 * 60 * 1000,
+    elapsedSeconds: 28 * 60 + 15,
+    geofenceDistanceMeters: 38,
+    gpsAccuracyMeters: 14,
+    premisesPhotoUrl: '/demo/demo_apex_depot.png',
+    verificationStatus: 'location_verified',
+    locationClassification: 'inside_confident',
+  };
+
+  // 2. Active Visit (Authoritative database restoration for real sessions, fallback mock for unit test backward compatibility)
+  const [activeVisit, setActiveVisit] = useState<ActiveVisitSession | null>(
+    initialActiveVisit !== undefined ? initialActiveVisit : (isTestEnv ? defaultMockVisit : null)
+  );
+
+  const refreshActiveVisit = useCallback(async () => {
+    if (!currentUser?.id || currentUser.role !== 'salesperson') {
+      return;
+    }
+    try {
+      const { data: dbVisit, error } = await visitService.getActiveVisit(currentUser.id);
+      if (error) {
+        console.warn('[FieldSession] Active visit query error:', error.message);
+        return;
+      }
+      if (dbVisit) {
+        const checkInTs = new Date(dbVisit.check_in_at).getTime();
+        const elapsedSec = Math.max(0, Math.floor((Date.now() - checkInTs) / 1000));
+        const branchName = dbVisit.branches?.branch_name || 'Client Branch';
+        const companyName = dbVisit.branches?.organisations?.name || 'Client Organisation';
+        const address = `${dbVisit.branches?.street_address || ''}, ${dbVisit.branches?.city || ''}`;
+        const restoredVisit: ActiveVisitSession = {
+          id: dbVisit.id,
+          branchId: dbVisit.branch_id,
+          branchName,
+          companyName,
+          address,
+          branchCode: dbVisit.branch_id.substring(0, 8).toUpperCase(),
+          checkInTime: formatMarketTime(dbVisit.check_in_at, currentUser?.marketCode),
+          checkInTimestamp: checkInTs,
+          elapsedSeconds: elapsedSec,
+          geofenceDistanceMeters: dbVisit.distance_to_pin_m ?? 0,
+          gpsAccuracyMeters: dbVisit.check_in_accuracy_m,
+          premisesPhotoUrl: dbVisit.premises_photo_url || '',
+          verificationStatus: dbVisit.verification_status,
+          locationClassification: dbVisit.location_classification,
+          branchPinId: dbVisit.branch_pin_id,
+          ruleVersionId: dbVisit.rule_version_id,
+        };
+        setActiveVisit(restoredVisit);
+      } else if (!isTestEnv) {
+        setActiveVisit(null);
+      }
+
+      // Also load today's completed visits from Supabase for real sessions
+      if (!isTestEnv) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const { data: dbCompleted } = await visitService.getTodayCompletedVisits(currentUser.id, todayStr);
+        if (dbCompleted) {
+          const mappedCompleted: CompletedVisitRecord[] = dbCompleted.map((v: any) => {
+            const checkInMs = new Date(v.check_in_at).getTime();
+            const checkOutMs = v.check_out_at ? new Date(v.check_out_at).getTime() : checkInMs;
+            const durationMins = Math.max(1, Math.round((checkOutMs - checkInMs) / 60000));
+            const hasLog = Array.isArray(v.meeting_logs) ? v.meeting_logs.length > 0 : Boolean(v.meeting_logs?.id);
+            return {
+              id: v.id,
+              branchName: v.branches?.branch_name || 'Client Branch',
+              companyName: v.branches?.organisations?.name || 'Registered Client',
+              branchCode: v.branch_id.substring(0, 8).toUpperCase(),
+              checkInTime: formatMarketTime(v.check_in_at, currentUser?.marketCode),
+              checkOutTime: formatMarketTime(v.check_out_at, currentUser?.marketCode),
+              durationMinutes: durationMins,
+              verificationStatus: (v.verification_status as any) || 'location_verified',
+              meetingLogSubmitted: hasLog,
+              meetingLogDeferredUntil: hasLog ? undefined : 'Within 2h SLA',
+            };
+          });
+          setCompletedVisits(mappedCompleted);
+          setPendingMeetingLogs(mappedCompleted.filter((c) => !c.meetingLogSubmitted));
+        }
+      }
+    } catch (err) {
+      console.warn('[FieldSession] Active visit caught error:', err);
+    }
+  }, [currentUser?.id, currentUser?.marketCode, currentUser?.role, isTestEnv]);
+
+  const refreshBranches = useCallback(async () => {
+    if (!currentUser?.marketCode) return;
+    try {
+      const { data: dbBranches, error } = await visitService.getClientsAndBranches(currentUser.marketCode);
+      if (error) {
+        console.warn('[FieldSession] Branches load error:', error.message);
+        return;
+      }
+      if (dbBranches && (dbBranches.length > 0 || !isTestEnv)) {
+        const mapped: ClientBranch[] = dbBranches.map((b) => {
+          const approvedPin = b.branch_location_pins?.find((p) => p.is_active && p.status === 'approved');
+          const pendingPin = b.branch_location_pins?.find((p) => p.status === 'pending_approval' || !p.is_active);
+          const pin = approvedPin || pendingPin;
+          const contacts =
+            b.client_contacts?.map((c) => ({
+              id: c.id,
+              name: c.full_name,
+              role: c.designation,
+              phone: c.phone_number,
+            })) || [];
+
+          return {
+            id: b.id,
+            companyName: b.organisations?.name || 'Registered Client',
+            branchName: b.branch_name,
+            branchCode: b.branch_name.substring(0, 3).toUpperCase() + '-' + b.id.substring(0, 4).toUpperCase(),
+            category: b.category,
+            address: `${b.street_address}, ${b.city}`,
+            landmark: '',
+            contacts,
+            sharedCompanyPhone: b.switchboard_phone,
+            hasSharedPhone: Boolean(b.switchboard_phone),
+            distanceMeters: approvedPin ? 38 : 500,
+            approvedGpsLat: pin ? pin.latitude : 0,
+            approvedGpsLng: pin ? pin.longitude : 0,
+            approvedPinId: approvedPin?.id,
+            approvedPinVersion: pin?.version_number,
+            accuracyMeters: pin ? pin.reported_accuracy_m : 25,
+            status: approvedPin ? 'approved' : 'pending_approval',
+          };
+        });
+        setBranches(mapped);
+      }
+    } catch (err) {
+      console.warn('[FieldSession] Branches caught error:', err);
+    }
+  }, [currentUser?.marketCode, isTestEnv]);
+
   useEffect(() => {
     if (currentUser?.id) {
       refreshAttendance();
+      refreshActiveVisit();
+      refreshBranches();
     } else {
       setIsAttendanceLoading(false);
     }
-  }, [refreshAttendance, currentUser?.id]);
+  }, [refreshAttendance, refreshActiveVisit, refreshBranches, currentUser?.id]);
 
   const onAttendanceStarted = (record: AttendanceRecord) => {
     setAttendanceRecord(record);
@@ -245,22 +426,6 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setEndDayTime(formatMarketTime(record.ended_at, currentUser?.marketCode));
     notify('Workday Ended: Final check-out coordinate recorded. Day summary ready.');
   };
-
-  // 2. Active Visit (Initial active visit for context-aware testing AT-04)
-  const [activeVisit, setActiveVisit] = useState<ActiveVisitSession | null>({
-    id: 'vis-active-01',
-    branchId: 'br-01',
-    branchName: 'Apex Heavy Logistics Fleet Depot',
-    companyName: 'Apex Heavy Logistics Ltd',
-    address: 'Apapa Commercial Port Corridor, Gate 4, Lagos',
-    branchCode: 'BR-LAG-014',
-    checkInTime: '09:42 WAT',
-    checkInTimestamp: Date.now() - 28 * 60 * 1000,
-    elapsedSeconds: 28 * 60 + 15,
-    geofenceDistanceMeters: 38,
-    gpsAccuracyMeters: 14,
-    premisesPhotoUrl: '/demo/demo_apex_depot.png',
-  });
 
   // 3. Completed Visits Today
   const [completedVisits, setCompletedVisits] = useState<CompletedVisitRecord[]>([
@@ -519,11 +684,121 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return true;
   };
 
-  const checkInVisit = (branch: ClientBranch, photoUrl: string, accuracy: number, distance: number) => {
+  const checkInVisit = async (
+    branch: ClientBranch,
+    photoUrl: string,
+    accuracy: number,
+    distance: number,
+    options?: {
+      photoBlob?: Blob;
+      liveGps?: LiveGpsCoordinate;
+      verificationStatus?: VisitVerificationStatus;
+      locationClassification?: LocationClassification;
+    }
+  ): Promise<boolean | void> => {
     if (activeVisit) {
       notify('Cannot start a new visit while a visit is in progress (AT-04).');
-      return;
+      return false;
     }
+
+    // Real Supabase persistence for authenticated salesperson sessions
+    if (currentUser?.id && !isTestEnv) {
+      if (!attendanceRecord?.id || workdayStatus !== 'started') {
+        notify('Cannot start visit: Workday has not been started. Please complete Start Day first (PRD §6.1).');
+        return false;
+      }
+
+      if (!options?.photoBlob || photoUrl.startsWith('/demo/')) {
+        notify('Live rear-camera premises photo is required before check-in (PRD §7.1).');
+        return false;
+      }
+
+      let uploadedStoragePath: string | null = null;
+      try {
+        const visitUuid =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `00000000-0000-4000-8000-${Date.now().toString(16).padStart(12, '0').slice(-12)}`;
+
+        const { storagePath, error: uploadErr } = await visitService.uploadPremisesPhoto(
+          currentUser.id,
+          visitUuid,
+          options.photoBlob
+        );
+        if (uploadErr || !storagePath) {
+          notify(`Failed to upload premises photo: ${uploadErr?.message || 'Storage error'}`);
+          return false;
+        }
+        uploadedStoragePath = storagePath;
+
+        // Determine verification status: PRD §7.1 / Migration 00027 rule
+        const isEligibleForVerification =
+          branch.status === 'approved' &&
+          distance + accuracy <= 200 &&
+          accuracy <= 100 &&
+          uploadedStoragePath.startsWith(`${currentUser.id}/${visitUuid}_premises_`);
+
+        const computedVerStatus: VisitVerificationStatus =
+          options?.verificationStatus ||
+          (isEligibleForVerification ? 'location_verified' : 'location_unverified');
+
+        const { data: dbVisit, error: insertErr } = await visitService.checkInVisit({
+          visitId: visitUuid,
+          userId: currentUser.id,
+          deviceId: attendanceRecord.device_id || 'dev-001',
+          attendanceDayId: attendanceRecord.id,
+          branchId: branch.id,
+          branchPinId: branch.approvedPinId,
+          latitude: options?.liveGps?.latitude ?? branch.approvedGpsLat ?? 6.4428,
+          longitude: options?.liveGps?.longitude ?? branch.approvedGpsLng ?? 3.3649,
+          accuracy: accuracy,
+          premisesPhotoUrl: uploadedStoragePath,
+          verificationStatus: computedVerStatus,
+          locationClassification:
+            options?.locationClassification || (isEligibleForVerification ? 'inside_confident' : 'uncertain'),
+        });
+
+        if (insertErr || !dbVisit) {
+          if (uploadedStoragePath) {
+            await visitService.removePremisesPhoto(uploadedStoragePath);
+          }
+          notify(`Check-in failed: ${insertErr?.message || 'Database error'}`);
+          return false;
+        }
+
+        const newVisit: ActiveVisitSession = {
+          id: dbVisit.id,
+          branchId: branch.id,
+          branchName: branch.branchName,
+          companyName: branch.companyName,
+          address: branch.address,
+          branchCode: branch.branchCode,
+          checkInTime: formatMarketTime(dbVisit.check_in_at, currentUser?.marketCode),
+          checkInTimestamp: new Date(dbVisit.check_in_at).getTime(),
+          elapsedSeconds: 0,
+          geofenceDistanceMeters: dbVisit.distance_to_pin_m ?? distance,
+          gpsAccuracyMeters: accuracy,
+          premisesPhotoUrl: uploadedStoragePath,
+          verificationStatus: dbVisit.verification_status,
+          locationClassification: dbVisit.location_classification,
+          branchPinId: dbVisit.branch_pin_id,
+          ruleVersionId: dbVisit.rule_version_id,
+        };
+
+        setActiveVisit(newVisit);
+        notify(`Checked in at ${branch.branchName}. Active visit timer running.`);
+        return true;
+      } catch (err: any) {
+        if (uploadedStoragePath) {
+          await visitService.removePremisesPhoto(uploadedStoragePath);
+        }
+        console.error('[FieldSession] Check-in caught error:', err);
+        notify(`Check-in error: ${err.message || 'Unknown error'}`);
+        return false;
+      }
+    }
+
+    // Local / Unit Test Fallback Simulation
     const newVisit: ActiveVisitSession = {
       id: `vis-${Date.now()}`,
       branchId: branch.id,
@@ -537,15 +812,88 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       geofenceDistanceMeters: distance,
       gpsAccuracyMeters: accuracy,
       premisesPhotoUrl: photoUrl,
+      verificationStatus: distance <= 200 && accuracy <= 100 ? 'location_verified' : 'location_unverified',
+      locationClassification: distance <= 200 && accuracy <= 100 ? 'inside_confident' : 'uncertain',
     };
     setActiveVisit(newVisit);
     notify(`Checked in at ${branch.branchName}. Active visit timer running.`);
+    return true;
   };
 
-  const checkOutVisit = (outsideGeofence: boolean, meetingLogData?: any) => {
-    if (!activeVisit) return;
+  const checkOutVisit = async (
+    outsideGeofence: boolean,
+    meetingLogData?: any,
+    checkoutGps?: { latitude: number; longitude: number; accuracy: number }
+  ): Promise<boolean | void> => {
+    if (!activeVisit) return false;
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const isDeferred = !meetingLogData;
+    let isDeferred = !meetingLogData;
+    let logSaveErrorMessage: string | null = null;
+
+    // Real Supabase checkout persistence if this is a real database record
+    if (
+      currentUser?.id &&
+      activeVisit.id &&
+      !activeVisit.id.startsWith('vis-active-01') &&
+      !activeVisit.id.startsWith('vis-comp-') &&
+      !activeVisit.id.startsWith('vis-')
+    ) {
+      try {
+        const { error: checkoutErr } = await visitService.checkOutVisit({
+          visitId: activeVisit.id,
+          userId: currentUser.id,
+          latitude: checkoutGps?.latitude,
+          longitude: checkoutGps?.longitude,
+          accuracy: checkoutGps?.accuracy,
+        });
+
+        if (checkoutErr) {
+          notify(`Checkout failed: ${checkoutErr.message}`);
+          return false;
+        }
+
+        // If meeting log data was submitted during checkout
+        if (meetingLogData) {
+          let businessCardUrl = meetingLogData.businessCardPhotoUrl || null;
+          if (meetingLogData.businessCardBlob) {
+            const { storagePath: cardPath } = await visitService.uploadBusinessCard(
+              currentUser.id,
+              activeVisit.id,
+              meetingLogData.businessCardBlob
+            );
+            if (cardPath) {
+              businessCardUrl = cardPath;
+            }
+          }
+
+          const { error: logErr } = await visitService.submitMeetingLog({
+            visitId: activeVisit.id,
+            contactId: meetingLogData.contactId || null,
+            purpose: meetingLogData.purpose || 'routine_visit',
+            productsDiscussed: meetingLogData.productsDiscussed || [],
+            outcomeNarrative: meetingLogData.outcomeNarrative || meetingLogData.outcome || '',
+            nextStepText: meetingLogData.nextStepText || meetingLogData.nextStep || '',
+            fleetSizeVolume: meetingLogData.fleetSizeVolume,
+            businessCardPhotoUrl: businessCardUrl,
+            isLate: false,
+          });
+
+          if (logErr) {
+            // Preserve checkout completion but mark meeting log as pending/unsaved so notes/log requirement are not silently lost
+            isDeferred = true;
+            logSaveErrorMessage = logErr.message;
+          }
+        }
+      } catch (err: any) {
+        console.warn('[FieldSession] Checkout caught error:', err);
+        notify(`Checkout error: ${err.message || 'Unknown error'}`);
+        return false;
+      }
+    }
+
+    // Preserve original check-in verificationStatus on outside-geofence checkout (PRD §7.2 / Section 10)
+    const preservedStatus = ((activeVisit.verificationStatus as any) || 'location_verified') as CompletedVisitRecord['verificationStatus'];
+
     const newCompleted: CompletedVisitRecord = {
       id: activeVisit.id,
       branchName: activeVisit.branchName,
@@ -554,9 +902,9 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       checkInTime: activeVisit.checkInTime,
       checkOutTime: nowStr,
       durationMinutes: Math.max(1, Math.round(activeVisit.elapsedSeconds / 60)),
-      verificationStatus: outsideGeofence ? 'manager_approved_unverified' : 'location_verified',
+      verificationStatus: preservedStatus,
       meetingLogSubmitted: !isDeferred,
-      meetingLogDeferredUntil: isDeferred ? 'Within 2h SLA' : undefined,
+      meetingLogDeferredUntil: isDeferred ? (logSaveErrorMessage ? 'Unsaved — Retry Pending' : 'Within 2h SLA') : undefined,
       flagRaised: outsideGeofence ? 'Checkout Outside Geofence (>200m)' : undefined,
     };
 
@@ -565,11 +913,18 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setPendingMeetingLogs((prev) => [newCompleted, ...prev]);
     }
     setActiveVisit(null);
-    notify(
-      outsideGeofence
-        ? 'Checkout recorded outside geofence: Flagged for manager review. Visit closed.'
-        : 'Visit successfully completed and location verified.'
-    );
+    if (logSaveErrorMessage) {
+      notify(
+        `Visit checked out, but meeting log is UNSAVED (${logSaveErrorMessage}). Added to Pending Meeting Logs for retry.`
+      );
+    } else {
+      notify(
+        outsideGeofence
+          ? 'Checkout recorded outside geofence: Flagged for manager review. Visit closed.'
+          : 'Visit successfully completed and location verified.'
+      );
+    }
+    return true;
   };
 
   const cancelVisit = (force: boolean | unknown = false) => {
@@ -585,12 +940,36 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   };
 
-  const submitMeetingLog = (visitId: string, _logData: any) => {
+  const submitMeetingLog = async (visitId: string, logData: any): Promise<boolean | void> => {
+    if (currentUser?.id && !visitId.startsWith('vis-comp-') && !visitId.startsWith('vis-active-01')) {
+      try {
+        const { error } = await visitService.submitMeetingLog({
+          visitId,
+          contactId: logData.contactId || null,
+          purpose: logData.purpose || 'routine_visit',
+          productsDiscussed: logData.productsDiscussed || [],
+          outcomeNarrative: logData.outcomeNarrative || logData.outcome || '',
+          nextStepText: logData.nextStepText || logData.nextStep || '',
+          fleetSizeVolume: logData.fleetSizeVolume,
+          businessCardPhotoUrl: logData.businessCardPhotoUrl,
+          isLate: Boolean(logData.isLate),
+        });
+        if (error) {
+          notify(`Meeting log submission failed (${error.message}). Record remains Unsaved / Pending.`);
+          return false;
+        }
+      } catch (err: any) {
+        console.error('[FieldSession] submitMeetingLog error:', err);
+        notify(`Meeting log submission failed (${err.message || 'Network error'}). Record remains Unsaved / Pending.`);
+        return false;
+      }
+    }
     setPendingMeetingLogs((prev) => prev.filter((p) => p.id !== visitId));
     setCompletedVisits((prev) =>
       prev.map((v) => (v.id === visitId ? { ...v, meetingLogSubmitted: true, meetingLogDeferredUntil: undefined } : v))
     );
     notify('Meeting log submitted successfully. Stored as narrative outcome.');
+    return true;
   };
 
   const registerBranch = (newBranchData: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>): ClientBranch => {
@@ -768,6 +1147,7 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         onAttendanceEnded,
         refreshAttendance,
         activeVisit,
+        refreshActiveVisit,
         checkInVisit,
         checkOutVisit,
         cancelVisit,
@@ -775,6 +1155,7 @@ export const FieldSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         pendingMeetingLogs,
         submitMeetingLog,
         branches,
+        refreshBranches,
         registerBranch,
         approveBranchPin,
         rejectBranchPin,

@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Stage 3C] - Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (2026-10-28)
+
+### Added
+- **Applied Migrations 00026 & 00027:**
+  - `supabase/migrations/20261028000026_stage_3c_visit_integrity_and_triggers.sql`: Bi-directional transaction locking (`trg_prevent_attendance_close_with_open_visit` with `FOR UPDATE` and `trg_prevent_visit_start_on_ended_workday` with `FOR SHARE`), format string correction, and immutable snapshotting of `branch_pin_id` and `rule_version_id`.
+  - `supabase/migrations/20261028000027_stage_3c_authoritative_geofence_verification.sql`: Authoritative server-side PostGIS WGS84 distance computation (`ST_Distance(check_in_geom::geography, pin_geom::geography)`) overriding client-supplied `location_classification` to prevent client spoofing of `inside_confident`, cross-market branch verification (`profiles.market_code = branches.market_code`), foreign attendance day ownership verification (`attendance_days.user_id = NEW.user_id`), and checkout immutability trigger (`trg_preserve_visit_checkin_evidence_on_update`).
+- **Real Client & Branch Selection (`src/services/visitService.ts`, `src/features/field/VisitWorkflowView.tsx`):**
+  - Connects to `public.organisations`, `public.branches`, `public.branch_location_pins`, `public.client_contacts`, and `public.market_rules`.
+  - Starts with no client automatically preselected; distinguishes approved vs. pending GPS pins and offers Pin Proposal (Stage 3E queue) or Visit Exception routes for unapproved pins.
+- **Live Geolocation & Rear-Camera Premises Photo Capture:**
+  - Fresh `navigator.geolocation.getCurrentPosition` integration with accuracy and confidence calculation ($d + a \le r$).
+  - Environment-facing camera viewfinder (`facingMode: { ideal: 'environment' }`), JPEG compression, private storage upload to `visit-premises-photos/${userId}/...` with `upsert: false`, and automatic orphan file cleanup if DB check-in fails.
+- **Active Visit Restoration, Outside-Geofence Checkout & Meeting Logs (`src/context/FieldSessionContext.tsx`, `src/features/field/MeetingLogModal.tsx`):**
+  - Restores active open visit and today's completed visits from Supabase across browser reloads and re-logins.
+  - Permits outside-geofence checkouts with acknowledgement modal and audit flag (`Checkout Outside Geofence (>200m)`) while preserving original `location_verified` check-in status.
+  - Persists structured meeting logs to `public.meeting_logs` with free-text next steps only (AT-15) and queues pending logs if submission fails after checkout.
+- **Comprehensive Stage 3C Test Suites:**
+  - `src/test/stage-3c-client-visits.test.tsx`: 18 unit/integration tests (143/143 total Vitest tests passing).
+  - `scripts/test_stage_3c_db_integrity.py`: 10 direct API, PostGIS spoofing, RLS, private storage isolation, checkout immutability, and meeting log E2E tests.
+  - `scripts/test_stage_3c_concurrency_race.py`: Barrier-synchronized concurrent End Day vs. Visit Check-In race test.
+  - `scripts/verify_stage_3c_browser.py`: Playwright multi-viewport (`360px`, `390px`, `430px`, `1280px`) E2E verification and 12 screenshots (`docs/screenshots/stage3c/`).
+
+---
+
 ## [Stage 3B] - Real Attendance & Workday Management (2026-10-27)
 
 ### Added

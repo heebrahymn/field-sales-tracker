@@ -3,8 +3,8 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
-**Last Updated:** October 27, 2026  
-**Current Milestone:** Stage 3B Completed & Validated (Stage 3C Awaiting Authorization)  
+**Last Updated:** October 28, 2026  
+**Current Milestone:** Stage 3C Completed & Validated (Stage 3D Awaiting Authorization)  
 
 ---
 
@@ -24,8 +24,8 @@
 [✓] Pre-3    — Product Audit, Terminology Standardization & Usability Fixes
 [✓] Stage 3A — Real Supabase Authentication & Role-Based Access Control (ADR 0009)
 [✓] Stage 3B — Real Attendance & Workday Management (ADR 0010)
-[ ] Stage 3C — Real GPS Geofencing, Live Camera Capture & Client Visit Integration (Awaiting Authorization)
-[ ] Stage 3D — Offline IndexedDB Journal, Media Queuing & Dependency Sync
+[✓] Stage 3C — Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026–00027)
+[ ] Stage 3D — Offline IndexedDB Journal, Media Queuing & Dependency Sync (Awaiting Authorization)
 [ ] Stage 3E — Management Dashboards, Safe CSV Exports & Dispute Resolution
 [ ] Stage 3F — Security Audit, Real-Device QA & Pilot Deployment
 ```
@@ -75,21 +75,23 @@
 - Non-visit workday governance via RPCs (`request_non_visit_workday`, `review_non_visit_workday`), strictly enforcing attendance compliance with zero physical-visit target credits.
 - PostgreSQL RLS enforcement of salesperson sole-authorship (CSH direct insert returns HTTP 403).
 
+### Stage 3C: Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026 & 00027)
+- Applied Migrations 00026 (`20261028000026_stage_3c_visit_integrity_and_triggers.sql`) and 00027 (`20261028000027_stage_3c_authoritative_geofence_verification.sql`) to Supabase remote dev project `[SUPABASE_PROJECT_ID]`.
+- Bi-directional transaction-safe locking model (`FOR UPDATE` on open normal visits during End Day; `FOR SHARE` on parent `attendance_days` during visit check-in) verified under concurrent barrier-synchronized race testing (`scripts/test_stage_3c_concurrency_race.py`).
+- Authoritative server-side PostGIS geofence verification (`ST_Distance(check_in_geom::geography, pin_geom::geography)`) computing WGS84 ellipsoidal distance and overriding client-supplied `location_classification` to prevent spoofing (`inside_confident` rejected when $d + a > r$).
+- Real client (`public.organisations`) and physical location (`public.branches`) selection starting with zero preselected client, approved/pending GPS pin retrieval (`public.branch_location_pins`), and contact loading (`public.client_contacts`).
+- Live rear-camera premises photo viewfinder (`facingMode: { ideal: 'environment' }`) with private Storage upload (`visit-premises-photos/${userId}/...`, `upsert: false`) and automatic cleanup if DB insert fails.
+- Authoritative active visit restoration across browser reloads and re-logins (`visitService.getActiveVisit`).
+- Outside-geofence checkout permitted with acknowledgement modal and audit flag (`Checkout Outside Geofence (>200m)`) while preserving original `location_verified` check-in classification (`trg_preserve_visit_checkin_evidence_on_update`).
+- Canonical `public.meeting_logs` persistence with free-text next steps only (AT-15) and automatic fallback queuing if submission fails after checkout.
+- Verified via 143/143 Vitest tests, 10/10 direct API/PostGIS/Storage tests (`scripts/test_stage_3c_db_integrity.py`), concurrency race test, and Playwright E2E multi-viewport suite (`scripts/verify_stage_3c_browser.py`).
+- Physical Android hardware acceptance explicitly documented as **NOT TESTED** in local/CI workstation environment.
+
 ---
 
 ## 3. Upcoming Implementation Phases
 
-### Stage 3C: Real GPS Geofencing, Live Camera Capture & Client Visit Integration (Next Phase — Awaiting Authorization)
-- **Objective:** Activate live database writes to `public.visits`, `public.meeting_logs`, and `public.visit_photos`.
-- **Scope:**
-  - Live Browser Geolocation API integration with satellite accuracy checks (≤ 100m for visits, ≤ 50m for proposed pins).
-  - Server-side geofencing RPC (`check_geofence_status`) computing 200m radius against client branch PostGIS coordinates.
-  - Mandatory on-site premises photography via HTML5 rear-camera viewfinder; upload to `premises-photos` bucket.
-  - Check-in / check-out state transitions with permitted outside-geofence checkouts raising review flags (AT-05).
-  - Meeting log submission (contact met, purpose, products, narrative outcome, free-text next steps).
-- **Approval Gate:** End-to-end visit verification test suite and image upload verification.
-
-### Stage 3D: Offline IndexedDB Journal, Media Queuing & Dependency Sync
+### Stage 3D: Offline IndexedDB Journal, Media Queuing & Dependency Sync (Awaiting Authorization)
 - **Objective:** Resilient offline field capability for remote and connectivity-constrained markets.
 - **Scope:**
   - Dexie.js IndexedDB schema with monotonic event sequencing and UUID idempotency keys.

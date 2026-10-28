@@ -57,27 +57,27 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 0, 1, 2, 3A & 3B Completed)
+## 4. Current Milestone Status (Stages 0, 1, 2, 3A, 3B & 3C Completed)
 
 ```
-[✓] Stage 0  — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
-[✓] Stage 1A — Design System, Application Shell, Role Switcher & Card Refinements (ADR 0002)
-[✓] Stage 1B — Complete Salesperson Mobile Interface (ADR 0003)
-[✓] Stage 1C — Country Sales Head Dashboard & Review Workbenches (ADR 0004)
-[✓] Stage 1D — HQ Admin Regional Oversight Console & Device Management (ADR 0005)
-[✓] Stage 1E — Final Frontend QA & Cross-Role Integration Review (ADR 0006)
-[✓] Stage 2  — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies (ADR 0007, ADR 0008)
-[✓] Pre-3    — Product Audit, Terminology Standardization & Usability Fixes
-[✓] Stage 3A — Real Supabase Authentication & Role-Based Access Control (ADR 0009)
-[✓] Stage 3B — Real Attendance & Workday Management (ADR 0010)
-[ ] Stage 3C — Real Client Visit Check-In/Out, GPS Geofencing & Camera Writes
-[ ] Stage 4  — Offline Dexie Sync, Idempotency Engine & Exception Resolution
-[ ] Stage 5  — Management Reports, Safe CSV Exports & Reconciliation
-[ ] Stage 6  — Security Audit, Real-Device QA & Pilot Deployment
+[✓] Stage 0   — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
+[✓] Stage 1A  — Design System, Application Shell, Role Switcher & Card Refinements (ADR 0002)
+[✓] Stage 1B  — Complete Salesperson Mobile Interface (ADR 0003)
+[✓] Stage 1C  — Country Sales Head Dashboard & Review Workbenches (ADR 0004)
+[✓] Stage 1D  — HQ Admin Regional Oversight Console & Device Management (ADR 0005)
+[✓] Stage 1E  — Final Frontend QA & Cross-Role Integration Review (ADR 0006)
+[✓] Stage 2   — Supabase Dev Project, Schema Migrations, Auth & RLS Security Policies (ADR 0007, ADR 0008)
+[✓] Pre-3     — Product Audit, Terminology Standardization & Usability Fixes
+[✓] Stage 3A  — Real Supabase Authentication & Role-Based Access Control (ADR 0009)
+[✓] Stage 3B  — Real Attendance & Workday Management (ADR 0010)
+[✓] Stage 3C  — Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026–00027)
+[ ] Stage 3D  — Offline Dexie Sync, Idempotency Engine & Exception Resolution (Awaiting Authorization)
+[ ] Stage 3E  — Management Reports, Safe CSV Exports & Reconciliation
+[ ] Stage 3F  — Security Audit, Real-Device QA & Pilot Deployment
 ```
 
 > [!IMPORTANT]
-> **Operational Data Notice:** **Stage 3A (Supabase GoTrue Auth) and Stage 3B (Real Daily Attendance Persistence)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.absence_requests`) and private Storage (`attendance-selfies`). Daily Start/End Day, GPS acquisition (≤ 100m), front-camera selfie uploads, and non-visit approvals are real database writes. Physical client visit check-ins (`public.visits`) and premises photos remain simulated until Stage 3C activates live visit procedures.
+> **Operational Data Notice:** **Stage 3A (Supabase GoTrue Auth), Stage 3B (Real Daily Attendance Persistence), and Stage 3C (Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.visits`, `public.meeting_logs`, `public.organisations`, `public.branches`, `public.branch_location_pins`) and private Storage buckets (`attendance-selfies`, `visit-premises-photos`, `business-cards`). Offline IndexedDB queueing (Stage 3D) and live manager approval/export feeds (Stage 3E) remain scheduled for subsequent stages.
 
 ---
 
@@ -453,12 +453,19 @@ python scripts/verify_stage_3b_live.py
 
 # Stage 3B final integration audit & evidence immutability verification (upsert: false, fail-closed)
 python scripts/verify_stage_3b_audit_corrections.py
+
+# Stage 3C direct API, PostGIS spoofing, storage isolation & meeting log E2E verification (10 tests)
+python scripts/test_stage_3c_db_integrity.py
+
+# Stage 3C barrier-synchronized concurrent End Day vs. Visit Check-In race test
+python scripts/test_stage_3c_concurrency_race.py
 ```
 
 ### Playwright Browser Automation Suite
 ```bash
 # Execute browser verification across desktop (1280px) and mobile viewports (360px, 390px, 430px)
 python scripts/verify_stage_3b_browser.py
+python scripts/verify_stage_3c_browser.py
 ```
 
 ### Production Build (Vercel Preview / Production)
@@ -481,10 +488,13 @@ npm run build
 - [ADR 0008: Stage 2B Supabase Backend Implementation & Verification](docs/decisions/0008-stage-2b-supabase-backend-implementation.md)
 - [ADR 0009: Stage 3A Real Supabase Authentication & Role-Based Access Control](docs/decisions/0009-stage-3a-supabase-authentication-and-rbac.md)
 - [ADR 0010: Stage 3B Real Workday Attendance & Non-Visit Governance](docs/decisions/0010-stage-3b-real-attendance-and-workday-management.md)
+- [ADR 0011: Stage 3C Client Visit Database Integrity, Authoritative PostGIS Geofencing & Visit Capture](docs/decisions/0011-stage-3c-client-visit-database-integrity.md)
 
 ### Technical Implementation & QA Reports
 - [Stage 3B Attendance Implementation Guide](docs/implementation/STAGE_3B_ATTENDANCE.md)
 - [Stage 3B QA & Security Verification Report](docs/testing/STAGE_3B_QA_REPORT.md)
+- [Stage 3C Client Visit Capture Implementation Guide](docs/implementation/STAGE_3C_VISIT_CAPTURE.md)
+- [Stage 3C QA & Security Verification Report](docs/testing/STAGE_3C_QA_REPORT.md)
 
 ---
 

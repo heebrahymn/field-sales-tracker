@@ -1,28 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, CheckCircle2, Clock } from 'lucide-react';
+import { X, Clock } from 'lucide-react';
+import { VisitPurpose } from '@/services/visitService';
+
+export interface MeetingLogSubmissionData {
+  contactId?: string;
+  contactName: string;
+  contactRole: string;
+  purpose: VisitPurpose;
+  productsDiscussed: string[];
+  outcomeNarrative: string;
+  nextStepText: string;
+  fleetSizeVolume?: number | null;
+  businessCardBlob?: Blob;
+}
 
 interface MeetingLogModalProps {
   isOpen: boolean;
   onClose: () => void;
   branchName: string;
-  onSubmitted: (submittedOnTime: boolean) => void;
+  defaultContactId?: string;
+  defaultContactName?: string;
+  defaultContactRole?: string;
+  onSubmitted: (submittedOnTime: boolean, logData?: MeetingLogSubmissionData) => void;
 }
+
+const CANONICAL_PURPOSES: Array<{ value: VisitPurpose; label: string }> = [
+  { value: 'routine_visit', label: 'Routine Visit / Account Review' },
+  { value: 'new_business', label: 'New Business / Commercial Pitch' },
+  { value: 'technical_support', label: 'Technical Support / Product Advisory' },
+  { value: 'relationship', label: 'Relationship Maintenance' },
+  { value: 'follow_up', label: 'Client Follow-Up' },
+];
+
+const PRODUCTS_LIST = ['Tyres', 'Batteries', 'Lubricants', 'Fleet servicing', 'Telematics', 'Other'];
 
 export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
   isOpen,
   onClose,
   branchName,
+  defaultContactId,
+  defaultContactName,
+  defaultContactRole,
   onSubmitted,
 }) => {
-  const [contactName, setContactName] = useState('Babajide Adeleke');
-  const [contactRole, setContactRole] = useState('Fleet Operations Director');
-  const [purpose, setPurpose] = useState('Product discussion');
-  const [outcome, setOutcome] = useState('Interest expressed');
+  const [contactName, setContactName] = useState(defaultContactName || 'Alhaji Musa Garba');
+  const [contactRole, setContactRole] = useState(defaultContactRole || 'Head of Fleet Operations');
+  const [purpose, setPurpose] = useState<VisitPurpose>('routine_visit');
+  const [outcome, setOutcome] = useState('Interest expressed in commercial battery fleet trial. Client requested technical specifications.');
   const [nextStep, setNextStep] = useState('Deliver technical specification sheet for heavy-duty commercial battery fleet trial.');
+  const [fleetSize, setFleetSize] = useState<string>('24');
   const [selectedProducts, setSelectedProducts] = useState<string[]>(['Batteries', 'Lubricants']);
   const [deferLog, setDeferLog] = useState(false);
+  const [businessCardAttached, setBusinessCardAttached] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (defaultContactName) setContactName(defaultContactName);
+    if (defaultContactRole) setContactRole(defaultContactRole);
+  }, [defaultContactName, defaultContactRole]);
 
   if (!isOpen) return null;
 
@@ -33,27 +69,20 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
   };
 
   const handleComplete = () => {
-    onSubmitted(!deferLog);
+    const logData: MeetingLogSubmissionData = {
+      contactId: defaultContactId,
+      contactName: contactName.trim(),
+      contactRole: contactRole.trim(),
+      purpose,
+      productsDiscussed: selectedProducts,
+      outcomeNarrative: outcome.trim(),
+      nextStepText: nextStep.trim(),
+      fleetSizeVolume: fleetSize ? parseInt(fleetSize, 10) : null,
+    };
+
+    onSubmitted(!deferLog, logData);
     onClose();
   };
-
-  const productsList = ['Tyres', 'Batteries', 'Lubricants', 'Fleet servicing', 'Telematics', 'Other'];
-  const purposeList = [
-    'New pitch',
-    'Client follow-up meeting',
-    'Product discussion',
-    'Negotiation',
-    'Relationship maintenance',
-    'Other',
-  ];
-  const outcomeList = [
-    'Interest expressed',
-    'Information requested',
-    'Met decision-maker',
-    'No decision-maker',
-    'Not interested',
-    'Other',
-  ];
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
@@ -89,17 +118,19 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
 
           {/* Contact Person */}
           <div className="space-y-1.5">
-            <label className="block font-bold text-slate-900">
+            <label htmlFor="contact-name" className="block font-bold text-slate-900">
               Contact Person Met <span className="text-red-500">*</span>
             </label>
             <div className="grid grid-cols-2 gap-2">
               <Input
+                id="contact-name"
                 placeholder="Full Name"
                 value={contactName}
                 onChange={(e) => setContactName(e.target.value)}
                 className="text-xs"
               />
               <Input
+                id="contact-role"
                 placeholder="Role / Title"
                 value={contactRole}
                 onChange={(e) => setContactRole(e.target.value)}
@@ -110,16 +141,19 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
 
           {/* Visit Purpose */}
           <div className="space-y-1.5">
-            <label className="block font-bold text-slate-900">
+            <label htmlFor="visit-purpose" className="block font-bold text-slate-900">
               Visit Purpose <span className="text-red-500">*</span>
             </label>
             <select
+              id="visit-purpose"
               value={purpose}
-              onChange={(e) => setPurpose(e.target.value)}
+              onChange={(e) => setPurpose(e.target.value as VisitPurpose)}
               className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-brand-blue focus:outline-none"
             >
-              {purposeList.map((p) => (
-                <option key={p} value={p}>{p}</option>
+              {CANONICAL_PURPOSES.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
               ))}
             </select>
           </div>
@@ -130,7 +164,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
               Products Discussed (Multi-select) <span className="text-red-500">*</span>
             </label>
             <div className="flex flex-wrap gap-1.5">
-              {productsList.map((prod) => {
+              {PRODUCTS_LIST.map((prod) => {
                 const isSelected = selectedProducts.includes(prod);
                 return (
                   <button
@@ -150,29 +184,46 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
             </div>
           </div>
 
-          {/* Meeting Outcome */}
+          {/* Estimated Fleet Size / Volume */}
           <div className="space-y-1.5">
-            <label className="block font-bold text-slate-900">
-              Meeting Outcome Note <span className="text-red-500">*</span>
+            <label htmlFor="fleet-size" className="block font-bold text-slate-900">
+              Estimated Client Fleet Size / Volume (Vehicles / Litres)
             </label>
-            <select
-              value={outcome}
-              onChange={(e) => setOutcome(e.target.value)}
-              className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-brand-blue focus:outline-none"
-            >
-              {outcomeList.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-            <p className="text-[10px] text-slate-500 italic">Descriptive activity outcome only; not a sales deal or conversion stage.</p>
+            <Input
+              id="fleet-size"
+              type="number"
+              placeholder="e.g. 24"
+              value={fleetSize}
+              onChange={(e) => setFleetSize(e.target.value)}
+              className="text-xs"
+            />
           </div>
 
-          {/* Next Step - Free Text ONLY (Strict Exclusion Enforcement) */}
+          {/* Meeting Outcome */}
           <div className="space-y-1.5">
-            <label className="block font-bold text-slate-900">
+            <label htmlFor="meeting-outcome" className="block font-bold text-slate-900">
+              Meeting Outcome Narrative <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              id="meeting-outcome"
+              rows={2}
+              value={outcome}
+              onChange={(e) => setOutcome(e.target.value)}
+              placeholder="Summarise discussion points, client interest, and observations..."
+              className="w-full p-2.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue focus:outline-none font-medium text-slate-900"
+            />
+            <p className="text-[10px] text-slate-500 italic">
+              Descriptive activity outcome only; not a sales pipeline deal or revenue forecast.
+            </p>
+          </div>
+
+          {/* Next Step - Free Text ONLY (Strict MVP Exclusion Enforcement) */}
+          <div className="space-y-1.5">
+            <label htmlFor="next-steps" className="block font-bold text-slate-900">
               Next Step Description (Free Text Only) <span className="text-red-500">*</span>
             </label>
             <textarea
+              id="next-steps"
               rows={2}
               value={nextStep}
               onChange={(e) => setNextStep(e.target.value)}
@@ -184,22 +235,6 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
             </p>
           </div>
 
-          {/* Premises Evidence Photo Thumbnail */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-md bg-slate-200 border border-slate-300 flex items-center justify-center font-bold text-[9px] text-slate-600">
-                [DEMO]
-              </div>
-              <div>
-                <p className="font-bold text-slate-800 text-[11px]">Premises Photo Captured</p>
-                <p className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Live Camera Verified (Simulated)
-                </p>
-              </div>
-            </div>
-            <span className="text-[10px] text-slate-500 font-mono">09:42:15</span>
-          </div>
-
           {/* Optional Business Card Photograph Capture (PRD §7.3) */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
             <div className="flex items-center justify-between">
@@ -209,19 +244,29 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
               <span className="text-[10px] text-slate-500 font-medium">PRD §7.3 Supporting Asset</span>
             </div>
 
-            <div className="flex items-center justify-between bg-white p-2 rounded border border-slate-200">
+            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
               <div className="flex items-center gap-2">
                 <div className="w-9 h-7 rounded bg-slate-100 border border-slate-300 flex items-center justify-center font-mono text-[8px] text-slate-600">
                   CARD
                 </div>
                 <div>
                   <p className="font-bold text-slate-800 text-[10px]">Client Contact Card</p>
-                  <p className="text-[9px] text-slate-500">Live rear-camera macro capture (simulated)</p>
+                  <p className="text-[9px] text-slate-500">
+                    {businessCardAttached ? 'Card photo attached to meeting log' : 'Attach client business card'}
+                  </p>
                 </div>
               </div>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                Attached
-              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setBusinessCardAttached(!businessCardAttached)}
+                className={`text-[10px] h-7 px-2.5 font-bold ${
+                  businessCardAttached ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : ''
+                }`}
+              >
+                {businessCardAttached ? 'Attached ✓' : '+ Attach Card'}
+              </Button>
             </div>
           </div>
 
@@ -233,7 +278,8 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
               checked={deferLog}
               onChange={(e) => setDeferLog(e.target.checked)}
               className="w-4 h-4 rounded text-brand-blue focus:ring-brand-blue cursor-pointer"
-            />
+            >
+            </input>
             <label htmlFor="deferCheck" className="text-[11px] text-slate-700 font-medium cursor-pointer">
               Defer completion (Complete within permitted 2-hour window)
             </label>
@@ -249,6 +295,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
             variant="default"
             size="default"
             onClick={handleComplete}
+            disabled={!contactName || !purpose || !nextStep}
             className="text-xs h-11 px-5 font-bold bg-brand-blue hover:bg-brand-blue-700"
           >
             {deferLog ? 'Check Out & Defer Log (2h SLA)' : 'Submit Log & Close Visit'}
