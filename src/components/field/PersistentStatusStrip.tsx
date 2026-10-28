@@ -10,21 +10,46 @@ interface PersistentStatusStripProps {
 
 export const PersistentStatusStrip: React.FC<PersistentStatusStripProps> = ({ onNavigateTab }) => {
   const { currentUser, attendanceStatus } = useAuth();
-  const { simulatedGpsAccuracy, isOnline, syncQueue } = useFieldSession();
+  const {
+    simulatedGpsAccuracy,
+    isOnline,
+    syncQueue,
+    queueTelemetry,
+    isAttendanceProvisional,
+    activeVisit,
+  } = useFieldSession();
 
   const gpsAccuracyMeters = simulatedGpsAccuracy;
-  const pendingCount = syncQueue.filter((q) => q.syncStatus !== 'synced').length;
+  const idbUnsyncedCount =
+    queueTelemetry.pendingCount +
+    queueTelemetry.syncingCount +
+    queueTelemetry.failedCount +
+    queueTelemetry.needsReviewCount +
+    queueTelemetry.blockedDependencyCount;
+  const pendingCount =
+    queueTelemetry.totalEvents > 0
+      ? idbUnsyncedCount
+      : syncQueue.filter((q) => q.syncStatus !== 'synced').length;
+
+  const isProvisionalActive =
+    isAttendanceProvisional || activeVisit?.verificationStatus === 'pending_sync';
 
   return (
     <div className="bg-white border-b border-slate-200 px-3.5 py-2 flex items-center justify-between text-xs shadow-xs select-none">
       <div className="flex items-center gap-2 overflow-x-auto py-0.5 no-scrollbar">
         {/* Attendance Status */}
         <StatusBadge
-          status={attendanceStatus === 'started' ? 'started' : 'scheduled'}
+          status={
+            isAttendanceProvisional
+              ? 'pending_sync'
+              : attendanceStatus === 'started'
+              ? 'started'
+              : 'scheduled'
+          }
           size="sm"
         />
 
-        {/* GPS Fix & Accuracy - Explicitly labelled as simulated for Stage 1 */}
+        {/* GPS Fix & Accuracy */}
         <div
           className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[11px] font-semibold tracking-tight ${
             gpsAccuracyMeters <= 50
@@ -33,13 +58,13 @@ export const PersistentStatusStrip: React.FC<PersistentStatusStripProps> = ({ on
               ? 'bg-blue-50 text-brand-blue border-blue-300'
               : 'bg-amber-50 text-amber-900 border-amber-300'
           }`}
-          title={`Simulated GPS Fix: Horizontal Uncertainty ±${gpsAccuracyMeters}m (Threshold: ≤100m for visits, ≤50m for pins)`}
+          title={`GPS Fix: Horizontal Uncertainty ±${gpsAccuracyMeters}m (Threshold: ≤100m for visits, ≤50m for pins)`}
         >
           <MapPin className="w-3 h-3 shrink-0 text-emerald-700" />
-          <span>Simulated GPS: ±{gpsAccuracyMeters}m</span>
+          <span>GPS: ±{gpsAccuracyMeters}m</span>
         </div>
 
-        {/* Sync Queue State - Accessible and Clickable Button (Fix P1) */}
+        {/* Sync Queue State - Accessible and Clickable Button (Fix P1 + Stage 3D IndexedDB Telemetry) */}
         <button
           type="button"
           id="btn-sync-queue-badge"
@@ -47,6 +72,8 @@ export const PersistentStatusStrip: React.FC<PersistentStatusStripProps> = ({ on
           className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-medium transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue focus-visible:ring-offset-1 hover:brightness-95 active:scale-95 ${
             !isOnline
               ? 'bg-red-50 text-red-800 border-red-300'
+              : queueTelemetry.failedCount > 0 || queueTelemetry.needsReviewCount > 0
+              ? 'bg-red-50 text-red-900 border-red-300'
               : pendingCount === 0
               ? 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200/80'
               : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
@@ -59,7 +86,13 @@ export const PersistentStatusStrip: React.FC<PersistentStatusStripProps> = ({ on
           ) : (
             <WifiOff className="w-3 h-3 text-red-600 shrink-0" />
           )}
-          <span>Simulated: {!isOnline ? 'Offline Queue' : pendingCount === 0 ? 'Synced' : `${pendingCount} Queued`}</span>
+          <span>
+            {!isOnline
+              ? `Offline (${pendingCount} Queued)`
+              : pendingCount === 0
+              ? 'Synced'
+              : `${pendingCount} Queued${isProvisionalActive ? ' • Provisional' : ''}`}
+          </span>
         </button>
       </div>
 

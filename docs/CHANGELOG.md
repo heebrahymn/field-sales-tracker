@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Stage 3D] - Durable Offline IndexedDB Journal, Media Queuing & Dependency Synchronisation (2026-10-28)
+
+### Added
+- **Dexie.js IndexedDB Offline Journal & Media Store (`src/services/offlineSyncService.ts`):**
+  - Implemented `CarbonOfflineJournalDB` with `eventJournal`, `mediaQueue` (`Uint8Array` durable binary payloads), and `cachedContext` object stores partitioned strictly by `ownerUserId`.
+  - Supports durable offline queuing and survival across page refreshes/browser restarts for `ATTENDANCE_START_DAY`, `VISIT_CHECKIN`, `VISIT_CHECKOUT`, `MEETING_LOG_SUBMIT`, and `ATTENDANCE_END_DAY`, plus `attendance_selfie`, `visit_premises_photo`, and `business_card_photo` binary blobs.
+- **Topological Dependency-Aware Synchronisation Engine:**
+  - Enforces strict parent-before-child ordering (`ATTENDANCE_START_DAY → VISIT_CHECKIN → VISIT_CHECKOUT → MEETING_LOG_SUBMIT → ATTENDANCE_END_DAY`) with explicit `pending`, `syncing`, `synced`, `failed`, `needs_review`, and `blocked_dependency` states.
+  - Propagates `blocked_dependency` to dependent child operations if a parent operation fails or requires review.
+  - Implements idempotent media upload skipping on DB-only retries, duplicate-key (`23505`) server reconciliation, bounded exponential backoff (`computeBoundedBackoffMs`), clock anomaly detection (`detectClockAnomaly`), and browser storage quota monitoring (`assessStorageQuota`).
+- **Offline Attendance & Visit Continuity (`src/context/FieldSessionContext.tsx`, `src/features/field/StartDayModal.tsx`, `src/features/field/EndDayModal.tsx`):**
+  - Integrated offline Start Day and End Day queuing with provisional `"Saved on Device (Provisional — Pending Server Sync)"` confirmation states and AT-03 open-visit hard block enforcement offline.
+  - Caches and restores approved client branches, active market rule versions, provisional attendance, open active visits, and completed visits across page reloads while offline.
+  - Automatically triggers ordered synchronisation on browser `online` and `visibilitychange` events.
+- **Safe App-Shell Service Worker & Offline Session Recovery (`public/sw.js`, `src/main.tsx`, `src/context/AuthContext.tsx`):**
+  - Registered `/sw.js` (`carbon-app-shell-v1`) to cache same-origin `GET` static app-shell assets for offline page refreshes and offline browser cold-starts while strictly excluding all `*.supabase.co` API and private Storage URLs.
+  - Added offline profile recovery in `AuthContext` (`carbon_cached_profile_${userId}`) with automatic purge on `signOut()` or account suspension (`is_active === false`).
+- **Capture-Time Pin/Rule Immutability & Sync-Boundary Security (`src/services/offlineSyncService.ts`):**
+  - Enforced capture-time `branchPinId`/`branchPinVersion` and `ruleVersionId`/`ruleVersionTag` verification on sync (`needs_review` without silent substitution if changed).
+  - Enforced sync-execution-boundary checks for `ownerUserId === authenticatedUserId`, active GoTrue JWT ownership, and active employee status (`profiles.is_active === true`).
+- **Live Sync Queue Telemetry & UX (`src/features/field/OfflineSyncView.tsx`, `src/components/field/PersistentStatusStrip.tsx`, `src/features/field/SalespersonHomePreview.tsx`):**
+  - Displays live IndexedDB queue counts (`Pending Sync`, `Media Queued` + KB size, `Syncing Now`, `Synced (Server)`, `Failed`, `Needs Review`), `Last Successful Server Sync` timestamp, browser Storage Quota bar, explicit status badges (`Saved on this device`, `Waiting to sync`, `Synchronising`, `Saved to Supabase`, `Failed — retry available`, `Needs manager review`), and per-event retry actions.
+- **Comprehensive Stage 3D Verification & Documentation:**
+  - `src/test/stage-3d-offline-sync.test.tsx`: 26 test blocks covering 27 Stage 3D offline journal, media durability, dependency ordering, idempotency, capture-time immutability, sync-boundary security, and UI test scenarios (170/170 total Vitest tests passing).
+  - `scripts/verify_stage_3d_browser.py`: Full 16-step offline workday, offline cold-start, multi-user isolation (`Tunde Adebayo` vs. `Peter Mwale`), Supabase E2E reconciliation, and multi-viewport (`360px`, `390px`, `430px`, `1280px`) browser verification (`docs/screenshots/stage3d/`).
+  - Created ADR 0012 (`docs/decisions/0012-stage-3d-offline-indexeddb-journal-and-sync.md`), `docs/implementation/STAGE_3D_OFFLINE_SYNC.md`, and `docs/testing/STAGE_3D_QA_REPORT.md`.
+
+---
+
 ## [Stage 3C] - Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (2026-10-28)
 
 ### Added

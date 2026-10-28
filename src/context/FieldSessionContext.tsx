@@ -1,12 +1,23 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuthSafe } from '@/context/AuthContext';
-import { attendanceService, AttendanceRecord, formatMarketTime } from '@/services/attendanceService';
+import {
+  attendanceService,
+  AttendanceRecord,
+  formatMarketTime,
+  getMarketWorkDate,
+} from '@/services/attendanceService';
 import {
   visitService,
   VisitVerificationStatus,
   LocationClassification,
   LiveGpsCoordinate,
 } from '@/services/visitService';
+import {
+  offlineSyncService,
+  type OfflineJournalEvent,
+  type QueueTelemetrySummary,
+  type StorageQuotaAssessment,
+} from '@/services/offlineSyncService';
 
 export interface BranchContact {
   id?: string;
@@ -72,10 +83,16 @@ export interface CompletedVisitRecord {
   checkInTime: string;
   checkOutTime: string;
   durationMinutes: number;
-  verificationStatus: 'location_verified' | 'manager_approved_unverified' | 'disputed';
+  verificationStatus:
+    | 'location_verified'
+    | 'manager_approved_unverified'
+    | 'disputed'
+    | 'pending_sync'
+    | 'location_unverified';
   meetingLogSubmitted: boolean;
   meetingLogDeferredUntil?: string;
   flagRaised?: string;
+  capturedOffline?: boolean;
 }
 
 export interface FieldExceptionRecord {
@@ -126,11 +143,24 @@ interface FieldSessionContextType {
   endDayTime: string | null;
   attendanceRecord: AttendanceRecord | null;
   isAttendanceLoading: boolean;
+  isAttendanceProvisional: boolean;
   startDay: (selfieUrl: string) => void;
   endDay: () => boolean; // returns false if blocked by active visit
   onAttendanceStarted: (record: AttendanceRecord) => void;
   onAttendanceEnded: (record: AttendanceRecord) => void;
   refreshAttendance: () => Promise<void>;
+  enqueueOfflineStartDay: (params: {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    selfieBlob: Blob;
+    submissionId?: string;
+  }) => Promise<{ success: boolean; error?: string; record?: any }>;
+  enqueueOfflineEndDay: (params: {
+    latitude?: number;
+    longitude?: number;
+    accuracy?: number;
+  }) => Promise<{ success: boolean; error?: string; record?: any }>;
 
   // Active Visit
   activeVisit: ActiveVisitSession | null;
@@ -177,11 +207,16 @@ interface FieldSessionContextType {
   nonVisitDayRequest: NonVisitDayRequest | null;
   submitNonVisitDayRequest: (req: Omit<NonVisitDayRequest, 'id' | 'status'>) => void;
 
-  // Offline & Sync Simulation
+  // Offline & Sync Engine (Stage 3D IndexedDB Journal)
   isOnline: boolean;
   toggleOnline: () => void;
   syncState: 'synced' | 'pending' | 'syncing' | 'failed' | 'needs_review';
   syncQueue: QueuedEvent[];
+  journalEvents: OfflineJournalEvent[];
+  queueTelemetry: QueueTelemetrySummary;
+  storageQuota: StorageQuotaAssessment;
+  refreshOfflineQueue: () => Promise<void>;
+  retryFailedEvent: (eventId: string) => Promise<void>;
   triggerSyncNow: () => Promise<void>;
 
   // Simulation Controls for Testing
@@ -220,6 +255,12 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
   const [endDayTime, setEndDayTime] = useState<string | null>(null);
   const [attendanceRecord, setAttendanceRecord] = useState<AttendanceRecord | null>(null);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState<boolean>(!isTestEnv);
+  const [isAttendanceProvisional, setIsAttendanceProvisional] = useState<boolean>(false);
+
+  // Offline state & IndexedDB journal state
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true
+  );
 
   const refreshAttendance = useCallback(async () => {
     if (!currentUser?.id || currentUser.role !== 'salesperson') {
@@ -228,38 +269,76 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     }
     setIsAttendanceLoading(true);
     try {
-      const { data, error } = await attendanceService.getTodayAttendance(
+      const todayWorkDate = getMarketWorkDate(currentUser.marketCode);
+      const cachedCtx = await offlineSyncService.getOrCreateCachedContext(
         currentUser.id,
-        currentUser.marketCode
+        currentUser.marketCode,
+        currentUser.assignedDevice?.deviceId || 'dev-001'
       );
-      if (error) {
-        console.warn('[FieldSession] Attendance query error:', error.message);
-      }
-      if (data) {
-        setAttendanceRecord(data);
-        if (data.status === 'started') {
-          setWorkdayStatus('started');
-          setStartDayTime(formatMarketTime(data.started_at, currentUser.marketCode));
-          setStartDaySelfie(data.start_selfie_url);
-        } else if (data.status === 'ended') {
-          setWorkdayStatus('ended');
-          setStartDayTime(formatMarketTime(data.started_at, currentUser.marketCode));
-          setEndDayTime(formatMarketTime(data.ended_at, currentUser.marketCode));
-          setStartDaySelfie(data.start_selfie_url);
+
+      if (isOnline) {
+        const { data, error } = await attendanceService.getTodayAttendance(
+          currentUser.id,
+          currentUser.marketCode
+        );
+        if (error) {
+          console.warn('[FieldSession] Attendance query error:', error.message);
         }
-      } else if (!isTestEnv) {
+        if (data) {
+          setAttendanceRecord(data);
+          setIsAttendanceProvisional(false);
+          if (data.status === 'started') {
+            setWorkdayStatus('started');
+            auth?.setAttendanceStatus('started');
+            setStartDayTime(formatMarketTime(data.started_at, currentUser.marketCode));
+            setStartDaySelfie(data.start_selfie_url);
+          } else if (data.status === 'ended') {
+            setWorkdayStatus('ended');
+            auth?.setAttendanceStatus('ended');
+            setStartDayTime(formatMarketTime(data.started_at, currentUser.marketCode));
+            setEndDayTime(formatMarketTime(data.ended_at, currentUser.marketCode));
+            setStartDaySelfie(data.start_selfie_url);
+          }
+          await offlineSyncService.updateCachedContext(currentUser.id, currentUser.marketCode, {
+            localAttendanceRecord: data,
+            lastKnownServerTimeMs: Date.now(),
+          });
+          return;
+        }
+      }
+
+      // Check IndexedDB cached provisional attendance if offline or not yet synced to server
+      const localAtt = cachedCtx.localAttendanceRecord;
+      if (localAtt && localAtt.work_date === todayWorkDate) {
+        setAttendanceRecord(localAtt as AttendanceRecord);
+        setIsAttendanceProvisional(Boolean(localAtt.captured_offline || localAtt.status === 'pending_sync'));
+        if (localAtt.ended_at) {
+          setWorkdayStatus('ended');
+          auth?.setAttendanceStatus('ended');
+          setStartDayTime(formatMarketTime(localAtt.started_at, currentUser.marketCode));
+          setEndDayTime(formatMarketTime(localAtt.ended_at, currentUser.marketCode));
+          setStartDaySelfie(localAtt.start_selfie_url);
+        } else {
+          setWorkdayStatus('started');
+          auth?.setAttendanceStatus('started');
+          setStartDayTime(formatMarketTime(localAtt.started_at, currentUser.marketCode));
+          setStartDaySelfie(localAtt.start_selfie_url);
+        }
+      } else if (!isTestEnv && isOnline) {
         setWorkdayStatus('not_started');
+        auth?.setAttendanceStatus('scheduled');
         setStartDayTime(null);
         setStartDaySelfie(null);
         setEndDayTime(null);
         setAttendanceRecord(null);
+        setIsAttendanceProvisional(false);
       }
     } catch (err) {
       console.warn('[FieldSession] Attendance load caught error:', err);
     } finally {
       setIsAttendanceLoading(false);
     }
-  }, [currentUser?.id, currentUser?.marketCode, currentUser?.role, isTestEnv]);
+  }, [currentUser?.id, currentUser?.marketCode, currentUser?.role, currentUser?.assignedDevice?.deviceId, isOnline, isTestEnv]);
 
   const defaultMockVisit: ActiveVisitSession = {
     id: 'vis-active-01',
@@ -288,143 +367,213 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       return;
     }
     try {
-      const { data: dbVisit, error } = await visitService.getActiveVisit(currentUser.id);
-      if (error) {
-        console.warn('[FieldSession] Active visit query error:', error.message);
-        return;
-      }
-      if (dbVisit) {
-        const checkInTs = new Date(dbVisit.check_in_at).getTime();
-        const elapsedSec = Math.max(0, Math.floor((Date.now() - checkInTs) / 1000));
-        const branchName = dbVisit.branches?.branch_name || 'Client Branch';
-        const companyName = dbVisit.branches?.organisations?.name || 'Client Organisation';
-        const address = `${dbVisit.branches?.street_address || ''}, ${dbVisit.branches?.city || ''}`;
-        const restoredVisit: ActiveVisitSession = {
-          id: dbVisit.id,
-          branchId: dbVisit.branch_id,
-          branchName,
-          companyName,
-          address,
-          branchCode: dbVisit.branch_id.substring(0, 8).toUpperCase(),
-          checkInTime: formatMarketTime(dbVisit.check_in_at, currentUser?.marketCode),
-          checkInTimestamp: checkInTs,
-          elapsedSeconds: elapsedSec,
-          geofenceDistanceMeters: dbVisit.distance_to_pin_m ?? 0,
-          gpsAccuracyMeters: dbVisit.check_in_accuracy_m,
-          premisesPhotoUrl: dbVisit.premises_photo_url || '',
-          verificationStatus: dbVisit.verification_status,
-          locationClassification: dbVisit.location_classification,
-          branchPinId: dbVisit.branch_pin_id,
-          ruleVersionId: dbVisit.rule_version_id,
-        };
-        setActiveVisit(restoredVisit);
-      } else if (!isTestEnv) {
-        setActiveVisit(null);
+      const cachedCtx = await offlineSyncService.getOrCreateCachedContext(
+        currentUser.id,
+        currentUser.marketCode || 'NG',
+        currentUser.assignedDevice?.deviceId || 'dev-001'
+      );
+
+      let restoredFromServer = false;
+
+      if (isOnline) {
+        const { data: dbVisit, error } = await visitService.getActiveVisit(currentUser.id);
+        if (error) {
+          console.warn('[FieldSession] Active visit query error:', error.message);
+        } else if (dbVisit) {
+          const checkInTs = new Date(dbVisit.check_in_at).getTime();
+          const elapsedSec = Math.max(0, Math.floor((Date.now() - checkInTs) / 1000));
+          const branchName = dbVisit.branches?.branch_name || 'Client Branch';
+          const companyName = dbVisit.branches?.organisations?.name || 'Client Organisation';
+          const address = `${dbVisit.branches?.street_address || ''}, ${dbVisit.branches?.city || ''}`;
+          const restoredVisit: ActiveVisitSession = {
+            id: dbVisit.id,
+            branchId: dbVisit.branch_id,
+            branchName,
+            companyName,
+            address,
+            branchCode: dbVisit.branch_id.substring(0, 8).toUpperCase(),
+            checkInTime: formatMarketTime(dbVisit.check_in_at, currentUser?.marketCode),
+            checkInTimestamp: checkInTs,
+            elapsedSeconds: elapsedSec,
+            geofenceDistanceMeters: dbVisit.distance_to_pin_m ?? 0,
+            gpsAccuracyMeters: dbVisit.check_in_accuracy_m,
+            premisesPhotoUrl: dbVisit.premises_photo_url || '',
+            verificationStatus: dbVisit.verification_status,
+            locationClassification: dbVisit.location_classification,
+            branchPinId: dbVisit.branch_pin_id,
+            ruleVersionId: dbVisit.rule_version_id,
+          };
+          setActiveVisit(restoredVisit);
+          restoredFromServer = true;
+        }
       }
 
-      // Also load today's completed visits from Supabase for real sessions
-      if (!isTestEnv) {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const { data: dbCompleted } = await visitService.getTodayCompletedVisits(currentUser.id, todayStr);
-        if (dbCompleted) {
-          const mappedCompleted: CompletedVisitRecord[] = dbCompleted.map((v: any) => {
-            const checkInMs = new Date(v.check_in_at).getTime();
-            const checkOutMs = v.check_out_at ? new Date(v.check_out_at).getTime() : checkInMs;
-            const durationMins = Math.max(1, Math.round((checkOutMs - checkInMs) / 60000));
-            const hasLog = Array.isArray(v.meeting_logs) ? v.meeting_logs.length > 0 : Boolean(v.meeting_logs?.id);
-            return {
-              id: v.id,
-              branchName: v.branches?.branch_name || 'Client Branch',
-              companyName: v.branches?.organisations?.name || 'Registered Client',
-              branchCode: v.branch_id.substring(0, 8).toUpperCase(),
-              checkInTime: formatMarketTime(v.check_in_at, currentUser?.marketCode),
-              checkOutTime: formatMarketTime(v.check_out_at, currentUser?.marketCode),
-              durationMinutes: durationMins,
-              verificationStatus: (v.verification_status as any) || 'location_verified',
-              meetingLogSubmitted: hasLog,
-              meetingLogDeferredUntil: hasLog ? undefined : 'Within 2h SLA',
-            };
+      if (!restoredFromServer) {
+        if (cachedCtx.localActiveVisit) {
+          const lv = cachedCtx.localActiveVisit;
+          const elapsedSec = Math.max(
+            0,
+            Math.floor((Date.now() - (lv.checkInTimestamp || Date.now())) / 1000)
+          );
+          setActiveVisit({
+            ...lv,
+            elapsedSeconds: elapsedSec,
           });
-          setCompletedVisits(mappedCompleted);
-          setPendingMeetingLogs(mappedCompleted.filter((c) => !c.meetingLogSubmitted));
+        } else if (!isTestEnv) {
+          setActiveVisit(null);
+        }
+      }
+
+      // Also load today's completed visits from Supabase + merge unsynchronised local completed visits
+      if (!isTestEnv) {
+        let serverCompleted: CompletedVisitRecord[] = [];
+        if (isOnline) {
+          const todayStr = new Date().toISOString().split('T')[0];
+          const { data: dbCompleted } = await visitService.getTodayCompletedVisits(currentUser.id, todayStr);
+          if (dbCompleted) {
+            serverCompleted = dbCompleted.map((v: any) => {
+              const checkInMs = new Date(v.check_in_at).getTime();
+              const checkOutMs = v.check_out_at ? new Date(v.check_out_at).getTime() : checkInMs;
+              const durationMins = Math.max(1, Math.round((checkOutMs - checkInMs) / 60000));
+              const hasLog = Array.isArray(v.meeting_logs) ? v.meeting_logs.length > 0 : Boolean(v.meeting_logs?.id);
+              return {
+                id: v.id,
+                branchName: v.branches?.branch_name || 'Client Branch',
+                companyName: v.branches?.organisations?.name || 'Registered Client',
+                branchCode: v.branch_id.substring(0, 8).toUpperCase(),
+                checkInTime: formatMarketTime(v.check_in_at, currentUser?.marketCode),
+                checkOutTime: formatMarketTime(v.check_out_at, currentUser?.marketCode),
+                durationMinutes: durationMins,
+                verificationStatus: (v.verification_status as any) || 'location_verified',
+                meetingLogSubmitted: hasLog,
+                meetingLogDeferredUntil: hasLog ? undefined : 'Within 2h SLA',
+              };
+            });
+          }
+        }
+
+        const serverIds = new Set(serverCompleted.map((s) => s.id));
+        const localOnlyCompleted: CompletedVisitRecord[] = (cachedCtx.localCompletedVisits || []).filter(
+          (lc: any) => !serverIds.has(lc.id)
+        );
+        const mergedCompleted = [...localOnlyCompleted, ...serverCompleted];
+        if (mergedCompleted.length > 0 || isOnline) {
+          setCompletedVisits(mergedCompleted);
+          setPendingMeetingLogs(mergedCompleted.filter((c) => !c.meetingLogSubmitted));
+        }
+      } else if (cachedCtx.localCompletedVisits && cachedCtx.localCompletedVisits.length > 0) {
+        setCompletedVisits((prev) => {
+          const existingIds = new Set(prev.map((p) => p.id));
+          const additions = cachedCtx.localCompletedVisits.filter((lc: any) => !existingIds.has(lc.id));
+          return [...additions, ...prev];
+        });
+        const unsavedLogs = cachedCtx.localCompletedVisits.filter((lc: any) => !lc.meetingLogSubmitted);
+        if (unsavedLogs.length > 0) {
+          setPendingMeetingLogs((prev) => {
+            const existingIds = new Set(prev.map((p) => p.id));
+            const additions = unsavedLogs.filter((lc: any) => !existingIds.has(lc.id));
+            return [...additions, ...prev];
+          });
         }
       }
     } catch (err) {
       console.warn('[FieldSession] Active visit caught error:', err);
     }
-  }, [currentUser?.id, currentUser?.marketCode, currentUser?.role, isTestEnv]);
+  }, [currentUser?.id, currentUser?.marketCode, currentUser?.role, currentUser?.assignedDevice?.deviceId, isOnline, isTestEnv]);
 
   const refreshBranches = useCallback(async () => {
     if (!currentUser?.marketCode) return;
     try {
-      const { data: dbBranches, error } = await visitService.getClientsAndBranches(currentUser.marketCode);
-      if (error) {
-        console.warn('[FieldSession] Branches load error:', error.message);
-        return;
-      }
-      if (dbBranches && (dbBranches.length > 0 || !isTestEnv)) {
-        const mapped: ClientBranch[] = dbBranches.map((b) => {
-          const approvedPin = b.branch_location_pins?.find((p) => p.is_active && p.status === 'approved');
-          const pendingPin = b.branch_location_pins?.find((p) => p.status === 'pending_approval' || !p.is_active);
-          const pin = approvedPin || pendingPin;
-          const contacts =
-            b.client_contacts?.map((c) => ({
-              id: c.id,
-              name: c.full_name,
-              role: c.designation,
-              phone: c.phone_number,
-            })) || [];
+      if (isOnline) {
+        const [{ data: dbBranches, error }, { data: dbRule }] = await Promise.all([
+          visitService.getClientsAndBranches(currentUser.marketCode),
+          visitService.getActiveMarketRules(currentUser.marketCode),
+        ]);
+        if (error) {
+          console.warn('[FieldSession] Branches load error:', error.message);
+        } else if (dbBranches && (dbBranches.length > 0 || !isTestEnv)) {
+          const mapped: ClientBranch[] = dbBranches.map((b) => {
+            const approvedPin = b.branch_location_pins?.find((p) => p.is_active && p.status === 'approved');
+            const pendingPin = b.branch_location_pins?.find((p) => p.status === 'pending_approval' || !p.is_active);
+            const pin = approvedPin || pendingPin;
+            const contacts =
+              b.client_contacts?.map((c) => ({
+                id: c.id,
+                name: c.full_name,
+                role: c.designation,
+                phone: c.phone_number,
+              })) || [];
 
-          return {
-            id: b.id,
-            companyName: b.organisations?.name || 'Registered Client',
-            branchName: b.branch_name,
-            branchCode: b.branch_name.substring(0, 3).toUpperCase() + '-' + b.id.substring(0, 4).toUpperCase(),
-            category: b.category,
-            address: `${b.street_address}, ${b.city}`,
-            landmark: '',
-            contacts,
-            sharedCompanyPhone: b.switchboard_phone,
-            hasSharedPhone: Boolean(b.switchboard_phone),
-            distanceMeters: approvedPin ? 38 : 500,
-            approvedGpsLat: pin ? pin.latitude : 0,
-            approvedGpsLng: pin ? pin.longitude : 0,
-            approvedPinId: approvedPin?.id,
-            approvedPinVersion: pin?.version_number,
-            accuracyMeters: pin ? pin.reported_accuracy_m : 25,
-            status: approvedPin ? 'approved' : 'pending_approval',
-          };
-        });
-        setBranches(mapped);
+            return {
+              id: b.id,
+              companyName: b.organisations?.name || 'Registered Client',
+              branchName: b.branch_name,
+              branchCode: b.branch_name.substring(0, 3).toUpperCase() + '-' + b.id.substring(0, 4).toUpperCase(),
+              category: b.category,
+              address: `${b.street_address}, ${b.city}`,
+              landmark: '',
+              contacts,
+              sharedCompanyPhone: b.switchboard_phone,
+              hasSharedPhone: Boolean(b.switchboard_phone),
+              distanceMeters: approvedPin ? 38 : 500,
+              approvedGpsLat: pin ? pin.latitude : 0,
+              approvedGpsLng: pin ? pin.longitude : 0,
+              approvedPinId: approvedPin?.id,
+              approvedPinVersion: pin?.version_number,
+              accuracyMeters: pin ? pin.reported_accuracy_m : 25,
+              status: approvedPin ? 'approved' : 'pending_approval',
+            };
+          });
+          setBranches(mapped);
+          if (currentUser?.id) {
+            await offlineSyncService.updateCachedContext(currentUser.id, currentUser.marketCode, {
+              branchesSnapshot: mapped,
+              activeRuleVersion: dbRule || null,
+            });
+          }
+          return;
+        }
+      }
+
+      // Restore cached branches from IndexedDB when offline
+      if (currentUser?.id) {
+        const cachedCtx = await offlineSyncService.getOrCreateCachedContext(
+          currentUser.id,
+          currentUser.marketCode
+        );
+        if (cachedCtx.branchesSnapshot && cachedCtx.branchesSnapshot.length > 0) {
+          setBranches(cachedCtx.branchesSnapshot);
+        }
       }
     } catch (err) {
       console.warn('[FieldSession] Branches caught error:', err);
     }
-  }, [currentUser?.marketCode, isTestEnv]);
-
-  useEffect(() => {
-    if (currentUser?.id) {
-      refreshAttendance();
-      refreshActiveVisit();
-      refreshBranches();
-    } else {
-      setIsAttendanceLoading(false);
-    }
-  }, [refreshAttendance, refreshActiveVisit, refreshBranches, currentUser?.id]);
+  }, [currentUser?.id, currentUser?.marketCode, isOnline, isTestEnv]);
 
   const onAttendanceStarted = (record: AttendanceRecord) => {
     setAttendanceRecord(record);
+    setIsAttendanceProvisional(Boolean((record as any).captured_offline || (record as any).status === 'pending_sync'));
     setWorkdayStatus('started');
+    auth?.setAttendanceStatus('started');
     setStartDayTime(formatMarketTime(record.started_at, currentUser?.marketCode));
     setStartDaySelfie(record.start_selfie_url);
-    notify('Workday Started: Live selfie & GPS recorded to operational attendance log.');
+    notify(
+      (record as any).status === 'pending_sync'
+        ? 'Workday Started (Saved on Device — Provisional): Selfie & GPS queued for server sync.'
+        : 'Workday Started: Live selfie & GPS recorded to operational attendance log.'
+    );
   };
 
   const onAttendanceEnded = (record: AttendanceRecord) => {
     setAttendanceRecord(record);
     setWorkdayStatus('ended');
+    auth?.setAttendanceStatus('ended');
     setEndDayTime(formatMarketTime(record.ended_at, currentUser?.marketCode));
-    notify('Workday Ended: Final check-out coordinate recorded. Day summary ready.');
+    notify(
+      (record as any).status === 'pending_sync'
+        ? 'Workday Ended (Saved on Device — Provisional): Closing GPS queued for server sync.'
+        : 'Workday Ended: Final check-out coordinate recorded. Day summary ready.'
+    );
   };
 
   // 3. Completed Visits Today
@@ -635,9 +784,31 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
   // 6. Non-Visit Day Request
   const [nonVisitDayRequest, setNonVisitDayRequest] = useState<NonVisitDayRequest | null>(null);
 
-  // 7. Offline & Sync Queue
-  const [isOnline, setIsOnline] = useState<boolean>(true);
+  // 7. Offline & Sync Queue (Stage 3D Durable IndexedDB Journal + Media Queue)
   const [syncState, setSyncState] = useState<'synced' | 'pending' | 'syncing' | 'failed' | 'needs_review'>('synced');
+  const [journalEvents, setJournalEvents] = useState<OfflineJournalEvent[]>([]);
+  const [queueTelemetry, setQueueTelemetry] = useState<QueueTelemetrySummary>({
+    totalEvents: 0,
+    pendingCount: 0,
+    syncingCount: 0,
+    syncedCount: 0,
+    failedCount: 0,
+    needsReviewCount: 0,
+    blockedDependencyCount: 0,
+    pendingMediaCount: 0,
+    pendingMediaBytes: 0,
+    lastServerSyncAt: null,
+  });
+  const [storageQuota, setStorageQuota] = useState<StorageQuotaAssessment>({
+    supported: false,
+    usageBytes: 0,
+    quotaBytes: 50 * 1024 * 1024,
+    usagePercent: 0,
+    isPersisted: false,
+    isNearLimit: false,
+    isExhausted: false,
+    warningMessage: null,
+  });
   const [syncQueue, setSyncQueue] = useState<QueuedEvent[]>([
     {
       id: 'q-01',
@@ -665,6 +836,131 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
   const notify = (msg: string) => {
     setSessionNotice(msg);
     setTimeout(() => setSessionNotice(null), 5000);
+  };
+
+  const refreshOfflineQueue = useCallback(async () => {
+    if (!currentUser?.id) return;
+    try {
+      const [events, telemetry, quota] = await Promise.all([
+        offlineSyncService.getUserQueueEvents(currentUser.id),
+        offlineSyncService.getUserQueueTelemetry(currentUser.id, currentUser.marketCode || 'NG'),
+        offlineSyncService.assessStorageQuota(currentUser.id),
+      ]);
+
+      setJournalEvents(events);
+      setQueueTelemetry(telemetry);
+      setStorageQuota(quota);
+
+      if (events.length > 0) {
+        const mappedQueue: QueuedEvent[] = events.map((ev) => ({
+          id: ev.id,
+          uuid: ev.id,
+          type:
+            ev.eventType === 'ATTENDANCE_START_DAY' || ev.eventType === 'ATTENDANCE_END_DAY'
+              ? 'ATTENDANCE_EVENT'
+              : ev.eventType === 'MEETING_LOG_SUBMIT'
+              ? 'MEETING_LOG'
+              : (ev.eventType as QueuedEvent['type']),
+          timestamp: formatMarketTime(ev.originalCaptureTimestamp, ev.marketCode) || ev.originalCaptureTimestamp,
+          payloadSummary: ev.payloadSummary,
+          syncStatus:
+            ev.syncStatus === 'pending' || ev.syncStatus === 'blocked_dependency'
+              ? 'queued'
+              : ev.syncStatus,
+        }));
+        setSyncQueue(mappedQueue);
+      }
+
+      if (telemetry.syncingCount > 0) {
+        setSyncState('syncing');
+      } else if (telemetry.failedCount > 0) {
+        setSyncState('failed');
+      } else if (telemetry.needsReviewCount > 0 || telemetry.blockedDependencyCount > 0) {
+        setSyncState('needs_review');
+      } else if (telemetry.pendingCount > 0) {
+        setSyncState('pending');
+      } else {
+        setSyncState('synced');
+      }
+    } catch (err) {
+      console.warn('[FieldSession] refreshOfflineQueue error:', err);
+    }
+  }, [currentUser?.id, currentUser?.marketCode]);
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      offlineSyncService.requestPersistentStorage().catch(() => {});
+      refreshAttendance();
+      refreshActiveVisit();
+      refreshBranches();
+      refreshOfflineQueue();
+    } else {
+      setIsAttendanceLoading(false);
+    }
+  }, [refreshAttendance, refreshActiveVisit, refreshBranches, refreshOfflineQueue, currentUser?.id]);
+
+  const enqueueOfflineStartDay = async (params: {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    selfieBlob: Blob;
+    submissionId?: string;
+  }): Promise<{ success: boolean; error?: string; record?: any }> => {
+    if (!currentUser?.id) {
+      return { success: false, error: 'Authenticated salesperson session required.' };
+    }
+    const res = await offlineSyncService.enqueueStartDay({
+      ownerUserId: currentUser.id,
+      marketCode: currentUser.marketCode || 'NG',
+      deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+      latitude: params.latitude,
+      longitude: params.longitude,
+      accuracy: params.accuracy,
+      selfieBlob: params.selfieBlob,
+      submissionId: params.submissionId,
+    });
+    if (res.error || !res.provisionalAttendance) {
+      return { success: false, error: res.error?.message || 'Failed to queue offline Start Day.' };
+    }
+    onAttendanceStarted(res.provisionalAttendance as AttendanceRecord);
+    await refreshOfflineQueue();
+    return { success: true, record: res.provisionalAttendance };
+  };
+
+  const enqueueOfflineEndDay = async (params: {
+    latitude?: number;
+    longitude?: number;
+    accuracy?: number;
+  }): Promise<{ success: boolean; error?: string; record?: any }> => {
+    if (!currentUser?.id) {
+      return { success: false, error: 'Authenticated salesperson session required.' };
+    }
+    if (activeVisit) {
+      return {
+        success: false,
+        error: 'Cannot end workday while an active visit is open (PRD §6.1 / AT-03).',
+      };
+    }
+    const targetAttendanceId = attendanceRecord?.id || `att-local-${Date.now()}`;
+    const res = await offlineSyncService.enqueueEndDay({
+      ownerUserId: currentUser.id,
+      marketCode: currentUser.marketCode || 'NG',
+      deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+      attendanceDayId: targetAttendanceId,
+      latitude: params.latitude,
+      longitude: params.longitude,
+      accuracy: params.accuracy,
+    });
+    if (res.error) {
+      return { success: false, error: res.error.message };
+    }
+    if (res.provisionalAttendance) {
+      onAttendanceEnded(res.provisionalAttendance as AttendanceRecord);
+    } else {
+      endDay();
+    }
+    await refreshOfflineQueue();
+    return { success: true, record: res.provisionalAttendance };
   };
 
   // Actions
@@ -701,7 +997,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       return false;
     }
 
-    // Real Supabase persistence for authenticated salesperson sessions
+    // Real Supabase or Durable Offline IndexedDB persistence for authenticated salesperson sessions
     if (currentUser?.id && !isTestEnv) {
       if (!attendanceRecord?.id || workdayStatus !== 'started') {
         notify('Cannot start visit: Workday has not been started. Please complete Start Day first (PRD §6.1).');
@@ -711,6 +1007,54 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       if (!options?.photoBlob || photoUrl.startsWith('/demo/')) {
         notify('Live rear-camera premises photo is required before check-in (PRD §7.1).');
         return false;
+      }
+
+      const provisionalClassification: LocationClassification =
+        options?.locationClassification ||
+        (branch.status === 'approved' && distance + accuracy <= 200 && accuracy <= 100
+          ? 'inside_confident'
+          : 'uncertain');
+
+      // Stage 3D Offline Path (when device is offline OR parent attendance is still pending sync)
+      const isEffectivelyOffline =
+        !isOnline ||
+        (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+        isAttendanceProvisional ||
+        (attendanceRecord as any).status === 'pending_sync';
+
+      if (isEffectivelyOffline) {
+        const offlineRes = await offlineSyncService.enqueueVisitCheckIn({
+          ownerUserId: currentUser.id,
+          marketCode: currentUser.marketCode || 'NG',
+          deviceId: attendanceRecord.device_id || currentUser.assignedDevice?.deviceId || 'dev-001',
+          attendanceDayId: attendanceRecord.id,
+          branchId: branch.id,
+          branchName: branch.branchName,
+          companyName: branch.companyName,
+          address: branch.address,
+          branchCode: branch.branchCode,
+          branchPinId: branch.approvedPinId,
+          branchPinVersion: branch.approvedPinVersion ?? null,
+          branchPinStatus: branch.status,
+          latitude: options?.liveGps?.latitude ?? branch.approvedGpsLat ?? 6.4428,
+          longitude: options?.liveGps?.longitude ?? branch.approvedGpsLng ?? 3.3649,
+          accuracy,
+          provisionalDistanceMeters: distance,
+          provisionalClassification,
+          photoBlob: options.photoBlob,
+        });
+
+        if (offlineRes.error || !offlineRes.provisionalVisit) {
+          notify(`Offline check-in blocked: ${offlineRes.error?.message || 'Storage error'}`);
+          return false;
+        }
+
+        setActiveVisit(offlineRes.provisionalVisit as ActiveVisitSession);
+        await refreshOfflineQueue();
+        notify(
+          `Saved on this device (Provisional — Pending Server Sync): Checked in at ${branch.branchName}. Server PostGIS verification will run on sync.`
+        );
+        return true;
       }
 
       let uploadedStoragePath: string | null = null;
@@ -798,7 +1142,35 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       }
     }
 
-    // Local / Unit Test Fallback Simulation
+    // Local / Unit Test Fallback Simulation (with Stage 3D Offline Queue support when !isOnline)
+    if (!isOnline && currentUser?.id && options?.photoBlob) {
+      const offlineRes = await offlineSyncService.enqueueVisitCheckIn({
+        ownerUserId: currentUser.id,
+        marketCode: currentUser.marketCode || 'NG',
+        deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+        attendanceDayId: attendanceRecord?.id || 'att-local-01',
+        branchId: branch.id,
+        branchName: branch.branchName,
+        companyName: branch.companyName,
+        address: branch.address,
+        branchCode: branch.branchCode,
+        branchPinId: branch.approvedPinId || 'pin-local-01',
+        branchPinStatus: branch.status,
+        latitude: options?.liveGps?.latitude ?? branch.approvedGpsLat ?? 6.4428,
+        longitude: options?.liveGps?.longitude ?? branch.approvedGpsLng ?? 3.3649,
+        accuracy,
+        provisionalDistanceMeters: distance,
+        provisionalClassification: distance <= 200 && accuracy <= 100 ? 'inside_confident' : 'uncertain',
+        photoBlob: options.photoBlob,
+      });
+      if (offlineRes.provisionalVisit) {
+        setActiveVisit(offlineRes.provisionalVisit as ActiveVisitSession);
+        await refreshOfflineQueue();
+        notify(`Saved on this device (Provisional — Pending Server Sync): Checked in at ${branch.branchName}.`);
+        return true;
+      }
+    }
+
     const newVisit: ActiveVisitSession = {
       id: `vis-${Date.now()}`,
       branchId: branch.id,
@@ -812,7 +1184,11 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       geofenceDistanceMeters: distance,
       gpsAccuracyMeters: accuracy,
       premisesPhotoUrl: photoUrl,
-      verificationStatus: distance <= 200 && accuracy <= 100 ? 'location_verified' : 'location_unverified',
+      verificationStatus: !isOnline
+        ? 'pending_sync'
+        : distance <= 200 && accuracy <= 100
+        ? 'location_verified'
+        : 'location_unverified',
       locationClassification: distance <= 200 && accuracy <= 100 ? 'inside_confident' : 'uncertain',
     };
     setActiveVisit(newVisit);
@@ -829,6 +1205,93 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     let isDeferred = !meetingLogData;
     let logSaveErrorMessage: string | null = null;
+
+    const isOfflineVisit =
+      !isOnline ||
+      (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+      activeVisit.verificationStatus === 'pending_sync' ||
+      Boolean((activeVisit as any).capturedOffline);
+
+    // Stage 3D Offline Checkout & Meeting Log Queuing
+    if (
+      currentUser?.id &&
+      isOfflineVisit &&
+      !activeVisit.id.startsWith('vis-active-01') &&
+      !activeVisit.id.startsWith('vis-comp-')
+    ) {
+      const checkoutRes = await offlineSyncService.enqueueVisitCheckout({
+        ownerUserId: currentUser.id,
+        marketCode: currentUser.marketCode || 'NG',
+        deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+        visitId: activeVisit.id,
+        branchName: activeVisit.branchName,
+        companyName: activeVisit.companyName,
+        branchCode: activeVisit.branchCode,
+        checkInTime: activeVisit.checkInTime,
+        elapsedSeconds: activeVisit.elapsedSeconds,
+        outsideGeofence,
+        latitude: checkoutGps?.latitude ?? null,
+        longitude: checkoutGps?.longitude ?? null,
+        accuracy: checkoutGps?.accuracy ?? null,
+        meetingLogDeferred: !meetingLogData,
+      });
+
+      if (checkoutRes.error) {
+        notify(`Offline checkout error: ${checkoutRes.error.message}`);
+        return false;
+      }
+
+      if (meetingLogData) {
+        const logRes = await offlineSyncService.enqueueMeetingLog({
+          ownerUserId: currentUser.id,
+          marketCode: currentUser.marketCode || 'NG',
+          deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+          visitId: activeVisit.id,
+          branchName: activeVisit.branchName,
+          contactId: meetingLogData.contactId || null,
+          purpose: meetingLogData.purpose || 'routine_visit',
+          productsDiscussed: meetingLogData.productsDiscussed || [],
+          outcomeNarrative: meetingLogData.outcomeNarrative || meetingLogData.outcome || '',
+          nextStepText: meetingLogData.nextStepText || meetingLogData.nextStep || '',
+          fleetSizeVolume: meetingLogData.fleetSizeVolume,
+          businessCardBlob: meetingLogData.businessCardBlob || null,
+          isLate: false,
+        });
+
+        if (logRes.error) {
+          isDeferred = true;
+          logSaveErrorMessage = logRes.error.message;
+        }
+      }
+
+      const offlineCompleted: CompletedVisitRecord = checkoutRes.completedVisitRecord || {
+        id: activeVisit.id,
+        branchName: activeVisit.branchName,
+        companyName: activeVisit.companyName,
+        branchCode: activeVisit.branchCode,
+        checkInTime: activeVisit.checkInTime,
+        checkOutTime: nowStr,
+        durationMinutes: Math.max(1, Math.round(activeVisit.elapsedSeconds / 60)),
+        verificationStatus: 'pending_sync',
+        meetingLogSubmitted: !isDeferred,
+        meetingLogDeferredUntil: isDeferred ? 'Within 2h SLA (Offline Queue)' : 'Queued on Device',
+        flagRaised: outsideGeofence ? 'Checkout Outside Geofence (>200m)' : undefined,
+        capturedOffline: true,
+      };
+
+      setCompletedVisits((prev) => [offlineCompleted, ...prev.filter((c) => c.id !== offlineCompleted.id)]);
+      if (isDeferred) {
+        setPendingMeetingLogs((prev) => [offlineCompleted, ...prev.filter((p) => p.id !== offlineCompleted.id)]);
+      }
+      setActiveVisit(null);
+      await refreshOfflineQueue();
+      notify(
+        logSaveErrorMessage
+          ? `Visit checkout saved on this device, but meeting log could not be queued (${logSaveErrorMessage}).`
+          : 'Visit checkout saved on this device (Provisional — Pending Server Sync). Will synchronise when online.'
+      );
+      return true;
+    }
 
     // Real Supabase checkout persistence if this is a real database record
     if (
@@ -879,9 +1342,27 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
           });
 
           if (logErr) {
-            // Preserve checkout completion but mark meeting log as pending/unsaved so notes/log requirement are not silently lost
+            // Preserve checkout completion AND durably persist the failed meeting log in IndexedDB so it survives browser refresh (Section 7)
             isDeferred = true;
             logSaveErrorMessage = logErr.message;
+            await offlineSyncService.enqueueMeetingLog({
+              ownerUserId: currentUser.id,
+              marketCode: currentUser.marketCode || 'NG',
+              deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+              visitId: activeVisit.id,
+              branchName: activeVisit.branchName,
+              contactId: meetingLogData.contactId || null,
+              purpose: meetingLogData.purpose || 'routine_visit',
+              productsDiscussed: meetingLogData.productsDiscussed || [],
+              outcomeNarrative: meetingLogData.outcomeNarrative || meetingLogData.outcome || '',
+              nextStepText: meetingLogData.nextStepText || meetingLogData.nextStep || '',
+              fleetSizeVolume: meetingLogData.fleetSizeVolume,
+              businessCardBlob: meetingLogData.businessCardBlob || null,
+              isLate: false,
+              initialSyncStatus: 'failed',
+              initialError: logErr.message,
+            });
+            await refreshOfflineQueue();
           }
         }
       } catch (err: any) {
@@ -941,8 +1422,67 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
   };
 
   const submitMeetingLog = async (visitId: string, logData: any): Promise<boolean | void> => {
+    const targetCompleted = completedVisits.find((v) => v.id === visitId);
+    const shouldQueueOffline =
+      !isOnline ||
+      (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+      targetCompleted?.verificationStatus === 'pending_sync' ||
+      targetCompleted?.capturedOffline;
+
+    if (
+      currentUser?.id &&
+      shouldQueueOffline &&
+      !visitId.startsWith('vis-comp-') &&
+      !visitId.startsWith('vis-active-01')
+    ) {
+      const logRes = await offlineSyncService.enqueueMeetingLog({
+        ownerUserId: currentUser.id,
+        marketCode: currentUser.marketCode || 'NG',
+        deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+        visitId,
+        branchName: targetCompleted?.branchName,
+        contactId: logData.contactId || null,
+        purpose: logData.purpose || 'routine_visit',
+        productsDiscussed: logData.productsDiscussed || [],
+        outcomeNarrative: logData.outcomeNarrative || logData.outcome || '',
+        nextStepText: logData.nextStepText || logData.nextStep || '',
+        fleetSizeVolume: logData.fleetSizeVolume,
+        businessCardBlob: logData.businessCardBlob || null,
+        isLate: Boolean(logData.isLate),
+      });
+
+      if (logRes.error) {
+        notify(`Offline meeting log queue failed (${logRes.error.message}). Record remains Unsaved / Pending.`);
+        return false;
+      }
+
+      setPendingMeetingLogs((prev) => prev.filter((p) => p.id !== visitId));
+      setCompletedVisits((prev) =>
+        prev.map((v) =>
+          v.id === visitId
+            ? { ...v, meetingLogSubmitted: true, meetingLogDeferredUntil: 'Queued on Device' }
+            : v
+        )
+      );
+      await refreshOfflineQueue();
+      notify('Meeting log saved on this device (Queued for Server Sync).');
+      return true;
+    }
+
     if (currentUser?.id && !visitId.startsWith('vis-comp-') && !visitId.startsWith('vis-active-01')) {
       try {
+        let businessCardUrl = logData.businessCardPhotoUrl || null;
+        if (logData.businessCardBlob) {
+          const { storagePath: cardPath } = await visitService.uploadBusinessCard(
+            currentUser.id,
+            visitId,
+            logData.businessCardBlob
+          );
+          if (cardPath) {
+            businessCardUrl = cardPath;
+          }
+        }
+
         const { error } = await visitService.submitMeetingLog({
           visitId,
           contactId: logData.contactId || null,
@@ -951,16 +1491,54 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
           outcomeNarrative: logData.outcomeNarrative || logData.outcome || '',
           nextStepText: logData.nextStepText || logData.nextStep || '',
           fleetSizeVolume: logData.fleetSizeVolume,
-          businessCardPhotoUrl: logData.businessCardPhotoUrl,
+          businessCardPhotoUrl: businessCardUrl,
           isLate: Boolean(logData.isLate),
         });
         if (error) {
-          notify(`Meeting log submission failed (${error.message}). Record remains Unsaved / Pending.`);
+          // Durably persist the failed meeting log in IndexedDB so it survives browser refresh (Section 7)
+          await offlineSyncService.enqueueMeetingLog({
+            ownerUserId: currentUser.id,
+            marketCode: currentUser.marketCode || 'NG',
+            deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+            visitId,
+            branchName: targetCompleted?.branchName,
+            contactId: logData.contactId || null,
+            purpose: logData.purpose || 'routine_visit',
+            productsDiscussed: logData.productsDiscussed || [],
+            outcomeNarrative: logData.outcomeNarrative || logData.outcome || '',
+            nextStepText: logData.nextStepText || logData.nextStep || '',
+            fleetSizeVolume: logData.fleetSizeVolume,
+            businessCardBlob: logData.businessCardBlob || null,
+            isLate: Boolean(logData.isLate),
+            initialSyncStatus: 'failed',
+            initialError: error.message,
+          });
+          await refreshOfflineQueue();
+          notify(`Meeting log submission failed (${error.message}). Saved on this device for retry.`);
           return false;
         }
       } catch (err: any) {
         console.error('[FieldSession] submitMeetingLog error:', err);
-        notify(`Meeting log submission failed (${err.message || 'Network error'}). Record remains Unsaved / Pending.`);
+        const errMsg = err?.message || 'Network error';
+        await offlineSyncService.enqueueMeetingLog({
+          ownerUserId: currentUser.id,
+          marketCode: currentUser.marketCode || 'NG',
+          deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+          visitId,
+          branchName: targetCompleted?.branchName,
+          contactId: logData.contactId || null,
+          purpose: logData.purpose || 'routine_visit',
+          productsDiscussed: logData.productsDiscussed || [],
+          outcomeNarrative: logData.outcomeNarrative || logData.outcome || '',
+          nextStepText: logData.nextStepText || logData.nextStep || '',
+          fleetSizeVolume: logData.fleetSizeVolume,
+          businessCardBlob: logData.businessCardBlob || null,
+          isLate: Boolean(logData.isLate),
+          initialSyncStatus: 'failed',
+          initialError: errMsg,
+        });
+        await refreshOfflineQueue();
+        notify(`Meeting log submission failed (${errMsg}). Saved on this device for retry.`);
         return false;
       }
     }
@@ -1109,22 +1687,104 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     notify('Non-visit workday request submitted for manager sign-off.');
   };
 
+  const triggerSyncNow = useCallback(async () => {
+    if (!isOnline) {
+      notify('Cannot synchronise while offline. Events remain safely queued in IndexedDB.');
+      return;
+    }
+    setSyncState('syncing');
+    notify('Synchronising offline event queue with server...');
+
+    if (currentUser?.id) {
+      const res = await offlineSyncService.syncUserQueue(currentUser.id, currentUser.id, {
+        ignoreBackoff: true,
+      });
+      await Promise.all([refreshOfflineQueue(), refreshAttendance(), refreshActiveVisit()]);
+      if (res.failed > 0 || res.blocked > 0) {
+        notify(
+          `Sync completed with attention required: ${res.synced} synced, ${res.failed} failed, ${res.blocked} blocked/needs review.`
+        );
+      } else {
+        setSyncQueue((prev) => prev.map((q) => ({ ...q, syncStatus: 'synced' })));
+        setSyncState('synced');
+        notify(
+          res.synced > 0
+            ? `Sync Complete: ${res.synced} offline event(s) verified and acknowledged by server.`
+            : 'Sync Complete: All events acknowledged by server idempotently.'
+        );
+      }
+      return;
+    }
+
+    await new Promise((r) => setTimeout(r, 400));
+    setSyncQueue((prev) => prev.map((q) => ({ ...q, syncStatus: 'synced' })));
+    setSyncState('synced');
+    notify('Sync Complete: All events acknowledged by server idempotently.');
+  }, [isOnline, currentUser?.id, refreshOfflineQueue, refreshAttendance, refreshActiveVisit]);
+
+  const retryFailedEvent = useCallback(
+    async (eventId: string) => {
+      if (!currentUser?.id) return;
+      const ok = await offlineSyncService.retryEvent(currentUser.id, eventId);
+      if (ok) {
+        await refreshOfflineQueue();
+        if (isOnline) {
+          await triggerSyncNow();
+        } else {
+          notify('Event reset to Pending. Will synchronise when device reconnects.');
+        }
+      }
+    },
+    [currentUser?.id, isOnline, refreshOfflineQueue, triggerSyncNow]
+  );
+
   const toggleOnline = () => {
     setIsOnline((prev) => {
       const next = !prev;
-      notify(next ? 'Device back online. Reconnected to Carbon network.' : 'Device offline (Airplane mode / Tunnel loss). Events will queue in IndexedDB.');
+      notify(
+        next
+          ? 'Device back online. Reconnected to Carbon network.'
+          : 'Device offline (Airplane mode / Tunnel loss). Events will queue in IndexedDB.'
+      );
       return next;
     });
   };
 
-  const triggerSyncNow = async () => {
-    setSyncState('syncing');
-    notify('Synchronising offline event queue with server...');
-    await new Promise((r) => setTimeout(r, 1200));
-    setSyncQueue((prev) => prev.map((q) => ({ ...q, syncStatus: 'synced' })));
-    setSyncState('synced');
-    notify('Sync Complete: All events acknowledged by server idempotently.');
-  };
+  // Listen for browser online / offline & foreground visibility transitions
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleBrowserOnline = () => {
+      setIsOnline(true);
+      notify('Network connection restored. Checking offline queue...');
+    };
+    const handleBrowserOffline = () => {
+      setIsOnline(false);
+      notify('Network connection lost. Operations will be saved to local IndexedDB queue.');
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isOnline && currentUser?.id) {
+        refreshOfflineQueue();
+      }
+    };
+
+    window.addEventListener('online', handleBrowserOnline);
+    window.addEventListener('offline', handleBrowserOffline);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('online', handleBrowserOnline);
+      window.removeEventListener('offline', handleBrowserOffline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isOnline, currentUser?.id, refreshOfflineQueue]);
+
+  // Auto-sync pending events when transitioning to online
+  useEffect(() => {
+    if (isOnline && currentUser?.id && queueTelemetry.pendingCount > 0 && syncState !== 'syncing') {
+      triggerSyncNow();
+    }
+  }, [isOnline, currentUser?.id, queueTelemetry.pendingCount, syncState, triggerSyncNow]);
 
   const setSimulatedGps = (accuracy: number, distance: number) => {
     setSimulatedGpsAccuracy(accuracy);
@@ -1141,11 +1801,14 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         endDayTime,
         attendanceRecord,
         isAttendanceLoading,
+        isAttendanceProvisional,
         startDay,
         endDay,
         onAttendanceStarted,
         onAttendanceEnded,
         refreshAttendance,
+        enqueueOfflineStartDay,
+        enqueueOfflineEndDay,
         activeVisit,
         refreshActiveVisit,
         checkInVisit,
@@ -1170,6 +1833,11 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         toggleOnline,
         syncState,
         syncQueue,
+        journalEvents,
+        queueTelemetry,
+        storageQuota,
+        refreshOfflineQueue,
+        retryFailedEvent,
         triggerSyncNow,
         simulatedGpsAccuracy,
         simulatedGeofenceDistance,

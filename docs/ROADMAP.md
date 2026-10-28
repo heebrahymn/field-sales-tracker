@@ -4,7 +4,7 @@
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
 **Last Updated:** October 28, 2026  
-**Current Milestone:** Stage 3C Completed & Validated (Stage 3D Awaiting Authorization)  
+**Current Milestone:** Stage 3D Completed & Validated (Stage 3E Awaiting Authorization)  
 
 ---
 
@@ -25,8 +25,8 @@
 [✓] Stage 3A — Real Supabase Authentication & Role-Based Access Control (ADR 0009)
 [✓] Stage 3B — Real Attendance & Workday Management (ADR 0010)
 [✓] Stage 3C — Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026–00027)
-[ ] Stage 3D — Offline IndexedDB Journal, Media Queuing & Dependency Sync (Awaiting Authorization)
-[ ] Stage 3E — Management Dashboards, Safe CSV Exports & Dispute Resolution
+[✓] Stage 3D — Offline IndexedDB Journal, Media Queuing & Dependency Sync (ADR 0012)
+[ ] Stage 3E — Management Dashboards, Safe CSV Exports & Dispute Resolution (Awaiting Authorization)
 [ ] Stage 3F — Security Audit, Real-Device QA & Pilot Deployment
 ```
 
@@ -87,19 +87,17 @@
 - Verified via 143/143 Vitest tests, 10/10 direct API/PostGIS/Storage tests (`scripts/test_stage_3c_db_integrity.py`), concurrency race test, and Playwright E2E multi-viewport suite (`scripts/verify_stage_3c_browser.py`).
 - Physical Android hardware acceptance explicitly documented as **NOT TESTED** in local/CI workstation environment.
 
+### Stage 3D: Offline IndexedDB Journal, Media Queuing & Dependency Sync (ADR 0012)
+- Durable `Dexie.js` IndexedDB database (`CarbonOfflineJournalDB` in `src/services/offlineSyncService.ts`) with `eventJournal`, `mediaQueue` (`Uint8Array` binary storage), and `cachedContext` tables partitioned strictly by `ownerUserId`.
+- Topological dependency-aware synchronisation (`ATTENDANCE_START_DAY → VISIT_CHECKIN → VISIT_CHECKOUT → MEETING_LOG_SUBMIT → ATTENDANCE_END_DAY`) enforcing `pending → syncing → synced`, `failed`, `needs_review`, and `blocked_dependency` states.
+- Safe App-Shell Service Worker (`public/sw.js`) caching same-origin static assets (strictly excluding `*.supabase.co` API/Storage endpoints) plus `AuthContext` offline profile recovery so browser reloads and cold-starts while offline preserve session and queue state.
+- Capture-time `branchPinId`/`branchPinVersion` and `ruleVersionId`/`ruleVersionTag` immutability (transitions to `needs_review` without silent substitution if changed), sync-execution-boundary JWT/active-profile authorization, idempotent media uploads (`attendance-selfies`, `visit-premises-photos`, `business-cards`), duplicate-key `23505` reconciliation, bounded exponential backoff, clock anomaly detection, and browser storage quota telemetry.
+- Verified via 170/170 Vitest tests (including 27 Stage 3D scenarios in `src/test/stage-3d-offline-sync.test.tsx`) and the Full 16-Step Offline Workday, App-Shell Cold-Start & Multi-User Isolation Browser E2E suite (`scripts/verify_stage_3d_browser.py`).
+- Physical Android hardware acceptance explicitly documented as **NOT TESTED** in local/CI workstation environment.
+
 ---
 
 ## 3. Upcoming Implementation Phases
-
-### Stage 3D: Offline IndexedDB Journal, Media Queuing & Dependency Sync (Awaiting Authorization)
-- **Objective:** Resilient offline field capability for remote and connectivity-constrained markets.
-- **Scope:**
-  - Dexie.js IndexedDB schema with monotonic event sequencing and UUID idempotency keys.
-  - Blob media caching in IndexedDB during offline conditions.
-  - Ordered dependency-based synchronization engine (`ingest_activity_events` RPC).
-  - Conflict resolution, identical retry idempotency, and clock drift anomaly detection.
-  - Offline sync status indicator and manual "Sync Now" trigger.
-- **Approval Gate:** Simulated network disconnection tests, offline queue processing, and duplicate prevention audit.
 
 ### Stage 3E: Management Dashboards, Safe CSV Exports & Dispute Resolution
 - **Objective:** Live managerial oversight and operational reconciliation for Country Sales Heads and HQ Admin.

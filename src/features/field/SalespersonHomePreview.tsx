@@ -33,6 +33,7 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
   const {
     workdayStatus,
     startDayTime,
+    isAttendanceProvisional,
     activeVisit,
     completedVisits,
     exceptions,
@@ -106,12 +107,22 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
 
         <div className="text-right flex flex-col items-end gap-1">
           <StatusBadge
-            status={workdayStatus === 'started' ? 'started' : workdayStatus === 'ended' ? 'ended' : 'scheduled'}
+            status={
+              isAttendanceProvisional
+                ? 'pending_sync'
+                : workdayStatus === 'started'
+                ? 'started'
+                : workdayStatus === 'ended'
+                ? 'ended'
+                : 'scheduled'
+            }
             size="sm"
           />
           <span className="text-[11px] text-slate-500 font-mono font-medium">
             {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
-            {startDayTime && workdayStatus === 'started' && ` • On Duty: ${startDayTime}`}
+            {startDayTime &&
+              workdayStatus === 'started' &&
+              ` • On Duty: ${startDayTime}${isAttendanceProvisional ? ' (Provisional)' : ''}`}
           </span>
         </div>
       </div>
@@ -164,10 +175,17 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
             </div>
 
             <div className="flex items-center justify-between text-xs pt-1 border-t border-blue-100">
-              <span className="text-emerald-800 font-semibold flex items-center gap-1 text-[11px]">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                Within Geofence ({activeVisit.geofenceDistanceMeters}m / 200m)
-              </span>
+              {activeVisit.verificationStatus === 'pending_sync' ? (
+                <span className="text-amber-800 font-semibold flex items-center gap-1 text-[11px]">
+                  <Clock className="w-3.5 h-3.5 text-amber-700" />
+                  Provisional Geofence ({activeVisit.geofenceDistanceMeters}m / 200m — Pending Server Sync)
+                </span>
+              ) : (
+                <span className="text-emerald-800 font-semibold flex items-center gap-1 text-[11px]">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                  Within Geofence ({activeVisit.geofenceDistanceMeters}m / 200m)
+                </span>
+              )}
               <span className="text-slate-600 font-medium text-[11px]">
                 GPS Fix: ±{activeVisit.gpsAccuracyMeters}m
               </span>

@@ -19,6 +19,7 @@ import {
 
 export type OperationalStatus =
   | 'location_verified'
+  | 'location_unverified'
   | 'manager_approved_unverified'
   | 'pending_sync'
   | 'syncing'
@@ -49,6 +50,12 @@ const statusMap: Record<OperationalStatus, StatusConfig> = {
     icon: CheckCircle2,
     className: 'bg-emerald-50 text-emerald-800 border-emerald-300',
     iconClassName: 'text-emerald-700',
+  },
+  location_unverified: {
+    label: 'Location Unverified',
+    icon: AlertTriangle,
+    className: 'bg-amber-50 text-amber-800 border-amber-300',
+    iconClassName: 'text-amber-700',
   },
   manager_approved_unverified: {
     label: 'Manager Approved — Unverified',

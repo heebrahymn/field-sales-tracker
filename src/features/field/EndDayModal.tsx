@@ -38,6 +38,9 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
     exceptions,
     attendanceRecord,
     onAttendanceEnded,
+    isOnline,
+    isAttendanceProvisional,
+    enqueueOfflineEndDay,
   } = useFieldSession();
 
   // Fresh End Day GPS state
@@ -56,6 +59,7 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
     endTime: string;
     verifiedVisits: number;
     accuracy: number | null;
+    provisionalOffline?: boolean;
   } | null>(null);
 
   // Acquire fresh GPS fix for End Day closure
@@ -122,6 +126,43 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
     setSubmitError(null);
 
     try {
+      const formattedEnd = new Date().toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+
+      if (
+        !isOnline ||
+        (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+        isAttendanceProvisional ||
+        (attendanceRecord as any)?.status === 'pending_sync'
+      ) {
+        const offlineRes = await enqueueOfflineEndDay({
+          latitude: gpsCoords?.lat,
+          longitude: gpsCoords?.lng,
+          accuracy: gpsCoords?.accuracy,
+        });
+
+        if (!offlineRes.success) {
+          setSubmitError(offlineRes.error || 'Failed to queue offline End Day.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        setAttendanceStatus('ended');
+        setSuccessInfo({
+          endTime: `${formattedEnd} ${currentUser.marketCode === 'NG' ? 'WAT' : 'CAT'}`,
+          verifiedVisits: verifiedCount,
+          accuracy: gpsCoords ? Math.round(gpsCoords.accuracy) : null,
+          provisionalOffline: true,
+        });
+
+        setTimeout(() => {
+          onClose();
+        }, 1800);
+        return;
+      }
+
       // Find today's attendance record id
       let targetId = attendanceRecord?.id;
       if (!targetId) {
@@ -160,15 +201,11 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
         setAttendanceStatus('ended');
       }
 
-      const formattedEnd = new Date().toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-
       setSuccessInfo({
         endTime: `${formattedEnd} ${currentUser.marketCode === 'NG' ? 'WAT' : 'CAT'}`,
         verifiedVisits: verifiedCount,
         accuracy: gpsCoords ? Math.round(gpsCoords.accuracy) : null,
+        provisionalOffline: false,
       });
 
       setTimeout(() => {
@@ -213,18 +250,44 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
         <div className="p-4 overflow-y-auto space-y-4 text-xs text-slate-700">
           {/* Success View */}
           {successInfo ? (
-            <div className="p-6 bg-emerald-50 border border-emerald-300 rounded-2xl text-center space-y-3 animate-in fade-in zoom-in-95">
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto shadow-xs">
+            <div
+              className={`p-6 rounded-2xl text-center space-y-3 animate-in fade-in zoom-in-95 border ${
+                successInfo.provisionalOffline
+                  ? 'bg-amber-50 border-amber-300'
+                  : 'bg-emerald-50 border-emerald-300'
+              }`}
+            >
+              <div
+                className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto shadow-xs ${
+                  successInfo.provisionalOffline
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-emerald-100 text-emerald-700'
+                }`}
+              >
                 <CheckCircle2 className="w-7 h-7" />
               </div>
               <div>
-                <h4 className="text-base font-bold text-emerald-950">Workday Completed</h4>
-                <p className="text-xs text-emerald-800 font-medium mt-0.5">
-                  End of day status and closing GPS coordinate recorded in Supabase.
+                <h4
+                  className={`text-base font-bold ${
+                    successInfo.provisionalOffline ? 'text-amber-950' : 'text-emerald-950'
+                  }`}
+                >
+                  {successInfo.provisionalOffline
+                    ? 'End Day Saved on Device (Provisional)'
+                    : 'Workday Completed'}
+                </h4>
+                <p
+                  className={`text-xs font-medium mt-0.5 ${
+                    successInfo.provisionalOffline ? 'text-amber-800' : 'text-emerald-800'
+                  }`}
+                >
+                  {successInfo.provisionalOffline
+                    ? 'Closing GPS queued in durable IndexedDB journal. Will sync after upstream visit & attendance events.'
+                    : 'End of day status and closing GPS coordinate recorded in Supabase.'}
                 </p>
               </div>
 
-              <div className="bg-white p-3.5 rounded-xl border border-emerald-200 text-left space-y-1.5 text-xs">
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 text-left space-y-1.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Day Started At:</span>
                   <span className="font-mono font-bold text-slate-800">{startDayTime || '08:00 WAT'}</span>
@@ -245,7 +308,11 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
                 )}
                 <div className="flex justify-between pt-1 border-t border-slate-100">
                   <span className="text-slate-500">Status:</span>
-                  <span className="font-bold text-slate-700">Completed (Ended)</span>
+                  <span className="font-bold text-slate-700">
+                    {successInfo.provisionalOffline
+                      ? 'Pending Sync (Provisional on Device)'
+                      : 'Completed (Ended)'}
+                  </span>
                 </div>
               </div>
             </div>

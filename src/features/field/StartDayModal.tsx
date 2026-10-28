@@ -23,7 +23,7 @@ interface StartDayModalProps {
 
 export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose }) => {
   const { currentUser, setAttendanceStatus } = useAuth();
-  const { onAttendanceStarted, workdayStatus } = useFieldSession();
+  const { onAttendanceStarted, workdayStatus, isOnline, enqueueOfflineStartDay } = useFieldSession();
 
   // Camera State
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -51,6 +51,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
     workDate: string;
     startTime: string;
     accuracy: number;
+    provisionalOffline?: boolean;
   } | null>(null);
 
   // Stable Submission Identifier (reused across retry attempts of the same capture)
@@ -237,7 +238,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
 
   if (!isOpen) return null;
 
-  // Confirm and Save to Supabase
+  // Confirm and Save to Supabase (or Durable Offline IndexedDB Queue when offline)
   const handleConfirmStart = async () => {
     if (!selfieBlob || !gpsCoords) return;
 
@@ -245,6 +246,45 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
     setSubmitError(null);
 
     try {
+      const localWorkDate = getMarketWorkDate(currentUser.marketCode);
+
+      if (!isOnline || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        const offlineRes = await enqueueOfflineStartDay({
+          latitude: gpsCoords.lat,
+          longitude: gpsCoords.lng,
+          accuracy: gpsCoords.accuracy,
+          selfieBlob,
+          submissionId: submissionIdRef.current,
+        });
+
+        if (!offlineRes.success) {
+          setSubmitError(offlineRes.error || 'Failed to queue offline Start Day.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        setAttendanceStatus('started');
+        const startTime = new Date(
+          offlineRes.record?.started_at || Date.now()
+        ).toLocaleTimeString('en-GB', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+
+        setSuccessInfo({
+          name: currentUser.name,
+          workDate: localWorkDate,
+          startTime: `${startTime} ${currentUser.marketCode === 'NG' ? 'WAT' : 'CAT'}`,
+          accuracy: Math.round(gpsCoords.accuracy),
+          provisionalOffline: true,
+        });
+
+        setTimeout(() => {
+          onClose();
+        }, 1800);
+        return;
+      }
+
       const result = await attendanceService.startDayAttendance({
         userId: currentUser.id,
         marketCode: currentUser.marketCode,
@@ -266,7 +306,6 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
         onAttendanceStarted(result.data);
         setAttendanceStatus('started');
 
-        const localWorkDate = getMarketWorkDate(currentUser.marketCode);
         const startTime = new Date(result.data.started_at).toLocaleTimeString('en-GB', {
           hour: '2-digit',
           minute: '2-digit',
@@ -277,6 +316,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
           workDate: localWorkDate,
           startTime: `${startTime} ${currentUser.marketCode === 'NG' ? 'WAT' : 'CAT'}`,
           accuracy: Math.round(gpsCoords.accuracy),
+          provisionalOffline: false,
         });
 
         // Automatically close modal after brief confirmation view
@@ -342,18 +382,44 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
 
           {/* Success View */}
           {successInfo ? (
-            <div className="p-6 bg-emerald-50 border border-emerald-300 rounded-2xl text-center space-y-3 animate-in fade-in zoom-in-95">
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto shadow-xs">
+            <div
+              className={`p-6 rounded-2xl text-center space-y-3 animate-in fade-in zoom-in-95 border ${
+                successInfo.provisionalOffline
+                  ? 'bg-amber-50 border-amber-300'
+                  : 'bg-emerald-50 border-emerald-300'
+              }`}
+            >
+              <div
+                className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto shadow-xs ${
+                  successInfo.provisionalOffline
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-emerald-100 text-emerald-700'
+                }`}
+              >
                 <CheckCircle2 className="w-7 h-7" />
               </div>
               <div>
-                <h4 className="text-base font-bold text-emerald-950">Start Day Successful</h4>
-                <p className="text-xs text-emerald-800 font-medium mt-0.5">
-                  Attendance recorded securely to Carbon Car Care Supabase operational ledger.
+                <h4
+                  className={`text-base font-bold ${
+                    successInfo.provisionalOffline ? 'text-amber-950' : 'text-emerald-950'
+                  }`}
+                >
+                  {successInfo.provisionalOffline
+                    ? 'Start Day Saved on Device (Provisional)'
+                    : 'Start Day Successful'}
+                </h4>
+                <p
+                  className={`text-xs font-medium mt-0.5 ${
+                    successInfo.provisionalOffline ? 'text-amber-800' : 'text-emerald-800'
+                  }`}
+                >
+                  {successInfo.provisionalOffline
+                    ? 'Selfie & GPS queued in durable IndexedDB journal. Will synchronise to server when online.'
+                    : 'Attendance recorded securely to Carbon Car Care Supabase operational ledger.'}
                 </p>
               </div>
 
-              <div className="bg-white p-3.5 rounded-xl border border-emerald-200 text-left space-y-1.5 text-xs">
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 text-left space-y-1.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Employee:</span>
                   <span className="font-bold text-slate-900">{successInfo.name}</span>
@@ -372,9 +438,19 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                 </div>
                 <div className="flex justify-between pt-1 border-t border-slate-100">
                   <span className="text-slate-500">Attendance Status:</span>
-                  <span className="font-bold text-emerald-700 flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Started (Active on Field)
+                  <span
+                    className={`font-bold flex items-center gap-1 ${
+                      successInfo.provisionalOffline ? 'text-amber-800' : 'text-emerald-700'
+                    }`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full animate-pulse ${
+                        successInfo.provisionalOffline ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                    />
+                    {successInfo.provisionalOffline
+                      ? 'Pending Sync (Provisional on Device)'
+                      : 'Started (Active on Field)'}
                   </span>
                 </div>
               </div>

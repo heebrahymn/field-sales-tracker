@@ -57,7 +57,7 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 0, 1, 2, 3A, 3B & 3C Completed)
+## 4. Current Milestone Status (Stages 0, 1, 2, 3A, 3B, 3C & 3D Completed)
 
 ```
 [✓] Stage 0   — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
@@ -71,13 +71,13 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Stage 3A  — Real Supabase Authentication & Role-Based Access Control (ADR 0009)
 [✓] Stage 3B  — Real Attendance & Workday Management (ADR 0010)
 [✓] Stage 3C  — Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026–00027)
-[ ] Stage 3D  — Offline Dexie Sync, Idempotency Engine & Exception Resolution (Awaiting Authorization)
-[ ] Stage 3E  — Management Reports, Safe CSV Exports & Reconciliation
+[✓] Stage 3D  — Durable Offline IndexedDB Journal, Media Queuing & Dependency Synchronisation (ADR 0012)
+[ ] Stage 3E  — Management Reports, Safe CSV Exports & Reconciliation (Awaiting Authorization)
 [ ] Stage 3F  — Security Audit, Real-Device QA & Pilot Deployment
 ```
 
 > [!IMPORTANT]
-> **Operational Data Notice:** **Stage 3A (Supabase GoTrue Auth), Stage 3B (Real Daily Attendance Persistence), and Stage 3C (Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.visits`, `public.meeting_logs`, `public.organisations`, `public.branches`, `public.branch_location_pins`) and private Storage buckets (`attendance-selfies`, `visit-premises-photos`, `business-cards`). Offline IndexedDB queueing (Stage 3D) and live manager approval/export feeds (Stage 3E) remain scheduled for subsequent stages.
+> **Operational Data Notice:** **Stage 3A (Supabase GoTrue Auth), Stage 3B (Real Daily Attendance Persistence), Stage 3C (Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs), and Stage 3D (Durable Offline IndexedDB Event Journal, Binary Media Queue & Topological Dependency Sync)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.visits`, `public.meeting_logs`, `public.organisations`, `public.branches`, `public.branch_location_pins`), private Storage buckets (`attendance-selfies`, `visit-premises-photos`, `business-cards`), and local `Dexie.js` IndexedDB (`CarbonOfflineJournalDB`). Live manager approval/export feeds (Stage 3E) remain scheduled for subsequent stages.
 
 ---
 
@@ -363,13 +363,15 @@ carbonSalesTracker/
 │   │   └── utils.ts                     # UI styling utilities
 │   ├── types/                           # Strongly-typed schemas
 │   │   └── database.types.ts            # Supabase database TypeScript definitions
-│   └── test/                            # Vitest unit test suites
+│   └── test/                            # Vitest unit test suites (13 suites, 170 tests)
 │       ├── at15-exclusions.test.tsx     # Strict MVP scope boundary assertions
 │       ├── brand-logo.test.tsx          # Brand identity compliance assertions
 │       ├── salesperson-context.test.tsx # AT-03, AT-04, PRD §4.2, §7.4, §9 tests
 │       ├── stage-1c-manager-dashboard.test.tsx # Stage 1C business rules, rollups, audit, and boundary tests
 │       ├── stage-1d-hq-admin.test.tsx   # Stage 1D HQ Admin & device replacement workflow tests
 │       ├── stage-1e-cross-role-integration.test.tsx # Cross-role state integration tests (Workflows A-E)
+│       ├── stage-3c-client-visits.test.tsx # Stage 3C real client visits, geofencing & meeting logs (18 tests)
+│       ├── stage-3d-offline-sync.test.tsx  # Stage 3D durable IndexedDB journal & dependency sync (27 scenarios)
 │       └── status-badge.test.tsx        # Operational status badge tests
 ├── scripts/
 │   ├── provision-users.ts               # Official Supabase Auth Admin API account provisioning
@@ -433,7 +435,7 @@ npx tsc --noEmit
 # ESLint static code quality audit
 npm run lint
 
-# Automated unit & integration tests (Vitest — 11 suites, 115 tests)
+# Automated unit & integration tests (Vitest — 13 suites, 170 tests)
 npm test
 ```
 
@@ -466,6 +468,7 @@ python scripts/test_stage_3c_concurrency_race.py
 # Execute browser verification across desktop (1280px) and mobile viewports (360px, 390px, 430px)
 python scripts/verify_stage_3b_browser.py
 python scripts/verify_stage_3c_browser.py
+python scripts/verify_stage_3d_browser.py
 ```
 
 ### Production Build (Vercel Preview / Production)
@@ -489,12 +492,15 @@ npm run build
 - [ADR 0009: Stage 3A Real Supabase Authentication & Role-Based Access Control](docs/decisions/0009-stage-3a-supabase-authentication-and-rbac.md)
 - [ADR 0010: Stage 3B Real Workday Attendance & Non-Visit Governance](docs/decisions/0010-stage-3b-real-attendance-and-workday-management.md)
 - [ADR 0011: Stage 3C Client Visit Database Integrity, Authoritative PostGIS Geofencing & Visit Capture](docs/decisions/0011-stage-3c-client-visit-database-integrity.md)
+- [ADR 0012: Stage 3D Durable Offline IndexedDB Journal, Media Queue & Dependency Synchronisation](docs/decisions/0012-stage-3d-offline-indexeddb-journal-and-sync.md)
 
 ### Technical Implementation & QA Reports
 - [Stage 3B Attendance Implementation Guide](docs/implementation/STAGE_3B_ATTENDANCE.md)
 - [Stage 3B QA & Security Verification Report](docs/testing/STAGE_3B_QA_REPORT.md)
 - [Stage 3C Client Visit Capture Implementation Guide](docs/implementation/STAGE_3C_VISIT_CAPTURE.md)
 - [Stage 3C QA & Security Verification Report](docs/testing/STAGE_3C_QA_REPORT.md)
+- [Stage 3D Offline Sync Implementation Guide](docs/implementation/STAGE_3D_OFFLINE_SYNC.md)
+- [Stage 3D QA & Security Verification Report](docs/testing/STAGE_3D_QA_REPORT.md)
 
 ---
 

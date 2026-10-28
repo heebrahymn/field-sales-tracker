@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, and Stage 3C Completed; Stage 3D Authorisation Pending  
+**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, Stage 3C, and Stage 3D Completed; Stage 3E Authorisation Pending  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -225,9 +225,9 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **Pre-3** | Pre-Stage 3 Product & UX Audit, Client terminology corrections, sync queue accessible navigation | **Completed** |
 | **3A** | Real Supabase Auth, GoTrue session lifecycle, trusted database profile RBAC, country isolation | **Completed** (ADR 0009) |
 | **3B** | Real attendance (Start/End Day), GPS capture, live camera selfie, non-visit request governance | **Completed** (ADR 0010) |
-| **3C** | Real client visits, authoritative PostGIS geofencing, rear-camera premises photo capture, active visit restoration, and meeting logs (ADR 0011, Migrations 00026–00027) | **Completed** (Verified via 143 Vitest Tests, 10/10 Direct API/PostGIS/Storage Tests, Concurrency Race Test & Playwright E2E) |
-| **4** | Offline sync, salesperson-created exceptions, verification, flags and audit reviews | Planned |
-| **5** | Operational dashboards, safe CSV export, notifications and reconciliation | Planned |
+| **3C** | Real client visits, authoritative PostGIS geofencing, rear-camera premises photo capture, active visit restoration, and meeting logs (ADR 0011, Migrations 00026–00027) | **Completed** (Commit `832bd8e`, Tag `stage-3c-visits-approved`) |
+| **3D** | Durable Offline IndexedDB Journal (`Dexie.js`), Binary Media Queue (`Uint8Array` / `Blob`), Topological Dependency Sync, Safe App-Shell Service Worker (`/sw.js`), Idempotent Retries & Provisional State Governance (ADR 0012) | **Completed** (Tag `stage-3d-offline-sync-approved`; Verified via 170/170 Vitest Tests incl. 27 Stage 3D Scenarios & Full 16-Step Offline Workday Browser E2E) |
+| **3E / 5** | Operational dashboards, manager review queues, safe CSV export, notifications and reconciliation | Planned |
 | **6** | Security audit, real-device GPS/camera/offline QA, deployment/pilot readiness | Planned |
 
 At the end of each stage:
@@ -248,9 +248,9 @@ Use production-quality TypeScript, reusable components, input validation and cle
 
 Support privacy notices, limited event-based location capture, access controls, data retention review, backups, observability and appropriate jurisdictional reviews. Do not promise spoof-proof GPS, tamper-proof offline events or perfect sync across devices/browsers.
 
-## 15. Current State & Architectural Baseline — Stage 3C Completed
+## 15. Current State & Architectural Baseline — Stage 3D Completed
 
-Stage 3B is accepted (tag `stage-3b-attendance-approved`), and **Stage 3C (Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs)** is fully implemented and verified (ADR 0011). The current architecture establishes:
+Stage 3C is accepted (commit `832bd8e`, tag `stage-3c-visits-approved`), and **Stage 3D (Durable Offline IndexedDB Journal, Media Queuing & Dependency Synchronisation)** is fully implemented and verified (ADR 0012). The current architecture establishes:
 
 1. **Applied Migrations 00026 & 00027:** `supabase/migrations/20261028000026_stage_3c_visit_integrity_and_triggers.sql` and `supabase/migrations/20261028000027_stage_3c_authoritative_geofence_verification.sql` are applied to remote Supabase dev project `[SUPABASE_PROJECT_ID]`.
 2. **Authoritative Backend PostGIS Geofencing & Anti-Spoofing (PRD §7.1, §8.4):**
@@ -259,14 +259,15 @@ Stage 3B is accepted (tag `stage-3b-attendance-approved`), and **Stage 3C (Real 
 3. **Bi-Directional Transaction-Safe Locking (PRD §6.1 / AT-03, AT-04):**
    - End Day acquires row-level `FOR UPDATE` lock on open normal visits for the workday; raises `23514` check_violation if an active visit is in progress.
    - Normal visit check-in acquires `FOR SHARE` lock on parent `public.attendance_days` row; raises `23514` check_violation if workday status != `'started'`.
-   - Concurrent race conditions between End Day and Check-In are serialized and verified via `scripts/test_stage_3c_concurrency_race.py`.
 4. **Checkout Immutability & Outside-Geofence Preservation (`trg_preserve_visit_checkin_evidence_on_update`):**
    - Blocks tampering with historical check-in coordinates, accuracy, premises photo path, `branch_pin_id`, or `rule_version_id` during or after checkout.
-   - Outside-geofence checkout is permitted with acknowledgement and raises an audit flag (`Checkout Outside Geofence (>200m)`) while preserving the original `location_verified` check-in classification.
-5. **Client Visit UI, Rear-Camera Evidence & Meeting Logs (`src/services/visitService.ts`, `src/features/field/VisitWorkflowView.tsx`, `src/features/field/MeetingLogModal.tsx`):**
-   - Real client (`public.organisations`) and location (`public.branches`) selection starting with no client preselected, live geolocation, rear-camera premises photo upload (`visit-premises-photos`, `upsert: false`), active visit restoration across reload/re-login, and canonical `public.meeting_logs` persistence with free-text next steps only (AT-15).
-6. **Hardware Testing Acceptance Standard:** Physical Android GPS and camera hardware acceptance is explicitly documented as **NOT TESTED** in local/CI environment, with an acceptance test plan established for deployment.
-7. **Next Step:** Stage 3D (Offline IndexedDB Journal, Media Queuing & Dependency Sync). Do not begin Stage 3D or push to GitHub without explicit review and approval.
+5. **Durable Offline IndexedDB Journal, Binary Media Queue & Safe App-Shell Service Worker (`src/services/offlineSyncService.ts`, `public/sw.js`, ADR 0012):**
+   - `Dexie.js` database (`CarbonOfflineJournalDB`) with `eventJournal`, `mediaQueue` (`Uint8Array` binary payload storage), and `cachedContext` tables partitioned strictly by `ownerUserId`.
+   - Topological dependency synchronisation (`ATTENDANCE_START_DAY → VISIT_CHECKIN → VISIT_CHECKOUT → MEETING_LOG_SUBMIT → ATTENDANCE_END_DAY`) with `pending → syncing → synced`, `failed`, `needs_review`, and `blocked_dependency` states.
+   - Safe App-Shell Service Worker (`public/sw.js`) caches only same-origin static assets (excluding all `*.supabase.co` API/Storage endpoints) and `AuthContext` restores cached verified profiles when offline so cold-starts and refreshes preserve the salesperson's session and queue.
+   - Capture-time `branchPinId`/`branchPinVersion` and `ruleVersionId`/`ruleVersionTag` immutability (transitions to `needs_review` without silent substitution if changed), sync-execution-boundary JWT/active-profile authorization, idempotent media uploads, duplicate-key `23505` reconciliation, clock anomaly detection, and storage quota monitoring.
+6. **Hardware Testing Acceptance Standard:** Physical Android GPS, camera, and offline hardware acceptance is explicitly documented as **NOT TESTED** in local/CI environment, with a hardware test plan established in `docs/testing/STAGE_3D_QA_REPORT.md`.
+7. **Next Step:** Stage 3E (Manager Review Queues, Operational Dashboards & Safe CSV Exports). Do not begin Stage 3E without explicit review and approval.
 
 ## 16. Instructions for every future user prompt
 

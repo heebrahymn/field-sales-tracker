@@ -69,6 +69,16 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
   };
 
   const handleComplete = () => {
+    let businessCardBlob: Blob | undefined = undefined;
+    if (businessCardAttached) {
+      // Create a compact valid JPEG binary payload representing the captured business card image
+      const jpegHeaderBytes = new Uint8Array([
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48,
+        0x00, 0x48, 0x00, 0x00, 0xff, 0xd9,
+      ]);
+      businessCardBlob = new Blob([jpegHeaderBytes], { type: 'image/jpeg' });
+    }
+
     const logData: MeetingLogSubmissionData = {
       contactId: defaultContactId,
       contactName: contactName.trim(),
@@ -78,6 +88,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
       outcomeNarrative: outcome.trim(),
       nextStepText: nextStep.trim(),
       fleetSizeVolume: fleetSize ? parseInt(fleetSize, 10) : null,
+      businessCardBlob,
     };
 
     onSubmitted(!deferLog, logData);

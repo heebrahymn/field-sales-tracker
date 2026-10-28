@@ -150,6 +150,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         .single();
 
       if (profileErr || !profileRow) {
+        const isNetworkError =
+          (typeof navigator !== 'undefined' && !navigator.onLine) ||
+          Boolean(
+            profileErr?.message &&
+              (profileErr.message.toLowerCase().includes('fetch') ||
+                profileErr.message.toLowerCase().includes('network') ||
+                profileErr.message.toLowerCase().includes('offline'))
+          );
+
+        if (isNetworkError && typeof window !== 'undefined') {
+          try {
+            const cachedRaw = window.localStorage.getItem(`carbon_cached_profile_${userId}`);
+            if (cachedRaw) {
+              const cachedProfile = JSON.parse(cachedRaw) as UserProfile;
+              if (cachedProfile && cachedProfile.id === userId && cachedProfile.isActive) {
+                return cachedProfile;
+              }
+            }
+          } catch {
+            // Ignore storage parse error
+          }
+        }
+
         console.error('[Auth] Profile query error:', profileErr);
         setAuthError('Profile record not found in authorization directory.');
         return null;
@@ -157,6 +180,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
 
       if (!profileRow.is_active) {
         console.warn('[Auth] Inactive / revoked profile:', profileRow.email);
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(`carbon_cached_profile_${userId}`);
+        }
         setAuthError('Your employee account has been deactivated or suspended by HQ Admin.');
         await supabase.auth.signOut();
         return null;
@@ -234,8 +260,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         assignedDevice: assignedDevice,
       };
 
+      if (typeof window !== 'undefined' && loadedProfile.isActive) {
+        try {
+          window.localStorage.setItem(`carbon_cached_profile_${userId}`, JSON.stringify(loadedProfile));
+        } catch {
+          // Ignore storage quota warning
+        }
+      }
+
       return loadedProfile;
     } catch (err: any) {
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedRaw = window.localStorage.getItem(`carbon_cached_profile_${userId}`);
+          if (cachedRaw) {
+            const cachedProfile = JSON.parse(cachedRaw) as UserProfile;
+            if (cachedProfile && cachedProfile.id === userId && cachedProfile.isActive) {
+              return cachedProfile;
+            }
+          }
+        } catch {
+          // Ignore parse error
+        }
+      }
       console.error('[Auth] Failed to load profile & device:', err);
       setAuthError(err?.message || 'Failed to retrieve profile data.');
       return null;
@@ -393,18 +440,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   // Sign out
   const signOut = useCallback(async () => {
     setIsLoading(true);
+    const currentUserId = user?.id || profile?.id;
     try {
       await supabase.auth.signOut();
     } catch (err) {
       console.warn('[Auth] Sign-out warning:', err);
     } finally {
+      if (typeof window !== 'undefined' && currentUserId) {
+        try {
+          window.localStorage.removeItem(`carbon_cached_profile_${currentUserId}`);
+        } catch {
+          // Ignore
+        }
+      }
       setUser(null);
       setSession(null);
       setProfile(null);
       setAuthError(null);
       setIsLoading(false);
     }
-  }, []);
+  }, [user?.id, profile?.id]);
 
   // Market switching - strictly restricted to HQ Admin
   const switchMarket = useCallback(
