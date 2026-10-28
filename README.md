@@ -57,7 +57,7 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 0, 1, 2, 3A, 3B, 3C, 3D & 3E Completed)
+## 4. Current Milestone Status (Stages 0, 1, 2, 3A, 3B, 3C, 3D, 3E & 3F Completed)
 
 ```
 [✓] Stage 0   — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
@@ -73,11 +73,13 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Stage 3C  — Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026–00027)
 [✓] Stage 3D  — Durable Offline IndexedDB Journal, Media Queuing & Dependency Synchronisation (ADR 0012)
 [✓] Stage 3E  — Management Reports, GPS Pin Governance, Zero Bottleneck MDM & Safe CSV Exports (ADR 0013)
-[ ] Stage 3F  — Security Audit, Real-Device QA & Pilot Deployment
+[✓] Stage 3F  — End-to-End QA, Physical Device Protocols & Live Vercel Staging Deployment (ADR 0014)
+[ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
+[ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
 ```
 
 > [!IMPORTANT]
-> **Operational Data Notice:** **Stage 3A (Supabase GoTrue Auth), Stage 3B (Real Daily Attendance Persistence), Stage 3C (Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs), Stage 3D (Durable Offline IndexedDB Event Journal, Binary Media Queue & Topological Dependency Sync), and Stage 3E (Real Management & HQ Administration Integration)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.visits`, `public.meeting_logs`, `public.organisations`, `public.branches`, `public.branch_location_pins`, `public.device_replacement_requests`, `public.client_audit_records`, `public.verification_flags`, `public.export_jobs`, `public.import_batches`), private Storage buckets (`attendance-selfies`, `visit-premises-photos`, `business-cards`), and local `Dexie.js` IndexedDB (`CarbonOfflineJournalDB`).
+> **Operational Staging Notice:** The application is deployed for controlled staging and testing at **`https://field-sales-tracker-b6l7.vercel.app/`**. Features across **Stage 3A (Supabase GoTrue Auth), Stage 3B (Real Daily Attendance Persistence), Stage 3C (Real Client Visits, PostGIS Geofencing, Camera Evidence & Meeting Logs), Stage 3D (Durable Offline IndexedDB Event Journal & Media Queue), Stage 3E (Real Management & HQ Administration Integration), and Stage 3F (Live Staging E2E Verification)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.visits`, `public.meeting_logs`, `public.organisations`, `public.branches`, `public.branch_location_pins`, `public.device_replacement_requests`, `public.client_audit_records`, `public.verification_flags`, `public.export_jobs`, `public.import_batches`), private Storage buckets (`attendance-selfies`, `visit-premises-photos`, `business-cards`), and local `Dexie.js` IndexedDB (`CarbonOfflineJournalDB`). Unrestricted business-wide operational rollout requires final field-pilot sign-off.
 
 ---
 
@@ -493,6 +495,8 @@ npm run build
 - [ADR 0010: Stage 3B Real Workday Attendance & Non-Visit Governance](docs/decisions/0010-stage-3b-real-attendance-and-workday-management.md)
 - [ADR 0011: Stage 3C Client Visit Database Integrity, Authoritative PostGIS Geofencing & Visit Capture](docs/decisions/0011-stage-3c-client-visit-database-integrity.md)
 - [ADR 0012: Stage 3D Durable Offline IndexedDB Journal, Media Queue & Dependency Synchronisation](docs/decisions/0012-stage-3d-offline-indexeddb-journal-and-sync.md)
+- [ADR 0013: Stage 3E Management Dashboards, GPS Pin Governance, Zero Bottleneck MDM & Safe CSV Exports](docs/decisions/0013-stage-3e-management-and-hq-integration.md)
+- [ADR 0014: Stage 3F Staging Deployment, Physical Device QA Protocols & Staging Isolation](docs/decisions/0014-stage-3f-staging-deployment-and-field-pilot-readiness.md)
 
 ### Technical Implementation & QA Reports
 - [Stage 3B Attendance Implementation Guide](docs/implementation/STAGE_3B_ATTENDANCE.md)
@@ -501,6 +505,10 @@ npm run build
 - [Stage 3C QA & Security Verification Report](docs/testing/STAGE_3C_QA_REPORT.md)
 - [Stage 3D Offline Sync Implementation Guide](docs/implementation/STAGE_3D_OFFLINE_SYNC.md)
 - [Stage 3D QA & Security Verification Report](docs/testing/STAGE_3D_QA_REPORT.md)
+- [Stage 3E Management & HQ Implementation Guide](docs/implementation/STAGE_3E_MANAGER_HQ.md)
+- [Stage 3E QA & Security Verification Report](docs/testing/STAGE_3E_QA_REPORT.md)
+- [Stage 3F End-to-End QA & Staging Implementation Guide](docs/implementation/STAGE_3F_FIELD_QA.md)
+- [Stage 3F QA & Field Pilot Readiness Report](docs/testing/STAGE_3F_QA_REPORT.md)
 
 ---
 

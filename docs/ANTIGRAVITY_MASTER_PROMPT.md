@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, Stage 3C, Stage 3D, and Stage 3E Completed; Stage 5 / Stage 6 Authorisation Pending  
+**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, Stage 3C, Stage 3D, Stage 3E, and Stage 3F Completed; Controlled Field Pilot Staging Deployed; Final Business Operational Rollout Authorisation Pending  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -227,8 +227,10 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **3B** | Real attendance (Start/End Day), GPS capture, live camera selfie, non-visit request governance | **Completed** (ADR 0010) |
 | **3C** | Real client visits, authoritative PostGIS geofencing, rear-camera premises photo capture, active visit restoration, and meeting logs (ADR 0011, Migrations 00026–00027) | **Completed** (Commit `832bd8e`, Tag `stage-3c-visits-approved`) |
 | **3D** | Durable Offline IndexedDB Journal (`Dexie.js`), Binary Media Queue (`Uint8Array` / `Blob`), Topological Dependency Sync, Safe App-Shell Service Worker (`/sw.js`), Idempotent Retries & Provisional State Governance (ADR 0012) | **Completed** (Tag `stage-3d-offline-sync-approved`; Verified via 170/170 Vitest Tests incl. 27 Stage 3D Scenarios & Full 16-Step Offline Workday Browser E2E) |
-| **3E** | Operational Dashboards, Manager Review Queues, GPS Pin Governance, Zero Bottleneck Company Device Replacement, 5% Audit Workbench, Safe CSV Export & Client Master ERP Import (ADR 0013) | **Completed** (Verified via 187/187 Vitest Tests incl. 17 Stage 3E Tests, Complete Live Supabase Integrity Suite & 15 Multi-Viewport Browser Screenshots) |
-| **5 / 6** | Real-device physical GPS/camera/offline QA, security hardening, final reconciliation and deployment readiness | Planned |
+| **3E** | Operational Dashboards, Manager Review Queues, GPS Pin Governance, Zero Bottleneck Company Device Replacement, 5% Audit Workbench, Safe CSV Export & Client Master ERP Import (ADR 0013) | **Completed** (Commit `d4dbb37`, Tag `stage-3e-management-approved`; Verified via 187/187 Vitest Tests incl. 17 Stage 3E Tests, Complete Live Supabase Integrity Suite & 15 Multi-Viewport Browser Screenshots) |
+| **3F** | End-to-End QA, Physical Device Testing Protocols, Live Vercel Staging Deployment (27/27 E2E Pass), and Field Pilot Readiness | **Completed** (ADR 0014, Deployed to `https://field-sales-tracker-b6l7.vercel.app/`; 187/187 Vitest, 9/9 Live Security Suites, 27/27 Staging E2E Tests, 19 Responsive Screenshots) |
+| **Field Pilot** | Real-device physical GPS/camera/offline QA on Samsung Galaxy A15 / Nokia G22, local IT commissioning, final field pilot reconciliation | Ready for Controlled Execution |
+| **Operational Rollout** | Business-wide multi-market operational go-live across Nigeria, Zambia, and Malawi | Awaiting Final Stakeholder Authorisation |
 
 At the end of each stage:
 
@@ -248,11 +250,11 @@ Use production-quality TypeScript, reusable components, input validation and cle
 
 Support privacy notices, limited event-based location capture, access controls, data retention review, backups, observability and appropriate jurisdictional reviews. Do not promise spoof-proof GPS, tamper-proof offline events or perfect sync across devices/browsers.
 
-## 15. Current State & Architectural Baseline — Stage 3E Completed
+## 15. Current State & Architectural Baseline — Stage 3E & 3F Completed
 
-Stage 3D is accepted (commit `9ded098`, tag `stage-3d-offline-sync-approved`), and **Stage 3E (Real Management & HQ Administration Integration)** is fully implemented, verified, and documented (ADR 0013). The current architecture establishes:
+Stage 3E is committed (`d4dbb37`, tag `stage-3e-management-approved`), and **Stage 3F (End-to-End QA, Staging Deployment & Field Pilot Readiness)** is fully implemented, verified, and documented (ADR 0014, `STAGE_3F_FIELD_QA.md`, `STAGE_3F_QA_REPORT.md`). The current architecture establishes:
 
-1. **Applied Migrations 00026 & 00027:** `supabase/migrations/20261028000026_stage_3c_visit_integrity_and_triggers.sql` and `supabase/migrations/20261028000027_stage_3c_authoritative_geofence_verification.sql` are applied to remote Supabase dev project `[SUPABASE_PROJECT_ID]`.
+1. **Applied Migrations 00001–00028:** Remote Supabase dev project `[SUPABASE_PROJECT_ID]` has all migrations applied and verified, including Migration 00028 enforcing strict market isolation on all Country Sales Head RPCs (`approve_branch_location_pin`, `reject_branch_location_pin`, `review_branch_location_pin`, `review_salesperson_exception`, `record_client_audit_call`, `resolve_client_audit_dispute`).
 2. **Authoritative Backend PostGIS Geofencing & Anti-Spoofing (PRD §7.1, §8.4):**
    - Trigger `trg_validate_visit_location_verification` independently computes WGS84 ellipsoidal distance via `ST_Distance(NEW.check_in_geom::geography, v_pin_geom::geography)` and overrides client-supplied `location_classification` so spoofed `inside_confident` payloads are rejected with `23514`.
    - Enforces cross-market isolation (`profiles.market_code = branches.market_code`), attendance ownership (`attendance_days.user_id = NEW.user_id`), active approved pin validation, and mandatory private premises photo (`visit-premises-photos`).
@@ -272,10 +274,14 @@ Stage 3D is accepted (commit `9ded098`, tag `stage-3d-offline-sync-approved`), a
    - Formula-safe audited CSV export (`exportCountryVisitsCsv`) with CWE-1236 sanitization logged to `public.export_jobs`.
 7. **HQ Enterprise Administration & MDM (`src/services/adminService.ts`, ADR 0013):**
    - Multi-market operations dashboard (`NG`, `ZM`, `MW`), user provisioning, and role governance.
-   - **Zero Bottleneck Company Device Replacement (PRD §6.5):** Field salespeople submit device replacement requests directly to HQ Admin; Country Sales Heads have zero approval or submission gate. HQ Admin reviews, dispatches replacement from central spare inventory with tracking, and confirms Knox MDM activation while recording old device disposition (`returned_to_depot`, `quarantined`, etc.); `uq_single_active_device_per_rep` strictly preserved.
-   - Market rule set versioning and cryptographic system audit log inspection.
+   - **Zero Bottleneck Company Device Replacement (PRD §6.5):** Field salespeople submit device replacement requests directly to HQ Admin; Country Sales Heads have zero approval or submission gate. HQ Admin reviews, dispatches replacement from central spare inventory with tracking, and confirms activation while recording old device disposition; `uq_single_active_device_per_rep` strictly preserved.
+   - Market rule set versioning and administrative audit log inspection.
    - Client Master ERP CSV batch ingestion (`processClientMasterImport`) logged to `public.import_batches`; unpinned branches marked `location_pending`; multiple branches permitted to share central parent company telephone per PRD §4.2.
-8. **Next Step:** Stage 5 / Stage 6 Authorisation (Security hardening, final reconciliation, deployment readiness). Do not begin without explicit review and approval.
+8. **Live Vercel Staging Deployment (Stage 3F, ADR 0014):**
+   - Hosted at `https://field-sales-tracker-b6l7.vercel.app/` under HTTPS with strict security headers (`nosniff`, `DENY`, `strict-origin-when-cross-origin`).
+   - Automated E2E verification complete (27/27 PASS across all roles, viewports 390x844, 360x800, and 1280x800).
+   - Physical device test protocol prepared for field pilot coordinators in Lagos, Lusaka, and Blantyre; hardware tests marked NOT TESTED (Physical Handset Required).
+9. **Next Step:** Controlled Field Pilot on physical company-issued Samsung Galaxy A15 / Nokia G22 handsets. Do not launch unrestricted business-wide rollout without explicit review and approval.
 
 ## 16. Instructions for every future user prompt
 

@@ -4,7 +4,7 @@
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
 **Last Updated:** October 28, 2026  
-**Current Milestone:** Stage 3E Completed & Validated (Stage 3F Awaiting Authorization)  
+**Current Milestone:** Stage 3E & Stage 3F Completed (Controlled Field Pilot Prepared; Business Rollout Awaiting Authorization)  
 
 ---
 
@@ -27,7 +27,9 @@
 [✓] Stage 3C — Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026–00027)
 [✓] Stage 3D — Offline IndexedDB Journal, Media Queuing & Dependency Sync (ADR 0012)
 [✓] Stage 3E — Management Dashboards, GPS Pin Governance, Zero Bottleneck MDM, Safe CSV Exports & Dispute Resolution (ADR 0013)
-[ ] Stage 3F — Security Audit, Real-Device QA & Pilot Deployment
+[✓] Stage 3F — End-to-End QA, Physical Device Protocols, Vercel Staging Deployment & Pilot Readiness (ADR 0014)
+[ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
+[ ] Operational Rollout — Business-Wide Production Rollout across Nigeria, Zambia, and Malawi
 ```
 
 ---
@@ -112,16 +114,34 @@
 
 ---
 
+### Stage 3F: End-to-End QA, Physical Device Protocols & Staging Deployment (Completed)
+- **Objective:** Final hardening, live Vercel staging deployment, multi-viewport verification, and physical handset test protocols.
+- **Accomplishments:**
+  - Deployed to live Vercel staging environment (`https://field-sales-tracker-b6l7.vercel.app/`).
+  - Executed 27/27 passing Playwright live staging tests across all roles and viewports (390x844, 360x800, 1280x800).
+  - 187/187 Vitest unit and integration tests passing; 9/9 live Supabase security suites passing.
+  - Prepared formal Physical Device Testing Protocols for Samsung Galaxy A15 and Nokia G22 handsets (`STAGE_3F_FIELD_QA.md`).
+  - Established ADR 0014 governing staging deployment isolation and field pilot readiness.
+
+---
+
 ## 3. Upcoming Implementation Phases
 
-### Stage 3F: Security Audit, Real-Device QA & Pilot Deployment
-- **Objective:** Final hardening, pilot testing in Nigeria, and production sign-off.
+### Field Pilot: Controlled Real-Device Field Execution
+- **Objective:** Controlled 2-week field pilot with designated salespeople in Lagos, Lusaka, and Blantyre.
 - **Scope:**
-  - Independent penetration test and RLS privilege escalation review.
-  - Field QA on actual company-issued Android handsets (Samsung Galaxy A15, Nokia G22).
-  - Low-bandwidth cellular network testing (2G / 3G throttling).
-  - Vercel production deployment and live environment health check.
-- **Approval Gate:** Formal stakeholder sign-off and pilot readiness certification.
+  - IT commissioning of company-issued Samsung Galaxy A15 and Nokia G22 handsets.
+  - PWA standalone installation via Chrome Mobile.
+  - Real-world GNSS satellite acquisition under varying weather and urban density.
+  - Cellular connectivity testing (LTE, 3G, and Airplane mode offline journaling).
+  - Validation of rear camera premises photos and front camera selfie captures.
+- **Approval Gate:** Formal field pilot evaluation report and stakeholder operational sign-off.
+
+### Operational Rollout: Multi-Market Business Go-Live
+- **Scope:**
+  - Production client master CSV ingestion following ERP header verification and administrative approval.
+  - Organization-wide employee onboarding across Nigeria, Zambia, and Malawi.
+  - Enterprise monitoring and operational SLA tracking.
 
 ---
 

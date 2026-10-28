@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Stage 3F] - End-to-End QA, Physical Handset Protocols & Live Vercel Staging Deployment (2026-10-28)
+
+### Added
+- **Live Vercel Staging Deployment (`https://field-sales-tracker-b6l7.vercel.app/`):**
+  - Configured and deployed commit `d4dbb37` (tag `stage-3e-management-approved`) to Vercel staging environment backed by Supabase development database `[SUPABASE_PROJECT_ID]`.
+  - Deployed hashed assets (`/assets/index-CyOFaEZZ.js` and `/assets/index-CcrtVqeJ.css`) matching local production build.
+  - Enforced strict HTTP security headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, with immutable asset caching.
+- **Automated Live Staging E2E Verification Suite (`scripts/verify_stage_3f_vercel_e2e.py`):**
+  - 27 automated Playwright test scenarios executed against the live Vercel staging URL (100% pass rate).
+  - Covers unauthenticated brand verification, authentication error rejection, Salesperson mobile workflow (Nigeria - Tunde Adebayo), Country Sales Head management console (Nigeria - Babatunde Adeleke), cross-market isolation (Zambia - Chileshe Mwape & Malawi - Tamika Phiri), HQ Admin console (HQ Administrator), and offline PWA responsiveness.
+  - Captured 19 multi-viewport visual artifacts in `docs/screenshots/stage3f/` across mobile (390x844), compact mobile (360x800 - Samsung Galaxy A15 standard), and desktop (1280x800).
+- **Physical Handset Testing Protocols (`docs/implementation/STAGE_3F_FIELD_QA.md`):**
+  - Standardized device matrices for company-issued Samsung Galaxy A15 (Android 14 / One UI 6.0) and Nokia G22 (Android 13).
+  - Formal field execution protocol for local IT and field pilot coordinators in Lagos, Lusaka, and Blantyre.
+  - Explicit distinction between automated browser emulation (Playwright) and physical hardware verification (marked NOT TESTED until field pilot).
+- **Architecture & Quality Assurance Artifacts:**
+  - **ADR 0014:** Stage 3F Staging Deployment, Physical Device QA Protocols & Staging Isolation (`docs/decisions/0014-stage-3f-staging-deployment-and-field-pilot-readiness.md`).
+  - **Comprehensive QA Report:** Stage 3F Quality Assurance & Field Pilot Readiness Report (`docs/testing/STAGE_3F_QA_REPORT.md`).
+
+### Verified
+- Automated test coverage: 187/187 Vitest unit & integration tests passing across all 14 test suites.
+- Live backend security: 9/9 domains passing in `scripts/test_stage_3e_final_security_and_governance.py`.
+- Static quality: 0 TypeScript errors (`tsc --noEmit`), 0 ESLint errors (`eslint .`), clean production bundle build in 8.73s.
+- Controlled Field Pilot Readiness achieved; business-wide operational rollout paused pending field pilot review.
+
+---
+
 ## [Stage 3E] - Management Console, GPS Pin Governance, Zero Bottleneck MDM & Safe CSV Exports (2026-10-28)
 
 ### Added
