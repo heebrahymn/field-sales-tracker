@@ -32,6 +32,7 @@ import {
   ReplacementRequestStatus,
   DeviceIssueCategory,
 } from '@/context/DeviceReplacementContext';
+import { adminService } from '@/services/adminService';
 
 const FIELD_SALESPEOPLE = [
   { id: 'USR-NG-002', name: 'Chukwudi Okafor', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
@@ -257,17 +258,42 @@ export const HqDeviceManagement: React.FC = () => {
   };
 
   // Step 1: Confirm Approval (Mandatory Reason)
-  const handleConfirmApprove = () => {
+  const handleConfirmApprove = async () => {
     if (!requestToApprove || !approvalReason.trim()) return;
-    approveRequest(requestToApprove.id, approvalReason.trim());
+    const reqId = requestToApprove.id;
+    const reason = approvalReason.trim();
+
+    approveRequest(reqId, reason);
+
+    // If UUID (real Supabase record), call adminService
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reqId)) {
+      await adminService.reviewDeviceReplacement({
+        replacementId: reqId,
+        status: 'approved',
+        reason,
+      });
+    }
+
     setRequestToApprove(null);
     setApprovalReason('');
   };
 
   // Step 2: Confirm Rejection (Mandatory Reason)
-  const handleConfirmReject = () => {
+  const handleConfirmReject = async () => {
     if (!requestToReject || !rejectionReason.trim()) return;
-    rejectRequest(requestToReject.id, rejectionReason.trim());
+    const reqId = requestToReject.id;
+    const reason = rejectionReason.trim();
+
+    rejectRequest(reqId, reason);
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reqId)) {
+      await adminService.reviewDeviceReplacement({
+        replacementId: reqId,
+        status: 'rejected',
+        reason,
+      });
+    }
+
     setRequestToReject(null);
     setRejectionReason('');
   };
@@ -281,17 +307,41 @@ export const HqDeviceManagement: React.FC = () => {
   };
 
   // Step 4: Record Dispatch
-  const handleConfirmDispatch = () => {
+  const handleConfirmDispatch = async () => {
     if (!requestToDispatch || !dispatchNotes.trim()) return;
-    recordDispatch(requestToDispatch.id, dispatchNotes.trim());
+    const reqId = requestToDispatch.id;
+    const notes = dispatchNotes.trim();
+
+    recordDispatch(reqId, notes);
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reqId)) {
+      await adminService.dispatchReplacementDevice({
+        replacementId: reqId,
+        replacementDeviceId: selectedSpareAssetId || '00000000-0000-0000-0000-000000000000',
+        courierTrackingRef: notes,
+        dispatchNotes: notes,
+      });
+    }
+
     setRequestToDispatch(null);
     setDispatchNotes('');
   };
 
   // Step 5: Confirm Activation & Set Old Device Disposition
-  const handleConfirmActivation = () => {
+  const handleConfirmActivation = async () => {
     if (!requestToActivate) return;
-    confirmDeviceActivation(requestToActivate.id, oldDeviceDisposition);
+    const reqId = requestToActivate.id;
+    const disp = oldDeviceDisposition;
+
+    confirmDeviceActivation(reqId, disp);
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reqId)) {
+      await adminService.confirmReplacementActivation({
+        replacementId: reqId,
+        oldDeviceDisposition: disp,
+      });
+    }
+
     setRequestToActivate(null);
   };
 
@@ -450,7 +500,7 @@ export const HqDeviceManagement: React.FC = () => {
         <div className="space-y-1 leading-relaxed">
           <span className="font-bold text-brand-blue">Hardware Policy & Chain-of-Custody Integrity</span>
           <p className="text-slate-600">
-            Per PRD §2.1, Carbon Car Care provides all field handsets. Device identifiers are cryptographically bonded to field session tokens.
+            Per PRD §2.1, Carbon Car Care provides all field handsets. Device identifiers are assigned in the database and linked to field session tokens.
             When a device fails or is lost, the salesperson submits exception logs upon device recovery; HQ admins manage replacement hardware without fabricating field evidence.
           </p>
         </div>

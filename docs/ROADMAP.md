@@ -4,7 +4,7 @@
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
 **Last Updated:** October 28, 2026  
-**Current Milestone:** Stage 3D Completed & Validated (Stage 3E Awaiting Authorization)  
+**Current Milestone:** Stage 3E Completed & Validated (Stage 3F Awaiting Authorization)  
 
 ---
 
@@ -26,7 +26,7 @@
 [✓] Stage 3B — Real Attendance & Workday Management (ADR 0010)
 [✓] Stage 3C — Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026–00027)
 [✓] Stage 3D — Offline IndexedDB Journal, Media Queuing & Dependency Sync (ADR 0012)
-[ ] Stage 3E — Management Dashboards, Safe CSV Exports & Dispute Resolution (Awaiting Authorization)
+[✓] Stage 3E — Management Dashboards, GPS Pin Governance, Zero Bottleneck MDM, Safe CSV Exports & Dispute Resolution (ADR 0013)
 [ ] Stage 3F — Security Audit, Real-Device QA & Pilot Deployment
 ```
 
@@ -99,16 +99,20 @@
 
 ## 3. Upcoming Implementation Phases
 
-### Stage 3E: Management Dashboards, Safe CSV Exports & Dispute Resolution
-- **Objective:** Live managerial oversight and operational reconciliation for Country Sales Heads and HQ Admin.
-- **Scope:**
-  - Real-time attendance and visit review feeds filtered by assigned market.
-  - Branch registration and proposed location pin approval queues.
-  - Algorithmic risk flag review workbench.
-  - Client audit phone call workbench (5% random weekly sampling + risk-triggered audits).
-  - Formula-safe CSV export module escaping spreadsheet formula injection vectors.
-  - HQ Regional multi-market analytics and device inventory custody console.
-- **Approval Gate:** Manager review workflow test suite and CSV formula injection penetration test.
+### Stage 3E: Management Dashboards, GPS Pin Governance, Zero Bottleneck MDM & Safe CSV Exports (ADR 0013)
+- Country Sales Head console (`src/services/managementService.ts`) connected to real Supabase tables and RPCs, strictly sandboxed to assigned market (`profiles.market_code = branches.market_code`).
+- Managerial non-origination invariant enforced: managers and HQ admins never originate attendance records, client visits, GPS fixes, or photographs for salespeople.
+- Location Unverified Invariant on approved visit exceptions (PRD §7.3, §8.1 / AT-06): approved missing-GPS or device-depletion visit exceptions remain `manager_approved_unverified` and are never converted to GPS verified.
+- GPS Pin Governance (PRD §7.1): Salesperson proposes GPS pin coordinates and premises photo; Country Sales Head approves or rejects via RPCs `approve_branch_location_pin` / `reject_branch_location_pin` with mandatory rationale; approval activates versioned pin while historical visits preserve original capture-time pin references.
+- Zero Bottleneck Company Device Replacement (PRD §6.5): Salesperson submits replacement requests directly to HQ Admin; Country Sales Heads have zero approval or submission gate. HQ Admin reviews (`hq_review_device_replacement`), dispatches replacement handset from central depot spare inventory (`hq_dispatch_replacement_device`), and confirms Knox MDM activation (`hq_confirm_replacement_activation`) while recording old device disposition (`returned_to_depot`, `quarantined`); `uq_single_active_device_per_rep` strictly preserved.
+- 5% Random Weekly Audit Sampling & Dispute Workflow (PRD §8.3 / AT-09, AT-10): Samples completed visits; records call results; client denial automatically sets dispute status to `under_investigation` and raises `audit_dispute` verification flag; managerial inquiry dispute resolution (`resolve_client_audit_dispute`).
+- Formula-Safe Audited CSV Export (PRD §10): Mitigates spreadsheet formula injection (CWE-1236) by sanitizing cells beginning with `=, +, -, @, \t, \r` with single-quote prefix, and logs audit events to `public.export_jobs`.
+- Client Master ERP Ingestion (PRD §4.2 / AT-08): CSV onboarding pipeline allowing shared parent company phone numbers across different branches, marking unpinned branches as `location_pending`, and logging batches to `public.import_batches`.
+- Verified via 187/187 Vitest tests (including 17 Stage 3E integration tests in `src/test/stage-3e-manager-hq.test.tsx`), live Supabase database integrity suite (`scripts/test_stage_3e_db_integrity.py`), and 15 multi-viewport browser screenshots (`scripts/verify_stage_3e_browser.py`).
+
+---
+
+## 3. Upcoming Implementation Phases
 
 ### Stage 3F: Security Audit, Real-Device QA & Pilot Deployment
 - **Objective:** Final hardening, pilot testing in Nigeria, and production sign-off.

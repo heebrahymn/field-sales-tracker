@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketCode } from '@/context/AuthContext';
+import { adminService } from '@/services/adminService';
 
 export interface CsvClientRow {
   rowIndex: number;
@@ -169,16 +170,32 @@ export const HqClientMasterImport: React.FC = () => {
     setStep(2);
   };
 
-  // Execute Simulated Import
-  const handleCommitImport = () => {
+  // Execute Import (Supabase RPC & Ledger Logging)
+  const handleCommitImport = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
-      const validAndWarningRows = parsedRows.filter((r) => r.status !== 'error');
-      const approvedWithPins = validAndWarningRows.filter((r) => r.latitude !== undefined).length;
-      const locationPendingCount = validAndWarningRows.filter((r) => r.latitude === undefined).length;
+    const validAndWarningRows = parsedRows.filter((r) => r.status !== 'error');
+
+    try {
+      const res = await adminService.processClientMasterImport(
+        fileName || 'client_import.csv',
+        selectedMarket,
+        validAndWarningRows.map((r, idx) => ({
+          rowIndex: idx + 1,
+          companyName: r.companyName,
+          branchName: r.branchName,
+          category: 'workshop',
+          address: r.address || 'Standard Address',
+          city: selectedMarket === 'NG' ? 'Lagos' : selectedMarket === 'ZM' ? 'Lusaka' : 'Blantyre',
+          contactPerson: r.contactPerson || 'Site Contact',
+          contactRole: r.contactRole || 'Site Lead',
+          telephone: r.telephone || '+234 800 000 0000',
+          latitude: r.latitude,
+          longitude: r.longitude,
+        }))
+      );
 
       const newBatch: ImportBatchSummary = {
-        batchId: `IMP-2026-10-${selectedMarket}-0${batches.length + 1}`,
+        batchId: res.batchId || `IMP-2026-10-${selectedMarket}-0${batches.length + 1}`,
         marketCode: selectedMarket,
         marketName:
           selectedMarket === 'NG'
@@ -189,19 +206,23 @@ export const HqClientMasterImport: React.FC = () => {
         filename: fileName || 'client_import.csv',
         importedBy: 'HQ Administrator (HQ Admin)',
         timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
-        totalRows: validAndWarningRows.length,
-        approvedPins: approvedWithPins,
-        locationPending: locationPendingCount,
-        status: locationPendingCount > 0 ? 'Requires Branch Pin Verification' : 'Validated & Merged',
+        totalRows: res.totalRows,
+        approvedPins: res.validRows - res.locationPendingRows,
+        locationPending: res.locationPendingRows,
+        status: res.locationPendingRows > 0 ? 'Requires Branch Pin Verification' : 'Validated & Merged',
       };
 
       setBatches([newBatch, ...batches]);
       setIsProcessing(false);
       setStep(4);
       setImportSuccess(
-        `Successfully merged ${validAndWarningRows.length} clients into ${newBatch.marketName}. ${locationPendingCount} records flagged as Location Pending awaiting field pin proposal.`
+        `Successfully merged ${res.validRows} clients into ${newBatch.marketName}. ${res.locationPendingRows} records flagged as Location Pending awaiting field pin proposal.`
       );
-    }, 1200);
+    } catch (err: any) {
+      setIsProcessing(false);
+      setImportSuccess(`Import error: ${err.message || 'Unknown error'}`);
+      setStep(4);
+    }
   };
 
   const handleReset = () => {

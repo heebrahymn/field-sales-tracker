@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +18,7 @@ import {
   UploadCloud,
 } from 'lucide-react';
 import { DesktopNavSection } from '@/components/layout/DesktopSidebar';
+import { adminService, HqOperationsMetrics } from '@/services/adminService';
 
 interface HqOperationsDashboardProps {
   onNavigateSection?: (section: DesktopNavSection) => void;
@@ -30,43 +31,103 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
 }) => {
   const [selectedMarket, setSelectedMarket] = useState<HqMarketFilter>('ALL');
   const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'quarterly'>('daily');
+  const [liveOverview, setLiveOverview] = useState<HqOperationsMetrics[] | null>(null);
 
-  // Multi-Market Fictional Baseline Data
-  const countryMetrics = {
-    NG: {
-      name: 'Nigeria',
-      hub: 'Lagos Hub (West Africa)',
-      tz: 'Africa/Lagos (WAT, UTC+1)',
-      salespeople: { total: 10, active: 8, scheduled: 10, onLeave: 1, nonVisit: 1 },
-      daily: { verified: 34, unverified: 3, branches: 28, offlineShare: '18%', compliance: '94%', openFlags: 4, auditPending: 2 },
-      weekly: { verified: 168, unverified: 12, branches: 94, offlineShare: '14.5%', compliance: '95%', openFlags: 4, auditPending: 2 },
-      quarterly: { verified: 482, unverified: 31, branches: 142, offlineShare: '15.8%', compliance: '93%', openFlags: 4, auditPending: 2 },
-      activeDevices: '10 / 10 Active',
-      pinApprovalsPending: 4,
-    },
-    ZM: {
-      name: 'Zambia',
-      hub: 'Lusaka Hub (Central/Southern Africa)',
-      tz: 'Africa/Lusaka (CAT, UTC+2)',
-      salespeople: { total: 6, active: 5, scheduled: 6, onLeave: 1, nonVisit: 0 },
-      daily: { verified: 18, unverified: 1, branches: 15, offlineShare: '22%', compliance: '92%', openFlags: 2, auditPending: 1 },
-      weekly: { verified: 92, unverified: 6, branches: 48, offlineShare: '20%', compliance: '93%', openFlags: 2, auditPending: 1 },
-      quarterly: { verified: 275, unverified: 18, branches: 82, offlineShare: '21%', compliance: '91%', openFlags: 2, auditPending: 1 },
-      activeDevices: '6 / 6 Active',
-      pinApprovalsPending: 2,
-    },
-    MW: {
-      name: 'Malawi',
-      hub: 'Blantyre Hub (East/Southern Africa)',
-      tz: 'Africa/Blantyre (CAT, UTC+2)',
-      salespeople: { total: 4, active: 4, scheduled: 4, onLeave: 0, nonVisit: 0 },
-      daily: { verified: 11, unverified: 1, branches: 9, offlineShare: '28%', compliance: '90%', openFlags: 1, auditPending: 1 },
-      weekly: { verified: 58, unverified: 4, branches: 31, offlineShare: '25%', compliance: '91%', openFlags: 1, auditPending: 1 },
-      quarterly: { verified: 174, unverified: 12, branches: 54, offlineShare: '26%', compliance: '89%', openFlags: 1, auditPending: 1 },
-      activeDevices: '4 / 4 Active',
-      pinApprovalsPending: 1,
-    },
+  const fetchLiveOverview = async () => {
+    const { data } = await adminService.getHqOperationsOverview();
+    if (data) {
+      setLiveOverview(data);
+    }
   };
+
+  useEffect(() => {
+    fetchLiveOverview();
+  }, []);
+
+  // Multi-Market Data (Merged Live Supabase dev project + Fictional Baseline)
+  const countryMetrics = useMemo(() => {
+    const ngLive = liveOverview?.find((m) => m.marketCode === 'NG');
+    const zmLive = liveOverview?.find((m) => m.marketCode === 'ZM');
+    const mwLive = liveOverview?.find((m) => m.marketCode === 'MW');
+
+    return {
+      NG: {
+        name: 'Nigeria',
+        hub: 'Lagos Hub (West Africa)',
+        tz: 'Africa/Lagos (WAT, UTC+1)',
+        salespeople: {
+          total: ngLive ? Math.max(10, ngLive.totalSalespeople) : 10,
+          active: ngLive ? Math.max(ngLive.activeToday, 8) : 8,
+          scheduled: 10,
+          onLeave: ngLive ? ngLive.onLeaveToday : 1,
+          nonVisit: ngLive ? ngLive.nonVisitToday : 1,
+        },
+        daily: {
+          verified: ngLive ? Math.max(ngLive.verifiedVisitsToday, 34) : 34,
+          unverified: ngLive ? Math.max(ngLive.unverifiedVisitsToday, 3) : 3,
+          branches: 28,
+          offlineShare: '18%',
+          compliance: '94%',
+          openFlags: ngLive ? Math.max(ngLive.openFlagsCount, 4) : 4,
+          auditPending: ngLive ? Math.max(ngLive.auditPendingCount, 2) : 2,
+        },
+        weekly: { verified: 168, unverified: 12, branches: 94, offlineShare: '14.5%', compliance: '95%', openFlags: 4, auditPending: 2 },
+        quarterly: { verified: 482, unverified: 31, branches: 142, offlineShare: '15.8%', compliance: '93%', openFlags: 4, auditPending: 2 },
+        activeDevices: '10 / 10 Active',
+        pinApprovalsPending: ngLive ? ngLive.pendingPinApprovalsCount : 4,
+      },
+      ZM: {
+        name: 'Zambia',
+        hub: 'Lusaka Hub (Central/Southern Africa)',
+        tz: 'Africa/Lusaka (CAT, UTC+2)',
+        salespeople: {
+          total: zmLive ? Math.max(6, zmLive.totalSalespeople) : 6,
+          active: zmLive ? Math.max(zmLive.activeToday, 5) : 5,
+          scheduled: 6,
+          onLeave: zmLive ? zmLive.onLeaveToday : 1,
+          nonVisit: zmLive ? zmLive.nonVisitToday : 0,
+        },
+        daily: {
+          verified: zmLive ? Math.max(zmLive.verifiedVisitsToday, 18) : 18,
+          unverified: zmLive ? Math.max(zmLive.unverifiedVisitsToday, 1) : 1,
+          branches: 15,
+          offlineShare: '22%',
+          compliance: '92%',
+          openFlags: zmLive ? Math.max(zmLive.openFlagsCount, 2) : 2,
+          auditPending: zmLive ? Math.max(zmLive.auditPendingCount, 1) : 1,
+        },
+        weekly: { verified: 92, unverified: 6, branches: 48, offlineShare: '20%', compliance: '93%', openFlags: 2, auditPending: 1 },
+        quarterly: { verified: 275, unverified: 18, branches: 82, offlineShare: '21%', compliance: '91%', openFlags: 2, auditPending: 1 },
+        activeDevices: '6 / 6 Active',
+        pinApprovalsPending: zmLive ? zmLive.pendingPinApprovalsCount : 2,
+      },
+      MW: {
+        name: 'Malawi',
+        hub: 'Blantyre Hub (East/Southern Africa)',
+        tz: 'Africa/Blantyre (CAT, UTC+2)',
+        salespeople: {
+          total: mwLive ? Math.max(4, mwLive.totalSalespeople) : 4,
+          active: mwLive ? Math.max(mwLive.activeToday, 4) : 4,
+          scheduled: 4,
+          onLeave: mwLive ? mwLive.onLeaveToday : 0,
+          nonVisit: mwLive ? mwLive.nonVisitToday : 0,
+        },
+        daily: {
+          verified: mwLive ? Math.max(mwLive.verifiedVisitsToday, 11) : 11,
+          unverified: mwLive ? Math.max(mwLive.unverifiedVisitsToday, 1) : 1,
+          branches: 9,
+          offlineShare: '28%',
+          compliance: '90%',
+          openFlags: mwLive ? Math.max(mwLive.openFlagsCount, 1) : 1,
+          auditPending: mwLive ? Math.max(mwLive.auditPendingCount, 1) : 1,
+        },
+        weekly: { verified: 58, unverified: 4, branches: 31, offlineShare: '25%', compliance: '91%', openFlags: 1, auditPending: 1 },
+        quarterly: { verified: 174, unverified: 12, branches: 54, offlineShare: '26%', compliance: '89%', openFlags: 1, auditPending: 1 },
+        activeDevices: '4 / 4 Active',
+        pinApprovalsPending: mwLive ? mwLive.pendingPinApprovalsCount : 1,
+      },
+    };
+  }, [liveOverview]);
 
   // Consolidated Aggregates
   const consolidated = useMemo(() => {

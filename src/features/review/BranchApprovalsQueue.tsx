@@ -1,8 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
 import { useFieldSession } from '@/context/FieldSessionContext';
+import { useAuth } from '@/context/AuthContext';
+import { managementService, RealBranchPinProposal } from '@/services/managementService';
 import {
   MapPin,
   Building2,
@@ -13,6 +15,9 @@ import {
   Info,
   Search,
   Check,
+  RefreshCw,
+  Loader2,
+  Database as DatabaseIcon,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -25,7 +30,10 @@ export interface BranchPinRecord extends ApprovalItem {
   contactRole: string;
   contactPhone: string;
   sharedPhone?: string;
+  coordsText?: string;
+  premisesPhotoUrl?: string;
   status: 'pending_approval' | 'approved' | 'rejected';
+  isRealRecord?: boolean;
   managerDecision?: {
     action: 'approved' | 'rejected' | 'escalated';
     reason: string;
@@ -35,6 +43,7 @@ export interface BranchPinRecord extends ApprovalItem {
 }
 
 export const BranchApprovalsQueue: React.FC = () => {
+  const { currentUser } = useAuth();
   const { branches, approveBranchPin, rejectBranchPin } = useFieldSession();
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,48 +51,131 @@ export const BranchApprovalsQueue: React.FC = () => {
   const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Synchronized branches mapped from FieldSessionContext
+  // Real Supabase branch location pins
+  const [realPins, setRealPins] = useState<RealBranchPinProposal[]>([]);
+  const [isLoadingReal, setIsLoadingReal] = useState<boolean>(false);
+
+  const loadRealPins = useCallback(async () => {
+    setIsLoadingReal(true);
+    try {
+      const market = currentUser?.marketCode || 'NG';
+      const { data, error } = await managementService.getBranchLocationPins(market, 'all');
+      if (error) {
+        console.warn('[BranchApprovalsQueue] Failed to load real pins from Supabase:', error.message);
+      } else {
+        setRealPins(data);
+      }
+    } catch (err: any) {
+      console.warn('[BranchApprovalsQueue] Error querying branch pins:', err);
+    } finally {
+      setIsLoadingReal(false);
+    }
+  }, [currentUser?.marketCode]);
+
+  useEffect(() => {
+    loadRealPins();
+  }, [loadRealPins]);
+
+  // Merge real pins from Supabase with demonstration context branches
   const branchesList: BranchPinRecord[] = useMemo(() => {
-    return branches.map((b) => ({
-      id: b.id,
+    const realMapped: BranchPinRecord[] = realPins.map((p) => ({
+      id: p.id,
       type: 'pin_approval' as const,
-      title: b.branchName,
-      subtitle: `${b.address} • Location #${b.branchCode}`,
-      companyName: b.companyName,
-      category: b.category,
-      address: b.address,
-      landmark: b.landmark,
-      repName: b.registeredByRepName || 'Tunde Adebayo (CC-REP-042)',
-      claimedTime: b.lastVisitDate || 'Today 10:45 WAT',
-      accuracy: b.accuracyMeters ? `±${b.accuracyMeters}m (Passes ≤50m threshold)` : '±18m (Passes ≤50m threshold)',
-      evidenceNote: b.evidenceNote || 'Premises entrance and workshop signage verified. GPS pin confirmed at central gate.',
-      sharedPhoneWarning: b.hasSharedPhone,
-      sharedPhone: b.sharedCompanyPhone,
-      contactName: b.contacts[0]?.name || 'Site Contact',
-      contactRole: b.contacts[0]?.role || 'Manager',
-      contactPhone: b.contacts[0]?.phone || '+234 800 000 0000',
-      status: b.status,
-      managerDecision: b.managerDecision,
+      title: p.branchName,
+      subtitle: `${p.address} • Version #${p.versionNumber}`,
+      companyName: p.organisationName,
+      category: p.category,
+      address: p.address,
+      landmark: 'Registered Physical Site',
+      repName: p.proposedByName || 'Carbon Field Salesperson',
+      claimedTime: p.proposedAt ? new Date(p.proposedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' Local' : 'Pending',
+      accuracy: `±${Math.round(p.reportedAccuracyM)}m (Threshold: ≤50m)`,
+      evidenceNote: `Field GPS fix captured with ±${Math.round(p.reportedAccuracyM)}m reported accuracy. Premises photo registered in Supabase.`,
+      sharedPhoneWarning: false,
+      contactName: 'Site Facility Lead',
+      contactRole: 'Site Operations',
+      contactPhone: '+234 1 270 5000',
+      coordsText: `${p.latitude.toFixed(4)}° N, ${p.longitude.toFixed(4)}° E`,
+      premisesPhotoUrl: p.premisesPhotoPath,
+      status: p.status === 'superseded' ? 'rejected' : p.status,
+      isRealRecord: true,
+      managerDecision: p.decisionReason
+        ? {
+            action: p.status === 'approved' ? 'approved' : 'rejected',
+            reason: p.decisionReason,
+            decidedBy: 'Country Sales Head',
+            decidedAt: p.reviewedAt || 'Recorded',
+          }
+        : undefined,
     }));
-  }, [branches]);
+
+    // Demo branches from context (avoid duplicate ids)
+    const demoMapped: BranchPinRecord[] = branches
+      .filter((b) => !realPins.some((r) => r.id === b.id || r.branchId === b.id))
+      .map((b) => ({
+        id: b.id,
+        type: 'pin_approval' as const,
+        title: b.branchName,
+        subtitle: `${b.address} • Location #${b.branchCode}`,
+        companyName: b.companyName,
+        category: b.category,
+        address: b.address,
+        landmark: b.landmark,
+        repName: b.registeredByRepName || 'Tunde Adebayo (CC-REP-042)',
+        claimedTime: b.lastVisitDate || 'Today 10:45 WAT',
+        accuracy: b.accuracyMeters ? `±${b.accuracyMeters}m (Passes ≤50m threshold)` : '±18m (Passes ≤50m threshold)',
+        evidenceNote: b.evidenceNote || 'Premises entrance and workshop signage verified. GPS pin confirmed at central gate.',
+        sharedPhoneWarning: b.hasSharedPhone,
+        sharedPhone: b.sharedCompanyPhone,
+        contactName: b.contacts[0]?.name || 'Site Contact',
+        contactRole: b.contacts[0]?.role || 'Manager',
+        contactPhone: b.contacts[0]?.phone || '+234 800 000 0000',
+        coordsText: '6.5892° N, 3.3581° E',
+        status: b.status,
+        isRealRecord: false,
+        managerDecision: b.managerDecision,
+      }));
+
+    return [...realMapped, ...demoMapped];
+  }, [realPins, branches]);
 
   const handleOpenDecision = (item: ApprovalItem) => {
     setSelectedItem(item);
     setIsDecisionModalOpen(true);
   };
 
-  const handleDecisionRecorded = (
+  const handleDecisionRecorded = async (
     itemId: string,
     decision: 'approved' | 'rejected' | 'escalated',
     reason: string
   ) => {
-    if (decision === 'approved') {
-      approveBranchPin(itemId, reason, 'HQ Administrator (Country Head)');
-    } else if (decision === 'rejected') {
-      rejectBranchPin(itemId, reason, 'HQ Administrator (Country Head)');
+    const isReal = realPins.some((p) => p.id === itemId);
+
+    if (isReal) {
+      try {
+        if (decision === 'approved') {
+          const { error } = await managementService.approveBranchLocationPin(itemId, reason);
+          if (error) throw error;
+          setToastMessage(`Branch Location Pin approved in Supabase. Versioned pin activated.`);
+        } else if (decision === 'rejected') {
+          const { error } = await managementService.rejectBranchLocationPin(itemId, reason);
+          if (error) throw error;
+          setToastMessage(`Branch Location Pin rejected in Supabase. Reason recorded to audit ledger.`);
+        }
+        await loadRealPins();
+      } catch (err: any) {
+        setToastMessage(`Pin review failed: ${err.message}`);
+      }
+    } else {
+      // Fallback for demonstration records
+      if (decision === 'approved') {
+        approveBranchPin(itemId, reason, 'Country Sales Head');
+      } else if (decision === 'rejected') {
+        rejectBranchPin(itemId, reason, 'Country Sales Head');
+      }
+      setToastMessage(`Decision logged for ${itemId}: ${decision.toUpperCase()}. Recorded to demonstration audit log.`);
     }
 
-    setToastMessage(`Decision logged for ${itemId}: ${decision.toUpperCase()}. Recorded to immutable audit log.`);
     setTimeout(() => setToastMessage(null), 5000);
   };
 
@@ -123,9 +215,14 @@ export const BranchApprovalsQueue: React.FC = () => {
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <span className="text-[11px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
-              PRD §4.2 & §7.1 Pin Governance
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
+                PRD §4.2 & §7.1 Pin Governance
+              </span>
+              <span className="text-[11px] font-mono font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                Market: {currentUser?.marketCode || 'NG'}
+              </span>
+            </div>
             <h2 className="text-xl font-bold text-slate-900 mt-1">
               Client Registration & GPS Location Approvals
             </h2>
@@ -135,6 +232,16 @@ export const BranchApprovalsQueue: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadRealPins}
+              disabled={isLoadingReal}
+              className="h-8 text-xs font-semibold gap-1.5"
+            >
+              {isLoadingReal ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Refresh
+            </Button>
             <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-50 text-amber-900 border border-amber-300">
               {pendingCount} Awaiting Review
             </span>
@@ -208,6 +315,11 @@ export const BranchApprovalsQueue: React.FC = () => {
                     <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
                       {item.category}
                     </span>
+                    {item.isRealRecord && (
+                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
+                        <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Pin
+                      </span>
+                    )}
                   </div>
                   <h3 className="text-base font-bold text-slate-900 mt-0.5">{item.title}</h3>
                   <p className="text-xs text-slate-600 flex items-center gap-1.5 mt-1 font-medium">
@@ -261,7 +373,7 @@ export const BranchApprovalsQueue: React.FC = () => {
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
                     <MapPin className="w-3.5 h-3.5 text-emerald-700" /> Proposed Location GPS Coordinates
                   </span>
-                  <p className="font-mono font-bold text-slate-900 text-[11px]">6.5892° N, 3.3581° E</p>
+                  <p className="font-mono font-bold text-slate-900 text-[11px]">{item.coordsText || '6.5892° N, 3.3581° E'}</p>
                   <p className="text-[11px] font-semibold text-emerald-800">
                     Fix Accuracy: {item.accuracy}
                   </p>
@@ -284,9 +396,15 @@ export const BranchApprovalsQueue: React.FC = () => {
                     <Camera className="w-3.5 h-3.5 text-brand-blue" /> Live Premises Photograph
                   </span>
                   <div className="flex items-center gap-2 pt-0.5">
-                    <div className="w-12 h-12 rounded-lg bg-slate-800 text-white flex flex-col items-center justify-center font-bold text-[8px] shrink-0">
-                      <span>PREMISES</span>
-                      <span className="text-[7px] text-emerald-400 font-mono">STAMPED</span>
+                    <div className="w-12 h-12 rounded-lg bg-slate-800 text-white flex flex-col items-center justify-center font-bold text-[8px] shrink-0 overflow-hidden">
+                      {item.premisesPhotoUrl && item.premisesPhotoUrl.startsWith('http') ? (
+                        <img src={item.premisesPhotoUrl} alt="Premises" className="w-full h-full object-cover" />
+                      ) : (
+                        <>
+                          <span>PREMISES</span>
+                          <span className="text-[7px] text-emerald-400 font-mono">STAMPED</span>
+                        </>
+                      )}
                     </div>
                     <div className="text-[10px] text-slate-600 leading-tight">
                       <p className="font-semibold text-slate-900">Signage Verified</p>

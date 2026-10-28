@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Stage 3E] - Management Console, GPS Pin Governance, Zero Bottleneck MDM & Safe CSV Exports (2026-10-28)
+
+### Added
+- **Country Sales Head Review Console Service (`src/services/managementService.ts`):**
+  - Implemented market-scoped query and review functions: `getCountryTeamAttendance`, `recordApprovedLeave` (calling RPC `record_approved_leave`), `getCountryVisits`, `getPremisesPhotoSignedUrl` / `getBusinessCardSignedUrl` (60-minute expiry for private Storage buckets), `getBranchLocationPins`, `approveBranchLocationPin` (calling RPC `approve_branch_location_pin` with mandatory rationale), `rejectBranchLocationPin` (calling RPC `reject_branch_location_pin`), `proposeBranchLocationPin`, `getCountryExceptions`, `reviewSalespersonException` (calling RPC `review_salesperson_exception`), `getCountryVerificationFlags`, `reviewVerificationFlag`, `getClientAuditRecords`, `sampleWeeklyVisitsForAudit`, `recordClientAuditCall` (calling RPC `record_client_audit_call`), `resolveClientAuditDispute` (calling RPC `resolve_client_audit_dispute`), and `exportCountryVisitsCsv`.
+- **HQ Enterprise Administration Service (`src/services/adminService.ts`):**
+  - Implemented cross-market operations functions: `getHqOperationsOverview` (multi-market rollups across Nigeria, Zambia, and Malawi), `getHqUsers`, `updateUserProfile`, `getHqDevices`, `registerDevice`, `assignDevice`, `getHqDeviceReplacements`, `reviewDeviceReplacement` (calling RPC `hq_review_device_replacement`), `dispatchReplacementDevice` (calling RPC `hq_dispatch_replacement_device`), `confirmReplacementActivation` (calling RPC `hq_confirm_replacement_activation`), `getMarketRules`, `updateMarketRule`, `getSystemAuditLogs`, and `processClientMasterImport`.
+- **Architectural Security & Data Invariants:**
+  - **Managerial Non-Origination:** Enforced through database RLS policies and UI architecture that Country Sales Heads and HQ Administrators can never create attendance records, client visits, GPS fixes, or photographs on behalf of salespeople.
+  - **Location Unverified Invariant on Exceptions (PRD §7.3, §8.1 / AT-06):** Approved missing-GPS, camera-defect, or device-depletion visit exceptions remain `manager_approved_unverified` and are never converted to GPS verified.
+  - **GPS Pin Governance (PRD §7.1):** Salesperson proposals remain `pending_approval` until reviewed by Country Sales Head against reported accuracy ($\le 50\text{m}$) and premises photographs; approval activates a versioned pin in `public.branch_location_pins` while historical visits retain capture-time pin references.
+  - **Zero Bottleneck Company Device Replacement (PRD §6.5):** Field salespeople submit device replacement requests directly to HQ Admin (`company_device_id`, `issue_category`, `issue_description`); Country Sales Heads have zero approval or submission gate (blocked via `P0001: Zero Bottleneck Violation`); HQ Admin reviews, dispatches replacement handsets from central depot spare inventory, and confirms Knox MDM activation while recording old handset disposition (`returned_to_depot`, `quarantined`, etc.); `uq_single_active_device_per_rep` constraint strictly preserved.
+  - **5% Random Weekly Audit Sampling & Dispute Workflow (PRD §8.3 / AT-09, AT-10):** Random sampling of completed un-audited visits; recording call outcomes; client denials automatically transition dispute status to `under_investigation` and raise verification flag `audit_dispute`; managerial inquiry dispute resolution (`resolve_client_audit_dispute` with `rep_substantiated` vs `confirmed_violation`).
+  - **Formula-Safe Audited CSV Export (PRD §10):** Sanitizes leading characters (`=, +, -, @, \t, \r`) by prepending `'` per CWE-1236, and logs each export into `public.export_jobs`.
+  - **Client Master ERP Batch Ingestion (PRD §4.2 / AT-08):** Ingests parent organisations and branch locations, allows shared company telephone numbers across different branches of the same client without auto-rejection, marks unpinned branches as `location_pending`, and logs batches to `public.import_batches`.
+- **Management & HQ User Interface Components:**
+  - `BranchApprovalsQueue.tsx`: Real pin queue, coordinates preview, accuracy check, premises photos, shared phone rule callout.
+  - `ExceptionReviewWorkbench.tsx`: Salesperson-authored exceptions, mandatory rationale modal, "Manager Approved — Location Unverified" guarantee.
+  - `ClientVisitVerification.tsx`: Real visit list, PostGIS distance check, signed private premises photos, meeting logs.
+  - `RiskFlagsWorkbench.tsx`: Behavioral risk flags queue, investigatory signals, review notes submission.
+  - `ClientAuditWorkbench.tsx`: Weekly 5% random sampling workbench, phone call outcomes, dispute resolution.
+  - `CountryCsvExportModal.tsx`: Date range filter, row count preview, CWE-1236 injection protection notice, audit logging to `export_jobs`.
+  - `TeamAttendanceReview.tsx`: Team daily attendance, start/end GPS fixes, signed selfie inspection, administrative leave booking.
+  - `HqOperationsDashboard.tsx`: Multi-market rollups (`NG`, `ZM`, `MW`), attendance rates, verified visits, active exceptions, pending approvals.
+  - `HqUserManagement.tsx`: User directory, role provisioning, national market scoping, active status toggle.
+  - `HqDeviceManagement.tsx`: Device fleet inventory, Zero Bottleneck salesperson replacement queue, courier dispatch, Knox activation.
+  - `HqMarketConfiguration.tsx`: National market parameters (geofence radius 200m, pin accuracy 50m, working hours).
+  - `HqSystemAuditLog.tsx`: Enterprise immutable audit trail, actor tracking, entity mutations.
+  - `HqClientMasterImport.tsx`: ERP CSV ingestion, shared telephone support, unpinned branches marked `location_pending`, batch history.
+- **Stage 3E Verification & Documentation:**
+  - `src/test/stage-3e-manager-hq.test.tsx`: 17 dedicated integration tests covering GPS pin governance, exception adjudication, zero bottleneck device replacements, 5% random audits, CWE-1236 mitigation, and client master ingestion (187/187 total Vitest tests passing).
+  - `scripts/test_stage_3e_db_integrity.py`: Live Supabase database integrity and RPC verification suite against hosted project `[SUPABASE_PROJECT_ID]` (all 6 sections passing).
+  - `scripts/verify_stage_3e_browser.py`: Multi-viewport browser verification capturing 15 high-fidelity screenshots across Desktop (1280px), Mobile (390px), and Compact (360px) (`docs/screenshots/stage3e/`).
+  - Created ADR 0013 (`docs/decisions/0013-stage-3e-management-and-hq-integration.md`), `docs/implementation/STAGE_3E_MANAGER_HQ.md`, and `docs/testing/STAGE_3E_QA_REPORT.md`.
+
+---
+
 ## [Stage 3D] - Durable Offline IndexedDB Journal, Media Queuing & Dependency Synchronisation (2026-10-28)
 
 ### Added

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UserRole, MarketCode } from '@/context/AuthContext';
+import { adminService } from '@/services/adminService';
 
 export interface AdminUserRecord {
   id: string;
@@ -241,6 +242,47 @@ export const HqUserManagement: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<'ALL' | UserRole>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'active' | 'deactivated'>('ALL');
 
+  // Load real profiles from Supabase
+  const loadSupabaseUsers = async () => {
+    const { data } = await adminService.getHqUsers();
+    if (data && data.length > 0) {
+      const mappedLiveUsers: AdminUserRecord[] = data.map((p) => ({
+        id: p.id,
+        name: p.fullName,
+        email: p.email,
+        phone: p.phone || '—',
+        role: p.role as UserRole,
+        marketCode: (p.marketCode as MarketCode) || 'ALL',
+        marketName:
+          p.marketCode === 'NG'
+            ? 'Nigeria (Lagos Hub)'
+            : p.marketCode === 'ZM'
+            ? 'Zambia (Lusaka Hub)'
+            : p.marketCode === 'MW'
+            ? 'Malawi (Blantyre Hub)'
+            : 'All Markets',
+        status: p.isActive ? 'active' : 'deactivated',
+        assignedDeviceTag: p.assignedDevice?.assetTag || 'Unassigned Handset',
+        assignedDeviceModel: p.assignedDevice?.model || undefined,
+        lastLogin: 'Active Field Session',
+        mfaEnabled: true,
+        createdAt: p.createdAt.split('T')[0],
+      }));
+
+      // Merge real users, filtering duplicates by email
+      setUsers(() => {
+        const nonDuplicateLive = mappedLiveUsers.filter(
+          (live) => !INITIAL_MOCK_USERS.some((demo) => demo.email.toLowerCase() === live.email.toLowerCase())
+        );
+        return [...nonDuplicateLive, ...INITIAL_MOCK_USERS];
+      });
+    }
+  };
+
+  useEffect(() => {
+    loadSupabaseUsers();
+  }, []);
+
   // Modals & Drawers
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedUserForAudit, setSelectedUserForAudit] = useState<AdminUserRecord | null>(null);
@@ -369,12 +411,19 @@ export const HqUserManagement: React.FC = () => {
   };
 
   // Handle Toggle Status (Activate / Deactivate)
-  const handleToggleStatus = (userId: string) => {
+  const handleToggleStatus = async (userId: string) => {
+    const targetUser = users.find((u) => u.id === userId);
+    if (!targetUser) return;
+    const newStatus = targetUser.status === 'active' ? 'deactivated' : 'active';
+
+    // If it's a UUID (real user from Supabase), update via adminService
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      await adminService.updateUserProfile(userId, { is_active: newStatus === 'active' });
+    }
+
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id === userId) {
-          const newStatus = u.status === 'active' ? 'deactivated' : 'active';
-
           // Audit
           const auditRecord: AuditEntry = {
             id: `AUD-${Date.now().toString().slice(-4)}`,

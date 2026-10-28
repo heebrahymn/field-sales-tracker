@@ -7,6 +7,7 @@ import {
   AttendanceRecord,
   AbsenceRequestRecord,
 } from '@/services/attendanceService';
+import { managementService } from '@/services/managementService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -329,22 +330,39 @@ export const TeamAttendanceReview: React.FC = () => {
     setTimeout(() => setToastMessage(null), 6000);
   };
 
-  const handleRecordLeave = () => {
+  const handleRecordLeave = async () => {
     if (!selectedRepForLeave) {
       alert('Please select a salesperson.');
       return;
     }
 
-    setDemoReps((prev) =>
-      prev.map((r) =>
-        r.repId === selectedRepForLeave
-          ? {
-              ...r,
-              todayStatus: 'approved_leave',
-            }
-          : r
-      )
+    // Check if the selected rep is a real Supabase user
+    const matchedReal = realAttendance.find(
+      (r) =>
+        r.user_id === selectedRepForLeave ||
+        `CC-${r.market_code}-${r.user_id.slice(0, 4).toUpperCase()}` === selectedRepForLeave
     );
+
+    if (matchedReal) {
+      await managementService.recordApprovedLeave({
+        userId: matchedReal.user_id,
+        date: leaveStartDate,
+        category: `leave_${leaveType}`,
+        justification: leaveNotes.trim() || `Approved ${leaveType} leave from ${leaveStartDate} to ${leaveEndDate}`,
+      });
+      loadSupabaseData();
+    } else {
+      setDemoReps((prev) =>
+        prev.map((r) =>
+          r.repId === selectedRepForLeave
+            ? {
+                ...r,
+                todayStatus: 'approved_leave',
+              }
+            : r
+        )
+      );
+    }
 
     setToastMessage(`Administrative Leave recorded for ${selectedRepForLeave} (${leaveStartDate} to ${leaveEndDate}).`);
     setTimeout(() => setToastMessage(null), 5000);

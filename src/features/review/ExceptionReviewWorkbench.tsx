@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
 import { useFieldSession } from '@/context/FieldSessionContext';
+import { useAuth } from '@/context/AuthContext';
+import { managementService, RealExceptionItem } from '@/services/managementService';
 import {
   ShieldAlert,
   AlertOctagon,
@@ -16,6 +18,9 @@ import {
   Filter,
   FileText,
   Info,
+  RefreshCw,
+  Loader2,
+  Database as DatabaseIcon,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -29,6 +34,7 @@ export interface ExceptionRecord extends ApprovalItem {
   contactMet: string;
   failureReason: string;
   status: 'pending_review' | 'manager_approved_unverified' | 'rejected' | 'escalated';
+  isRealRecord?: boolean;
   managerDecision?: {
     action: 'approved' | 'rejected' | 'escalated';
     reason: string;
@@ -38,6 +44,7 @@ export interface ExceptionRecord extends ApprovalItem {
 }
 
 export const ExceptionReviewWorkbench: React.FC = () => {
+  const { currentUser } = useAuth();
   const { exceptions: sharedExceptions, approveException, rejectException, escalateException } = useFieldSession();
 
   const [filterType, setFilterType] = useState<'all' | 'gps_failure' | 'device_failure' | 'missed_visit'>('all');
@@ -47,15 +54,43 @@ export const ExceptionReviewWorkbench: React.FC = () => {
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Real Supabase exceptions
+  const [realExceptions, setRealExceptions] = useState<RealExceptionItem[]>([]);
+  const [isLoadingReal, setIsLoadingReal] = useState(false);
+
+  const loadRealExceptions = useCallback(async () => {
+    setIsLoadingReal(true);
+    try {
+      const market = currentUser?.marketCode || 'NG';
+      const { data, error } = await managementService.getCountryExceptions(market, 'all');
+      if (error) {
+        console.warn('[ExceptionReviewWorkbench] Failed to query Supabase exceptions:', error.message);
+      } else {
+        setRealExceptions(data);
+      }
+    } catch (err: any) {
+      console.warn('[ExceptionReviewWorkbench] Error:', err);
+    } finally {
+      setIsLoadingReal(false);
+    }
+  }, [currentUser?.marketCode]);
+
+  useEffect(() => {
+    loadRealExceptions();
+  }, [loadRealExceptions]);
+
   const exceptions: ExceptionRecord[] = useMemo(() => {
-    return sharedExceptions.map((item) => {
+    // Map real exceptions from Supabase
+    const realMapped: ExceptionRecord[] = realExceptions.map((item) => {
       let mappedType: ExceptionRecord['exceptionType'] = 'gps_failure';
-      if (item.type === 'device_breakdown') mappedType = 'device_failure';
-      else if (item.type === 'missed_visit_claim') mappedType = 'missed_visit';
-      else if (item.type === 'camera_failure') mappedType = 'device_failure';
+      if (item.exceptionType === 'device_depletion' || item.exceptionType === 'camera_failure') {
+        mappedType = 'device_failure';
+      } else if (item.exceptionType === 'missed_visit') {
+        mappedType = 'missed_visit';
+      }
 
       let mappedStatus: ExceptionRecord['status'] = 'pending_review';
-      if (item.status === 'approved_unverified') mappedStatus = 'manager_approved_unverified';
+      if (item.status === 'approved') mappedStatus = 'manager_approved_unverified';
       else if (item.status === 'rejected') mappedStatus = 'rejected';
       else if (item.status === 'escalated') mappedStatus = 'escalated';
 
@@ -63,60 +98,135 @@ export const ExceptionReviewWorkbench: React.FC = () => {
         id: item.id,
         type: 'exception_approval',
         exceptionType: mappedType,
-        title: item.title,
-        subtitle: `${item.reason.slice(0, 65)}...`,
-        clientName: item.branchName.replace(/ Depot| Hub| Yard| Terminal/i, '') + ' Transit Ltd',
+        title: `${item.branchName} (${item.exceptionType.replace('_', ' ')})`,
+        subtitle: `${item.failureReason.slice(0, 65)}...`,
+        clientName: item.organisationName,
         branchName: item.branchName,
-        repName: item.repName || 'Tunde Adebayo (CC-REP-042)',
-        claimedTime: `${item.claimedDate} • ${item.claimedTime}`,
-        claimedDuration: item.claimedDuration || '35 mins',
-        submissionLag: item.submissionLag || '15 mins post-visit',
-        accuracy: item.accuracy || '±135m (Exceeds ≤100m visit limit)',
-        evidenceNote: item.evidenceNote,
-        productsDiscussed: item.productsDiscussed || 'Fleet Radiator Coolant, Heavy Duty Degreaser 20L',
-        contactMet: item.contactMet || 'Facility Operations Lead',
-        failureReason: item.reason,
+        repName: item.repName,
+        claimedTime: item.claimedCheckInTime ? new Date(item.claimedCheckInTime).toLocaleString() : 'Claimed Visit',
+        claimedDuration: `${item.claimedDurationMinutes} mins`,
+        submissionLag: 'Delayed Recovery Log',
+        accuracy: '±135m (Location Unverified)',
+        evidenceNote: item.failureReason,
+        productsDiscussed: 'Operational Supplies Review',
+        contactMet: 'Site Operations Lead',
+        failureReason: item.failureReason,
         status: mappedStatus,
-        managerDecision: item.managerComment
+        isRealRecord: true,
+        managerDecision: item.decisionReason
           ? {
-              action: item.status === 'rejected' ? 'rejected' : item.status === 'escalated' ? 'escalated' : 'approved',
-              reason: item.managerComment,
-              decidedBy: item.decidedBy || 'HQ Administrator (Country Head)',
-              decidedAt: item.decisionDate || 'Today 14:45 WAT',
+              action: mappedStatus === 'rejected' ? 'rejected' : mappedStatus === 'escalated' ? 'escalated' : 'approved',
+              reason: item.decisionReason,
+              decidedBy: item.reviewedByName || 'Country Sales Head',
+              decidedAt: item.reviewedAt ? new Date(item.reviewedAt).toLocaleString() : 'Decided',
             }
           : undefined,
       };
     });
-  }, [sharedExceptions]);
+
+    // Map demo exceptions from context
+    const demoMapped: ExceptionRecord[] = sharedExceptions
+      .filter((s) => !realExceptions.some((r) => r.id === s.id))
+      .map((item) => {
+        let mappedType: ExceptionRecord['exceptionType'] = 'gps_failure';
+        if (item.type === 'device_breakdown') mappedType = 'device_failure';
+        else if (item.type === 'missed_visit_claim') mappedType = 'missed_visit';
+        else if (item.type === 'camera_failure') mappedType = 'device_failure';
+
+        let mappedStatus: ExceptionRecord['status'] = 'pending_review';
+        if (item.status === 'approved_unverified') mappedStatus = 'manager_approved_unverified';
+        else if (item.status === 'rejected') mappedStatus = 'rejected';
+        else if (item.status === 'escalated') mappedStatus = 'escalated';
+
+        return {
+          id: item.id,
+          type: 'exception_approval',
+          exceptionType: mappedType,
+          title: item.title,
+          subtitle: `${item.reason.slice(0, 65)}...`,
+          clientName: item.branchName.replace(/ Depot| Hub| Yard| Terminal/i, '') + ' Transit Ltd',
+          branchName: item.branchName,
+          repName: item.repName || 'Tunde Adebayo (CC-REP-042)',
+          claimedTime: `${item.claimedDate} • ${item.claimedTime}`,
+          claimedDuration: item.claimedDuration || '35 mins',
+          submissionLag: item.submissionLag || '15 mins post-visit',
+          accuracy: item.accuracy || '±135m (Exceeds ≤100m visit limit)',
+          evidenceNote: item.evidenceNote,
+          productsDiscussed: item.productsDiscussed || 'Fleet Radiator Coolant, Heavy Duty Degreaser 20L',
+          contactMet: item.contactMet || 'Facility Operations Lead',
+          failureReason: item.reason,
+          status: mappedStatus,
+          isRealRecord: false,
+          managerDecision: item.managerComment
+            ? {
+                action: item.status === 'rejected' ? 'rejected' : item.status === 'escalated' ? 'escalated' : 'approved',
+                reason: item.managerComment,
+                decidedBy: item.decidedBy || 'HQ Administrator (Country Head)',
+                decidedAt: item.decisionDate || 'Today 14:45 WAT',
+              }
+            : undefined,
+        };
+      });
+
+    return [...realMapped, ...demoMapped];
+  }, [realExceptions, sharedExceptions]);
 
   const handleOpenDecision = (item: ExceptionRecord) => {
     setSelectedException(item);
     setDecisionModalOpen(true);
   };
 
-  const handleDecisionRecorded = (
+  const handleDecisionRecorded = async (
     itemId: string,
     decision: 'approved' | 'rejected' | 'escalated',
     reason: string
   ) => {
-    if (decision === 'approved') {
-      approveException(itemId, reason);
-    } else if (decision === 'rejected') {
-      rejectException(itemId, reason);
+    const isReal = realExceptions.some((r) => r.id === itemId);
+
+    if (isReal) {
+      try {
+        const { error } = await managementService.reviewSalespersonException(
+          itemId,
+          decision as any,
+          reason
+        );
+        if (error) throw error;
+        await loadRealExceptions();
+
+        const statusLabel =
+          decision === 'approved'
+            ? 'Manager Approved — Location Unverified'
+            : decision === 'rejected'
+            ? 'Rejected'
+            : 'Escalated to HQ Admin';
+
+        setToastMessage(
+          `Supabase Exception [${itemId}] marked as "${statusLabel}". Rationale recorded to immutable audit ledger.`
+        );
+      } catch (err: any) {
+        setToastMessage(`Exception review failed: ${err.message}`);
+      }
     } else {
-      escalateException(itemId, reason);
+      if (decision === 'approved') {
+        approveException(itemId, reason);
+      } else if (decision === 'rejected') {
+        rejectException(itemId, reason);
+      } else {
+        escalateException(itemId, reason);
+      }
+
+      const statusLabel =
+        decision === 'approved'
+          ? 'Manager Approved — Location Unverified'
+          : decision === 'rejected'
+          ? 'Rejected'
+          : 'Escalated to HQ Admin';
+
+      setToastMessage(
+        `Exception [${itemId}] marked as "${statusLabel}". Rationale recorded to demonstration audit log.`
+      );
     }
 
-    const statusLabel =
-      decision === 'approved'
-        ? 'Manager Approved — Location Unverified'
-        : decision === 'rejected'
-        ? 'Rejected'
-        : 'Escalated to HQ Admin';
-
-    setToastMessage(
-      `Exception [${itemId}] marked as "${statusLabel}". Rationale recorded to immutable audit log.`
-    );
     setTimeout(() => setToastMessage(null), 6000);
   };
 
@@ -173,6 +283,9 @@ export const ExceptionReviewWorkbench: React.FC = () => {
               <span className="text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
                 Strict Governance
               </span>
+              <span className="text-[10px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-amber-200">
+                Market: {currentUser?.marketCode || 'NG'}
+              </span>
             </div>
             <p className="text-xs text-slate-700 font-medium mt-1">
               <strong>Crucial Rule:</strong> Country Sales Heads review, approve, reject, comment, or escalate, but{' '}
@@ -183,6 +296,16 @@ export const ExceptionReviewWorkbench: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadRealExceptions}
+            disabled={isLoadingReal}
+            className="h-8 text-xs font-semibold gap-1.5 bg-white border-amber-300 text-amber-900"
+          >
+            {isLoadingReal ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Refresh
+          </Button>
           <div className="bg-white px-3 py-1.5 rounded-lg border border-amber-200 text-right">
             <div className="text-[10px] uppercase font-bold text-slate-500">Awaiting Sign-off</div>
             <div className="text-lg font-black text-amber-900">{pendingCount} Pending</div>
@@ -335,6 +458,12 @@ export const ExceptionReviewWorkbench: React.FC = () => {
                       <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                         {item.id}
                       </span>
+
+                      {item.isRealRecord && (
+                        <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
+                          <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Record
+                        </span>
+                      )}
 
                       <span className="text-xs text-slate-600 font-semibold">
                         Logged by: <strong className="text-slate-900">{item.repName}</strong>

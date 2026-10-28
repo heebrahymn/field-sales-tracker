@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, Stage 3C, and Stage 3D Completed; Stage 3E Authorisation Pending  
+**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, Stage 3C, Stage 3D, and Stage 3E Completed; Stage 5 / Stage 6 Authorisation Pending  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -227,8 +227,8 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **3B** | Real attendance (Start/End Day), GPS capture, live camera selfie, non-visit request governance | **Completed** (ADR 0010) |
 | **3C** | Real client visits, authoritative PostGIS geofencing, rear-camera premises photo capture, active visit restoration, and meeting logs (ADR 0011, Migrations 00026–00027) | **Completed** (Commit `832bd8e`, Tag `stage-3c-visits-approved`) |
 | **3D** | Durable Offline IndexedDB Journal (`Dexie.js`), Binary Media Queue (`Uint8Array` / `Blob`), Topological Dependency Sync, Safe App-Shell Service Worker (`/sw.js`), Idempotent Retries & Provisional State Governance (ADR 0012) | **Completed** (Tag `stage-3d-offline-sync-approved`; Verified via 170/170 Vitest Tests incl. 27 Stage 3D Scenarios & Full 16-Step Offline Workday Browser E2E) |
-| **3E / 5** | Operational dashboards, manager review queues, safe CSV export, notifications and reconciliation | Planned |
-| **6** | Security audit, real-device GPS/camera/offline QA, deployment/pilot readiness | Planned |
+| **3E** | Operational Dashboards, Manager Review Queues, GPS Pin Governance, Zero Bottleneck Company Device Replacement, 5% Audit Workbench, Safe CSV Export & Client Master ERP Import (ADR 0013) | **Completed** (Verified via 187/187 Vitest Tests incl. 17 Stage 3E Tests, Complete Live Supabase Integrity Suite & 15 Multi-Viewport Browser Screenshots) |
+| **5 / 6** | Real-device physical GPS/camera/offline QA, security hardening, final reconciliation and deployment readiness | Planned |
 
 At the end of each stage:
 
@@ -248,9 +248,9 @@ Use production-quality TypeScript, reusable components, input validation and cle
 
 Support privacy notices, limited event-based location capture, access controls, data retention review, backups, observability and appropriate jurisdictional reviews. Do not promise spoof-proof GPS, tamper-proof offline events or perfect sync across devices/browsers.
 
-## 15. Current State & Architectural Baseline — Stage 3D Completed
+## 15. Current State & Architectural Baseline — Stage 3E Completed
 
-Stage 3C is accepted (commit `832bd8e`, tag `stage-3c-visits-approved`), and **Stage 3D (Durable Offline IndexedDB Journal, Media Queuing & Dependency Synchronisation)** is fully implemented and verified (ADR 0012). The current architecture establishes:
+Stage 3D is accepted (commit `9ded098`, tag `stage-3d-offline-sync-approved`), and **Stage 3E (Real Management & HQ Administration Integration)** is fully implemented, verified, and documented (ADR 0013). The current architecture establishes:
 
 1. **Applied Migrations 00026 & 00027:** `supabase/migrations/20261028000026_stage_3c_visit_integrity_and_triggers.sql` and `supabase/migrations/20261028000027_stage_3c_authoritative_geofence_verification.sql` are applied to remote Supabase dev project `[SUPABASE_PROJECT_ID]`.
 2. **Authoritative Backend PostGIS Geofencing & Anti-Spoofing (PRD §7.1, §8.4):**
@@ -264,10 +264,18 @@ Stage 3C is accepted (commit `832bd8e`, tag `stage-3c-visits-approved`), and **S
 5. **Durable Offline IndexedDB Journal, Binary Media Queue & Safe App-Shell Service Worker (`src/services/offlineSyncService.ts`, `public/sw.js`, ADR 0012):**
    - `Dexie.js` database (`CarbonOfflineJournalDB`) with `eventJournal`, `mediaQueue` (`Uint8Array` binary payload storage), and `cachedContext` tables partitioned strictly by `ownerUserId`.
    - Topological dependency synchronisation (`ATTENDANCE_START_DAY → VISIT_CHECKIN → VISIT_CHECKOUT → MEETING_LOG_SUBMIT → ATTENDANCE_END_DAY`) with `pending → syncing → synced`, `failed`, `needs_review`, and `blocked_dependency` states.
-   - Safe App-Shell Service Worker (`public/sw.js`) caches only same-origin static assets (excluding all `*.supabase.co` API/Storage endpoints) and `AuthContext` restores cached verified profiles when offline so cold-starts and refreshes preserve the salesperson's session and queue.
-   - Capture-time `branchPinId`/`branchPinVersion` and `ruleVersionId`/`ruleVersionTag` immutability (transitions to `needs_review` without silent substitution if changed), sync-execution-boundary JWT/active-profile authorization, idempotent media uploads, duplicate-key `23505` reconciliation, clock anomaly detection, and storage quota monitoring.
-6. **Hardware Testing Acceptance Standard:** Physical Android GPS, camera, and offline hardware acceptance is explicitly documented as **NOT TESTED** in local/CI environment, with a hardware test plan established in `docs/testing/STAGE_3D_QA_REPORT.md`.
-7. **Next Step:** Stage 3E (Manager Review Queues, Operational Dashboards & Safe CSV Exports). Do not begin Stage 3E without explicit review and approval.
+6. **Country Sales Head Review Console (`src/services/managementService.ts`, ADR 0013):**
+   - Strictly sandboxed to assigned market (`profiles.market_code = branches.market_code`). Managerial non-origination enforced: managers never originate attendance, visits, GPS fixes, or photographs.
+   - Propose GPS pin review (`approve_branch_location_pin`, `reject_branch_location_pin` with mandatory reasons); versioned pin activation while historical visits retain capture-time pin references.
+   - Salesperson exception adjudication (`review_salesperson_exception`); approved missing-GPS exceptions remain `manager_approved_unverified` (never converted to GPS verified).
+   - 5% weekly random sampling workbench (`sampleWeeklyVisitsForAudit`, `record_client_audit_call`); client denials automatically open dispute (`under_investigation`) and raise verification flag `audit_dispute`; managerial inquiry dispute resolution (`resolve_client_audit_dispute`).
+   - Formula-safe audited CSV export (`exportCountryVisitsCsv`) with CWE-1236 sanitization logged to `public.export_jobs`.
+7. **HQ Enterprise Administration & MDM (`src/services/adminService.ts`, ADR 0013):**
+   - Multi-market operations dashboard (`NG`, `ZM`, `MW`), user provisioning, and role governance.
+   - **Zero Bottleneck Company Device Replacement (PRD §6.5):** Field salespeople submit device replacement requests directly to HQ Admin; Country Sales Heads have zero approval or submission gate. HQ Admin reviews, dispatches replacement from central spare inventory with tracking, and confirms Knox MDM activation while recording old device disposition (`returned_to_depot`, `quarantined`, etc.); `uq_single_active_device_per_rep` strictly preserved.
+   - Market rule set versioning and cryptographic system audit log inspection.
+   - Client Master ERP CSV batch ingestion (`processClientMasterImport`) logged to `public.import_batches`; unpinned branches marked `location_pending`; multiple branches permitted to share central parent company telephone per PRD §4.2.
+8. **Next Step:** Stage 5 / Stage 6 Authorisation (Security hardening, final reconciliation, deployment readiness). Do not begin without explicit review and approval.
 
 ## 16. Instructions for every future user prompt
 

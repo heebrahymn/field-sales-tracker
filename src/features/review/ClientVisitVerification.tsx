@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { useAuth } from '@/context/AuthContext';
+import { managementService, RealVisitVerificationRecord } from '@/services/managementService';
 import {
   MapPin,
   CheckCircle2,
@@ -13,6 +15,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   X,
+  RefreshCw,
+  Loader2,
+  Database as DatabaseIcon,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -43,160 +48,283 @@ export interface VerifiedVisitRecord {
     productsDiscussed: string[];
     fleetSize: string;
     narrativeOutcome: string;
-    nextStepText: string; // Free text only per PRD exclusion!
+    nextStepText: string;
     submittedAt?: string;
   };
   clientAuditStatus?: 'not_sampled' | 'pending_call' | 'confirmed' | 'disputed';
+  isRealRecord?: boolean;
 }
 
+const DEMO_VISITS: VerifiedVisitRecord[] = [
+  {
+    id: 'VIS-LAG-901',
+    repName: 'Tunde Adebayo',
+    clientName: 'Apex Commercial Transit Ltd',
+    branchName: 'Ibeju-Lekki Hub • Branch #BR-LAG-108',
+    category: 'Haulage Fleet Maintenance',
+    checkInTime: 'Today 09:15 WAT',
+    checkOutTime: 'Today 09:58 WAT',
+    duration: '43 mins',
+    locationStatus: 'location_verified',
+    geofenceResult: {
+      distanceMeters: 42,
+      thresholdMeters: 200,
+      passed: true,
+      accuracyMeters: 18,
+      checkInCoords: '6.4428° N, 3.4812° E',
+      pinCoords: '6.4425° N, 3.4810° E',
+    },
+    premisesPhotoUrl: '/brand/premises_demo_01.jpg',
+    meetingLog: {
+      status: 'complete',
+      contactMet: 'Engr. Babatunde Jinadu',
+      contactRole: 'Fleet Maintenance Director',
+      purpose: 'Routine Maintenance Supply Review',
+      productsDiscussed: ['Heavy Duty Coolant 20L', 'Fleet Degreaser', 'Air Brake Antifreeze'],
+      fleetSize: '45 articulated haulage trucks',
+      narrativeOutcome:
+        'Inspected vehicle maintenance workshop with Engr. Babatunde. Reviewed high coolant consumption during long-haul northern transit trips. Client expressed interest in our premium OAT formulation.',
+      nextStepText:
+        'Provide product technical data sheets and schedule follow-up trial on two test Volvo FH16 trucks next Tuesday.',
+      submittedAt: 'Today 10:02 WAT (Within SLA)',
+    },
+    clientAuditStatus: 'confirmed',
+    isRealRecord: false,
+  },
+  {
+    id: 'VIS-LAG-902',
+    repName: 'Chinyere Nwosu',
+    clientName: 'Equatorial Energy Hubs',
+    branchName: 'Apapa Marine Terminal • Branch #BR-LAG-002',
+    category: 'Bulk Fuel Fleet Terminal',
+    checkInTime: 'Today 11:20 WAT',
+    checkOutTime: 'Today 12:05 WAT',
+    duration: '45 mins',
+    locationStatus: 'location_verified',
+    geofenceResult: {
+      distanceMeters: 65,
+      thresholdMeters: 200,
+      passed: true,
+      accuracyMeters: 14,
+      checkInCoords: '6.4478° N, 3.3619° E',
+      pinCoords: '6.4474° N, 3.3615° E',
+    },
+    premisesPhotoUrl: '/brand/premises_demo_02.jpg',
+    meetingLog: {
+      status: 'complete',
+      contactMet: 'Mrs. Chinyere Nwosu',
+      contactRole: 'Safety & Environmental Officer',
+      purpose: 'Quarterly Environmental Audit & Spill Kit Review',
+      productsDiscussed: ['Industrial Absorbent Pads', 'Spill Containment Booms'],
+      fleetSize: '28 petroleum tankers',
+      narrativeOutcome:
+        'Audited fuel discharge bays for spill compliance. Current absorbents do not meet updated port authority guidelines.',
+      nextStepText:
+        'Email formal environmental compliance spec sheet to depot safety director by Thursday.',
+      submittedAt: 'Today 12:10 WAT (Within SLA)',
+    },
+    clientAuditStatus: 'confirmed',
+    isRealRecord: false,
+  },
+  {
+    id: 'VIS-LAG-903',
+    repName: 'Emeka Nwosu',
+    clientName: 'Atlantic Heavy Transport',
+    branchName: 'Lekki Depot Yard • Branch #BR-LAG-015',
+    category: 'Heavy Construction Haulage',
+    checkInTime: 'Today 14:00 WAT',
+    checkOutTime: 'Today 14:42 WAT',
+    duration: '42 mins',
+    locationStatus: 'location_verified',
+    geofenceResult: {
+      distanceMeters: 185,
+      thresholdMeters: 200,
+      passed: true,
+      accuracyMeters: 22,
+      checkInCoords: '6.4510° N, 3.5220° E',
+      pinCoords: '6.4522° N, 3.5210° E',
+    },
+    premisesPhotoUrl: '/brand/premises_demo_01.jpg',
+    meetingLog: {
+      status: 'missing',
+      contactMet: 'Pending Log Submission',
+      contactRole: 'Site Operations Lead',
+      purpose: 'Unrecorded',
+      productsDiscussed: [],
+      fleetSize: 'Unknown',
+      narrativeOutcome:
+        'Meeting log submission has exceeded the mandatory 2-hour post-checkout SLA window. Manager escalation flag active.',
+      nextStepText: '',
+      submittedAt: 'Exceeded SLA (>2h overdue)',
+    },
+    clientAuditStatus: 'pending_call',
+    isRealRecord: false,
+  },
+  {
+    id: 'VIS-LAG-904',
+    repName: 'Tunde Adebayo',
+    clientName: 'Global Maritime Supplies',
+    branchName: 'Apapa Port Terminal • Branch #BR-LAG-088',
+    category: 'Container Transport Services',
+    checkInTime: 'Today 10:15 WAT',
+    checkOutTime: 'Today 10:55 WAT',
+    duration: '40 mins',
+    locationStatus: 'manager_approved_unverified',
+    geofenceResult: {
+      distanceMeters: 0,
+      thresholdMeters: 200,
+      passed: false,
+      accuracyMeters: 0,
+      checkInCoords: 'GPS Hardware Failure (Exception Approved)',
+      pinCoords: '6.4460° N, 3.3600° E',
+    },
+    meetingLog: {
+      status: 'complete',
+      contactMet: 'Alhaji Bashir Al-Hassan',
+      contactRole: 'Managing Director',
+      purpose: 'Delayed Exception Visit Submission (Hardware Recovery)',
+      productsDiscussed: ['Heavy Duty Coolant 20L', 'Fleet Degreaser'],
+      fleetSize: '60 container trucks',
+      narrativeOutcome:
+        'Meeting conducted under battery recovery delayed submission. Salesperson submitted signed invoice and physical gate pass as corroborating evidence.',
+      nextStepText: 'Await company PO for 50 drums of coolant.',
+      submittedAt: 'Today 15:30 WAT (Post-Recovery)',
+    },
+    clientAuditStatus: 'not_sampled',
+    isRealRecord: false,
+  },
+];
+
 export const ClientVisitVerification: React.FC = () => {
+  const { currentUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLocationStatus, setFilterLocationStatus] = useState<'all' | 'verified' | 'unverified_approved'>('all');
   const [filterLogStatus, setFilterLogStatus] = useState<'all' | 'complete' | 'missing'>('all');
   const [selectedVisitForModal, setSelectedVisitForModal] = useState<VerifiedVisitRecord | null>(null);
 
-  const [visits] = useState<VerifiedVisitRecord[]>([
-    {
-      id: 'VIS-LAG-901',
-      repName: 'Tunde Adebayo',
-      clientName: 'Apex Commercial Transit Ltd',
-      branchName: 'Ibeju-Lekki Hub • Branch #BR-LAG-108',
-      category: 'Haulage Fleet Maintenance',
-      checkInTime: 'Today 09:15 WAT',
-      checkOutTime: 'Today 09:58 WAT',
-      duration: '43 mins',
-      locationStatus: 'location_verified',
-      geofenceResult: {
-        distanceMeters: 42,
-        thresholdMeters: 200,
-        passed: true,
-        accuracyMeters: 18,
-        checkInCoords: '6.4428° N, 3.4812° E',
-        pinCoords: '6.4425° N, 3.4810° E',
-      },
-      premisesPhotoUrl: '/brand/premises_demo_01.jpg',
-      meetingLog: {
-        status: 'complete',
-        contactMet: 'Engr. Babatunde Jinadu',
-        contactRole: 'Fleet Maintenance Director',
-        purpose: 'Routine Maintenance Supply Review',
-        productsDiscussed: ['Heavy Duty Coolant 20L', 'Fleet Degreaser', 'Air Brake Antifreeze'],
-        fleetSize: '45 articulated haulage trucks',
-        narrativeOutcome: 'Inspected vehicle maintenance workshop with Engr. Babatunde. Reviewed high coolant consumption during long-haul northern transit trips. Client expressed interest in our premium OAT formulation.',
-        nextStepText: 'Provide product technical data sheets and schedule follow-up trial on two test Volvo FH16 trucks next Tuesday.',
-        submittedAt: 'Today 10:02 WAT (Within SLA)',
-      },
-      clientAuditStatus: 'confirmed',
-    },
-    {
-      id: 'VIS-LAG-902',
-      repName: 'Chinyere Nwosu',
-      clientName: 'Equatorial Energy Hubs',
-      branchName: 'Apapa Marine Terminal • Branch #BR-LAG-002',
-      category: 'Bulk Fuel Fleet Terminal',
-      checkInTime: 'Today 11:20 WAT',
-      checkOutTime: 'Today 12:05 WAT',
-      duration: '45 mins',
-      locationStatus: 'location_verified',
-      geofenceResult: {
-        distanceMeters: 65,
-        thresholdMeters: 200,
-        passed: true,
-        accuracyMeters: 14,
-        checkInCoords: '6.4478° N, 3.3619° E',
-        pinCoords: '6.4474° N, 3.3615° E',
-      },
-      premisesPhotoUrl: '/brand/premises_demo_02.jpg',
-      meetingLog: {
-        status: 'complete',
-        contactMet: 'Mrs. Chinyere Nwosu',
-        contactRole: 'Safety & Environmental Officer',
-        purpose: 'Quarterly Environmental Audit & Spill Kit Review',
-        productsDiscussed: ['Industrial Absorbent Pads', 'Spill Containment Booms'],
-        fleetSize: '28 petroleum tankers',
-        narrativeOutcome: 'Audited fuel discharge bays for spill compliance. Current absorbents do not meet updated port authority guidelines.',
-        nextStepText: 'Email formal environmental compliance spec sheet to depot safety director by Thursday.',
-        submittedAt: 'Today 12:10 WAT (Within SLA)',
-      },
-      clientAuditStatus: 'not_sampled',
-    },
-    {
-      id: 'VIS-LAG-903',
-      repName: 'Emeka Nwosu',
-      clientName: 'Titan Engineering Works Ltd',
-      branchName: 'Heavy Haulage Yard • Branch #BR-LAG-055',
-      category: 'Industrial Plant Maintenance',
-      checkInTime: 'Today 11:15 WAT',
-      checkOutTime: 'Today 11:55 WAT',
-      duration: '40 mins',
-      locationStatus: 'manager_approved_unverified',
-      geofenceResult: {
-        distanceMeters: 0,
-        thresholdMeters: 200,
-        passed: false,
-        accuracyMeters: 0,
-        checkInCoords: 'No GPS (Device Battery Shutdown)',
-        pinCoords: '6.4510° N, 3.4210° E',
-      },
-      meetingLog: {
-        status: 'late_submitted',
-        contactMet: 'Mr. Jude Okafor',
-        contactRole: 'Logistics Procurement Lead',
-        purpose: 'Fleet Oil Replacement Cycle Review',
-        productsDiscussed: ['Brake Fluid DOT 4', 'Industrial Gear Oil ISO 220'],
-        fleetSize: '32 flatbed trailers',
-        narrativeOutcome: 'Met procurement team regarding ongoing high differential oil wear in gravel haulers. Log entered after phone was recharged at base.',
-        nextStepText: 'Meet workshop lead to test lubricant sample on haulage axle.',
-        submittedAt: 'Today 14:30 WAT (Late due to phone shutdown)',
-      },
-      clientAuditStatus: 'not_sampled',
-    },
-    {
-      id: 'VIS-LAG-904',
-      repName: 'Ibrahim Sani',
-      clientName: 'Zenith Logistics Express',
-      branchName: 'Tin Can Island Container Terminal • Branch #BR-LAG-019',
-      category: 'Inbound Logistics Depot',
-      checkInTime: 'Today 14:10 WAT',
-      checkOutTime: 'Today 14:48 WAT',
-      duration: '38 mins',
-      locationStatus: 'location_verified',
-      geofenceResult: {
-        distanceMeters: 185,
-        thresholdMeters: 200,
-        passed: true,
-        accuracyMeters: 35,
-        checkInCoords: '6.4380° N, 3.3420° E',
-        pinCoords: '6.4371° N, 3.3410° E',
-      },
-      meetingLog: {
-        status: 'missing',
-        contactMet: 'Pending Entry',
-        contactRole: 'Pending Entry',
-        purpose: 'Pending Entry',
-        productsDiscussed: [],
-        fleetSize: 'Pending Entry',
-        narrativeOutcome: 'Salesperson checked out 2.5 hours ago but has not yet submitted the meeting log. Flagged for manager follow-up.',
-        nextStepText: '',
-      },
-      clientAuditStatus: 'pending_call',
-    },
-  ]);
+  const [realVisits, setRealVisits] = useState<RealVisitVerificationRecord[]>([]);
+  const [isLoadingReal, setIsLoadingReal] = useState(false);
+  const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
 
-  const filteredVisits = visits.filter((v) => {
-    if (filterLocationStatus === 'verified' && v.locationStatus !== 'location_verified') return false;
-    if (filterLocationStatus === 'unverified_approved' && v.locationStatus !== 'manager_approved_unverified')
+  const loadRealVisits = useCallback(async () => {
+    setIsLoadingReal(true);
+    try {
+      const market = currentUser?.marketCode || 'NG';
+      const { data, error } = await managementService.getCountryVisits(market, undefined, 50);
+      if (error) {
+        console.warn('[ClientVisitVerification] Failed to fetch Supabase visits:', error.message);
+      } else {
+        setRealVisits(data);
+      }
+    } catch (err: any) {
+      console.warn('[ClientVisitVerification] Error:', err);
+    } finally {
+      setIsLoadingReal(false);
+    }
+  }, [currentUser?.marketCode]);
+
+  useEffect(() => {
+    loadRealVisits();
+  }, [loadRealVisits]);
+
+  // Resolve signed photo URL when inspecting a visit
+  useEffect(() => {
+    let active = true;
+    if (selectedVisitForModal?.premisesPhotoUrl) {
+      const p = selectedVisitForModal.premisesPhotoUrl;
+      if (p.startsWith('http') || p.startsWith('/brand') || p.startsWith('blob:') || p.startsWith('data:')) {
+        setSignedPhotoUrl(p);
+      } else {
+        managementService.getPremisesPhotoSignedUrl(p).then((url) => {
+          if (active && url) setSignedPhotoUrl(url);
+        });
+      }
+    } else {
+      setSignedPhotoUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [selectedVisitForModal]);
+
+  // Merge real Supabase visits with demonstration visits
+  const visits: VerifiedVisitRecord[] = useMemo(() => {
+    const realMapped: VerifiedVisitRecord[] = realVisits.map((v) => {
+      const isVerified = v.verificationStatus === 'location_verified';
+      const isApprovedUnverified = v.verificationStatus === 'manager_approved_unverified';
+
+      let auditStatus: VerifiedVisitRecord['clientAuditStatus'] = 'not_sampled';
+      if (v.clientAuditStatus) {
+        if (v.clientAuditStatus.auditOutcome === 'confirmed_valid') auditStatus = 'confirmed';
+        else if (v.clientAuditStatus.auditOutcome === 'disputed_denied') auditStatus = 'disputed';
+        else auditStatus = 'pending_call';
+      }
+
+      return {
+        id: v.id,
+        repName: v.repName,
+        clientName: v.organisationName,
+        branchName: v.branchName,
+        category: v.category,
+        checkInTime: v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT' : '—',
+        checkOutTime: v.checkOutAt ? new Date(v.checkOutAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT' : 'In Progress',
+        duration: v.durationMinutes !== null ? `${v.durationMinutes} mins` : 'Active',
+        locationStatus: isVerified ? 'location_verified' : isApprovedUnverified ? 'manager_approved_unverified' : 'unverified',
+        geofenceResult: {
+          distanceMeters: v.distanceMeters || 0,
+          thresholdMeters: v.geofenceRadiusM || 200,
+          passed: v.withinGeofence,
+          accuracyMeters: Math.round(v.checkInAccuracyM),
+          checkInCoords: `${v.checkInLatitude?.toFixed(4)}° N, ${v.checkInLongitude?.toFixed(4)}° E`,
+          pinCoords: v.pinLatitude ? `${v.pinLatitude?.toFixed(4)}° N, ${v.pinLongitude?.toFixed(4)}° E` : 'No Pin',
+        },
+        premisesPhotoUrl: v.premisesPhotoPath || undefined,
+        meetingLog: v.meetingLog
+          ? {
+              status: 'complete',
+              contactMet: v.meetingLog.contactName,
+              contactRole: v.meetingLog.contactRole,
+              purpose: v.meetingLog.visitPurpose,
+              productsDiscussed: v.meetingLog.productsDiscussed,
+              fleetSize: v.meetingLog.fleetSizeOrVolume || 'Standard Fleet',
+              narrativeOutcome: v.meetingLog.outcomeNarrative,
+              nextStepText: v.meetingLog.nextStepText,
+              submittedAt: v.meetingLog.submittedAt ? new Date(v.meetingLog.submittedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT' : 'Logged',
+            }
+          : {
+              status: 'missing',
+              contactMet: 'Pending Submission',
+              contactRole: 'Site Operations',
+              purpose: 'Unrecorded',
+              productsDiscussed: [],
+              fleetSize: 'Unknown',
+              narrativeOutcome: 'No meeting log record submitted yet.',
+              nextStepText: '',
+              submittedAt: 'Awaiting Log',
+            },
+        clientAuditStatus: auditStatus,
+        isRealRecord: true,
+      };
+    });
+
+    const demoFiltered = DEMO_VISITS.filter((d) => !realVisits.some((r) => r.id === d.id));
+    return [...realMapped, ...demoFiltered];
+  }, [realVisits]);
+
+  const filteredVisits = visits.filter((visit) => {
+    if (filterLocationStatus === 'verified' && visit.locationStatus !== 'location_verified') return false;
+    if (filterLocationStatus === 'unverified_approved' && visit.locationStatus !== 'manager_approved_unverified')
       return false;
-    if (filterLogStatus === 'complete' && v.meetingLog.status !== 'complete') return false;
-    if (filterLogStatus === 'missing' && v.meetingLog.status !== 'missing') return false;
+    if (filterLogStatus === 'complete' && visit.meetingLog.status !== 'complete') return false;
+    if (filterLogStatus === 'missing' && visit.meetingLog.status !== 'missing') return false;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
-        v.clientName.toLowerCase().includes(q) ||
-        v.branchName.toLowerCase().includes(q) ||
-        v.repName.toLowerCase().includes(q) ||
-        v.id.toLowerCase().includes(q)
+        visit.clientName.toLowerCase().includes(q) ||
+        visit.branchName.toLowerCase().includes(q) ||
+        visit.repName.toLowerCase().includes(q) ||
+        visit.id.toLowerCase().includes(q)
       );
     }
     return true;
@@ -209,9 +337,14 @@ export const ClientVisitVerification: React.FC = () => {
         <div className="flex items-start gap-3">
           <ShieldCheck className="w-5 h-5 text-brand-blue shrink-0 mt-0.5" />
           <div className="text-xs">
-            <h3 className="font-bold text-slate-900 text-sm">
-              Visit Verification &amp; Meeting Log Inspection (PRD §7.4 &amp; §8.1)
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-900 text-sm">
+                Visit Verification &amp; Meeting Log Inspection (PRD §7.4 &amp; §8.1)
+              </h3>
+              <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-blue-200">
+                Market: {currentUser?.marketCode || 'NG'}
+              </span>
+            </div>
             <p className="text-slate-700 font-medium mt-0.5">
               Distinguish physical location verification from meeting log completeness. Location verification requires GPS ≤100m within 200m geofence and live photo; meeting logs require narrative and free-text next steps within 2 hours.
             </p>
@@ -219,6 +352,16 @@ export const ClientVisitVerification: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadRealVisits}
+            disabled={isLoadingReal}
+            className="h-8 text-xs font-semibold gap-1.5 bg-white border-blue-200 text-brand-blue"
+          >
+            {isLoadingReal ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Refresh
+          </Button>
           <span className="text-xs font-bold px-2.5 py-1 rounded bg-white border border-blue-200 text-brand-blue">
             Geofence Limit: 200m
           </span>
@@ -263,7 +406,7 @@ export const ClientVisitVerification: React.FC = () => {
                       : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                   }`}
                 >
-                  Location Verified (3)
+                  Location Verified
                 </button>
                 <button
                   onClick={() => setFilterLocationStatus('unverified_approved')}
@@ -273,7 +416,7 @@ export const ClientVisitVerification: React.FC = () => {
                       : 'bg-amber-50 text-amber-900 border border-amber-200'
                   }`}
                 >
-                  Approved Unverified (1)
+                  Approved Unverified
                 </button>
               </div>
 
@@ -295,7 +438,7 @@ export const ClientVisitVerification: React.FC = () => {
                       : 'bg-rose-50 text-rose-800 border border-rose-200'
                   }`}
                 >
-                  Missing &gt;2h (1)
+                  Missing &gt;2h
                 </button>
               </div>
             </div>
@@ -320,6 +463,11 @@ export const ClientVisitVerification: React.FC = () => {
                     <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                       {visit.id}
                     </span>
+                    {visit.isRealRecord && (
+                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
+                        <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Visit
+                      </span>
+                    )}
                     <span className="text-xs text-slate-600 font-medium">
                       Salesperson: <strong className="text-slate-900">{visit.repName}</strong>
                     </span>
@@ -350,51 +498,45 @@ export const ClientVisitVerification: React.FC = () => {
                     {isLogMissing && (
                       <span className="text-xs font-bold text-rose-800 bg-rose-50 border border-rose-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                         <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                        Meeting Log Missing (&gt;2h)
-                      </span>
-                    )}
-                    {visit.meetingLog.status === 'late_submitted' && (
-                      <span className="text-xs font-bold text-orange-800 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">
-                        Late Log (&gt;2h SLA)
+                        Log Overdue (&gt;2h)
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* Visit Content Body */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {/* Left Column: Client & Check-in Details */}
-                  <div className="space-y-2">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">{visit.clientName}</h4>
-                      <p className="text-xs text-slate-600 font-medium flex items-center gap-1 mt-0.5">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        {visit.branchName}
-                      </p>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200 text-xs space-y-1">
-                      <div className="flex justify-between">
-                        <span className="text-slate-500 font-semibold">Check In:</span>
-                        <span className="font-mono font-bold text-slate-800">{visit.checkInTime}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500 font-semibold">Check Out:</span>
-                        <span className="font-mono font-bold text-slate-800">{visit.checkOutTime}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500 font-semibold">On-site Duration:</span>
-                        <span className="font-bold text-emerald-800">{visit.duration}</span>
-                      </div>
-                    </div>
+                {/* Organisation & Timing Bar */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">{visit.clientName}</h3>
+                    <p className="text-xs text-slate-600 flex items-center gap-1 font-medium mt-0.5">
+                      <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                      {visit.branchName}
+                    </p>
                   </div>
 
-                  {/* Middle Column: GPS & Geofence Audit Evidence */}
+                  <div className="flex items-center gap-3 text-xs bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 text-slate-600 font-mono">
+                    <div>
+                      In: <strong className="text-slate-900">{visit.checkInTime}</strong>
+                    </div>
+                    <div>•</div>
+                    <div>
+                      Out: <strong className="text-slate-900">{visit.checkOutTime}</strong>
+                    </div>
+                    <div>•</div>
+                    <div>
+                      Duration: <strong className="text-brand-blue">{visit.duration}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Evidence Grid: Geofence Evidence & Meeting Log Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  {/* Left Column: PostGIS Geofence Evidence */}
                   <div className="bg-slate-50/70 rounded-lg p-3 border border-slate-200 text-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-brand-blue" />
-                        GPS Evidence &amp; Geofence
+                        <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                        Authoritative PostGIS Geofence Result
                       </span>
                       <span
                         className={`text-[10px] font-extrabold px-2 py-0.5 rounded uppercase ${
@@ -527,22 +669,30 @@ export const ClientVisitVerification: React.FC = () => {
                 </div>
               </div>
 
-              {/* Premises Photo Preview (Demonstration Mock) */}
+              {/* Premises Photo Preview */}
               <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">
                 <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
                   <Camera className="w-3.5 h-3.5 text-brand-blue" />
                   Live Premises Verification Photo (Captured via In-App Camera)
                 </span>
-                <div className="h-40 bg-slate-200 rounded-lg flex items-center justify-center text-slate-500 border border-slate-300 relative overflow-hidden">
-                  <div className="text-center p-4">
-                    <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-1.5" />
-                    <span className="font-bold text-slate-700 block">
-                      Demonstration Premises Photo: Workshop Entrance Gate
-                    </span>
-                    <span className="text-[10px] text-slate-500 block">
-                      Watermarked: Lat {selectedVisitForModal.geofenceResult.checkInCoords} • {selectedVisitForModal.checkInTime}
-                    </span>
-                  </div>
+                <div className="h-44 bg-slate-900 rounded-lg flex items-center justify-center text-slate-500 border border-slate-300 relative overflow-hidden">
+                  {signedPhotoUrl ? (
+                    <img
+                      src={signedPhotoUrl}
+                      alt="Premises Verification"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center p-4">
+                      <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-1.5" />
+                      <span className="font-bold text-slate-200 block">
+                        Premises Photo: Client Workshop Entrance
+                      </span>
+                      <span className="text-[10px] text-slate-400 block font-mono">
+                        Watermarked: {selectedVisitForModal.geofenceResult.checkInCoords} • {selectedVisitForModal.checkInTime}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -584,6 +734,8 @@ export const ClientVisitVerification: React.FC = () => {
                       ? 'Client confirmed in routine 5% weekly phone audit.'
                       : selectedVisitForModal.clientAuditStatus === 'pending_call'
                       ? 'Queued for weekly random client audit verification call.'
+                      : selectedVisitForModal.clientAuditStatus === 'disputed'
+                      ? 'Disputed — Client denied meeting during audit call.'
                       : 'Not in current 5% random sampling queue.'}
                   </span>
                 </div>

@@ -1,21 +1,27 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAudit } from '@/context/AuditContext';
+import { useAuth } from '@/context/AuthContext';
+import { managementService, RealAuditCallRecord } from '@/services/managementService';
 import {
   PhoneCall,
-  CheckCircle2,
-  Clock,
-  User,
-  Phone,
-  AlertTriangle,
   Search,
-  X,
+  CheckCircle2,
+  AlertTriangle,
   RotateCcw,
-  ShieldAlert,
+  Clock,
+  Phone,
+  User,
   ShieldCheck,
-  FileText,
+  ShieldAlert,
   AlertOctagon,
+  FileText,
+  X,
+  RefreshCw,
+  Loader2,
+  Database as DatabaseIcon,
+  Sparkles,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -47,10 +53,12 @@ export interface AuditQueueItem {
   auditedAt?: string;
   resolvedBy?: string;
   resolvedAt?: string;
+  isRealRecord?: boolean;
 }
 
 export const ClientAuditWorkbench: React.FC = () => {
-  const { audits, recordAuditCall, resolveDispute } = useAudit();
+  const { currentUser } = useAuth();
+  const { audits: demoAudits, recordAuditCall, resolveDispute } = useAudit();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'random' | 'targeted'>('all');
@@ -72,9 +80,95 @@ export const ClientAuditWorkbench: React.FC = () => {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Real Supabase audit records
+  const [realAudits, setRealAudits] = useState<RealAuditCallRecord[]>([]);
+  const [isLoadingReal, setIsLoadingReal] = useState(false);
+  const [isSampling, setIsSampling] = useState(false);
+
+  const loadRealAudits = useCallback(async () => {
+    setIsLoadingReal(true);
+    try {
+      const market = currentUser?.marketCode || 'NG';
+      const { data, error } = await managementService.getClientAuditRecords(market);
+      if (error) {
+        console.warn('[ClientAuditWorkbench] Failed to load real audit records:', error.message);
+      } else {
+        setRealAudits(data);
+      }
+    } catch (err: any) {
+      console.warn('[ClientAuditWorkbench] Error loading real audits:', err);
+    } finally {
+      setIsLoadingReal(false);
+    }
+  }, [currentUser?.marketCode]);
+
+  useEffect(() => {
+    loadRealAudits();
+  }, [loadRealAudits]);
+
+  const handleSample5Pct = async () => {
+    setIsSampling(true);
+    try {
+      const market = currentUser?.marketCode || 'NG';
+      const { sampledCount, error } = await managementService.sampleWeeklyVisitsForAudit(market);
+      if (error) throw error;
+
+      if (sampledCount > 0) {
+        setToastMessage(`Sampled ${sampledCount} verified visit(s) into the 5% weekly audit queue.`);
+      } else {
+        setToastMessage(`No unsampled completed visits available in ${market}. Queue is current.`);
+      }
+      await loadRealAudits();
+    } catch (err: any) {
+      setToastMessage(`Sampling failed: ${err.message}`);
+    } finally {
+      setIsSampling(false);
+      setTimeout(() => setToastMessage(null), 5000);
+    }
+  };
+
   const auditQueue: AuditQueueItem[] = useMemo(() => {
-    return audits
-      .filter((a) => a.marketCode === 'NG')
+    // Map real audits from Supabase
+    const realMapped: AuditQueueItem[] = realAudits.map((a) => {
+      let status: AuditQueueItem['status'] = 'pending_call';
+      if (a.callStatus === 'connected' && a.meetingConfirmed === true) {
+        status = 'confirmed';
+      } else if (a.callStatus === 'connected' && a.meetingConfirmed === false) {
+        if (a.disputeStatus === 'resolved_cleared') status = 'resolved_cleared';
+        else if (a.disputeStatus === 'resolved_violation') status = 'resolved_violation';
+        else status = 'disputed';
+      } else if (a.callStatus === 'no_answer' || a.callStatus === 'busy' || a.callStatus === 'disconnected') {
+        status = 'unavailable';
+      }
+
+      return {
+        id: a.id,
+        visitId: a.visitId,
+        sampleType: a.selectionMethod === 'random_5pct' ? 'random_5_percent' : 'risk_targeted',
+        clientName: a.visit?.organisationName || 'Client Organisation',
+        branchName: a.visit?.branchName || 'Site Location',
+        contactName: a.contactName,
+        contactRole: 'Site Contact',
+        contactPhone: a.contactPhone,
+        repName: a.visit?.repName || 'Carbon Salesperson',
+        claimedDate: a.visit?.checkInAt ? a.visit.checkInAt.slice(0, 10) : 'Visit Date',
+        claimedTime: a.visit?.checkInAt ? new Date(a.visit.checkInAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT' : '—',
+        productsDiscussed: a.visit?.productsDiscussed?.join(', ') || 'Heavy Duty Lubricants & Coolants',
+        status,
+        callAttempts: a.attempts.length,
+        callNotes: a.attempts.length > 0 ? a.attempts[a.attempts.length - 1].callNotes || undefined : undefined,
+        disputeFindings: a.disputeNotes || undefined,
+        auditedBy: a.attempts.length > 0 ? a.attempts[a.attempts.length - 1].auditorName : undefined,
+        auditedAt: a.attempts.length > 0 ? new Date(a.attempts[a.attempts.length - 1].dialedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : undefined,
+        resolvedBy: a.resolvedBy || undefined,
+        resolvedAt: a.resolvedAt ? new Date(a.resolvedAt).toLocaleDateString() : undefined,
+        isRealRecord: true,
+      };
+    });
+
+    // Map demo audits as fallback
+    const demoMapped: AuditQueueItem[] = demoAudits
+      .filter((a) => a.marketCode === (currentUser?.marketCode || 'NG') && !realAudits.some((r) => r.id === a.id))
       .map((a) => {
         let status: AuditQueueItem['status'] = 'pending_call';
         if (a.callStatus === 'confirmed_meeting') {
@@ -112,9 +206,12 @@ export const ClientAuditWorkbench: React.FC = () => {
           auditedAt: a.lastCallTimestamp,
           resolvedBy: a.resolvedBy,
           resolvedAt: a.resolvedAt,
+          isRealRecord: false,
         };
       });
-  }, [audits]);
+
+    return [...realMapped, ...demoMapped];
+  }, [realAudits, demoAudits, currentUser?.marketCode]);
 
   const handleOpenCallModal = (item: AuditQueueItem) => {
     setActiveCallItem(item);
@@ -130,61 +227,117 @@ export const ClientAuditWorkbench: React.FC = () => {
     setDisputeDecision('cleared');
   };
 
-  const handleSaveAuditOutcome = () => {
+  const handleSaveAuditOutcome = async () => {
     if (!activeCallItem) return;
     if (!callNotes.trim()) {
       alert('Please enter detailed interview notes before saving.');
       return;
     }
 
-    const outcome =
-      clientMetInPerson === 'yes'
-        ? 'confirmed'
-        : clientMetInPerson === 'no'
-        ? 'disputed'
-        : 'unreachable';
+    if (activeCallItem.isRealRecord) {
+      try {
+        const callResult =
+          clientMetInPerson === 'yes'
+            ? 'reached_confirmed'
+            : clientMetInPerson === 'no'
+            ? 'reached_denied'
+            : 'no_answer';
 
-    recordAuditCall(activeCallItem.id, outcome, callNotes, productsConfirmed);
+        const { error } = await managementService.recordClientAuditCall({
+          auditRecordId: activeCallItem.id,
+          callResult,
+          notes: callNotes,
+        });
 
-    const resultingStatus =
-      clientMetInPerson === 'yes'
-        ? 'confirmed'
-        : clientMetInPerson === 'no'
-        ? 'disputed'
-        : 'unavailable';
+        if (error) throw error;
+        await loadRealAudits();
 
-    const statusLabel =
-      resultingStatus === 'confirmed'
-        ? 'Client Confirmed'
-        : resultingStatus === 'disputed'
-        ? 'Disputed — Pending Human Review'
-        : `Client Unavailable (Re-queued)`;
+        const statusLabel =
+          clientMetInPerson === 'yes'
+            ? 'Client Confirmed'
+            : clientMetInPerson === 'no'
+            ? 'Disputed — Pending Human Review (Audit Dispute Flag Raised)'
+            : 'Client Unavailable (Re-queued)';
 
-    setToastMessage(`Audit call [${activeCallItem.id}] recorded as: "${statusLabel}".`);
+        setToastMessage(`Audit call [${activeCallItem.id}] saved to Supabase: "${statusLabel}".`);
+      } catch (err: any) {
+        setToastMessage(`Audit call recording failed: ${err.message}`);
+      }
+    } else {
+      const outcome =
+        clientMetInPerson === 'yes'
+          ? 'confirmed'
+          : clientMetInPerson === 'no'
+          ? 'disputed'
+          : 'unreachable';
+
+      recordAuditCall(activeCallItem.id, outcome, callNotes, productsConfirmed);
+
+      const resultingStatus =
+        clientMetInPerson === 'yes'
+          ? 'confirmed'
+          : clientMetInPerson === 'no'
+          ? 'disputed'
+          : 'unavailable';
+
+      const statusLabel =
+        resultingStatus === 'confirmed'
+          ? 'Client Confirmed'
+          : resultingStatus === 'disputed'
+          ? 'Disputed — Pending Human Review'
+          : `Client Unavailable (Re-queued)`;
+
+      setToastMessage(`Audit call [${activeCallItem.id}] recorded as: "${statusLabel}".`);
+    }
+
     setTimeout(() => setToastMessage(null), 5000);
     setActiveCallItem(null);
   };
 
-  const handleSaveDisputeResolution = () => {
+  const handleSaveDisputeResolution = async () => {
     if (!activeDisputeItem) return;
     if (!disputeFindings.trim()) {
       alert('Please enter managerial inquiry findings before resolving the dispute.');
       return;
     }
 
-    resolveDispute(
-      activeDisputeItem.id,
-      disputeFindings,
-      secondaryContact,
-      disputeDecision
-    );
+    if (activeDisputeItem.isRealRecord) {
+      try {
+        const decision = disputeDecision === 'cleared' ? 'rep_substantiated' : 'confirmed_violation';
+        const { error } = await managementService.resolveClientAuditDispute({
+          auditRecordId: activeDisputeItem.id,
+          decision,
+          mandatoryReason: disputeFindings,
+        });
 
-    const resolutionLabel =
-      disputeDecision === 'cleared'
-        ? 'Dispute Cleared (Secondary Witness Validated)'
-        : 'Confirmed Violation (Escalated to HQ Admin/HR)';
+        if (error) throw error;
+        await loadRealAudits();
 
-    setToastMessage(`Dispute for [${activeDisputeItem.id}] resolved: "${resolutionLabel}".`);
+        const resolutionLabel =
+          disputeDecision === 'cleared'
+            ? 'Dispute Cleared (Secondary Witness Validated)'
+            : 'Confirmed Violation (Escalated to HQ Admin/HR)';
+
+        setToastMessage(`Dispute for [${activeDisputeItem.id}] resolved in Supabase: "${resolutionLabel}".`);
+      } catch (err: any) {
+        setToastMessage(`Failed to resolve dispute: ${err.message}`);
+      }
+    } else {
+      resolveDispute(
+        activeDisputeItem.id,
+        disputeFindings,
+        secondaryContact,
+        disputeDecision
+      );
+
+      const resolutionLabel =
+        disputeDecision === 'cleared'
+          ? 'Dispute Cleared (Secondary Witness Validated)'
+          : 'Confirmed Violation (Escalated to HQ Admin/HR)';
+
+      setToastMessage(`Dispute for [${activeDisputeItem.id}] resolved: "${resolutionLabel}".`);
+    }
+
     setTimeout(() => setToastMessage(null), 5000);
     setActiveDisputeItem(null);
   };
@@ -238,9 +391,14 @@ export const ClientAuditWorkbench: React.FC = () => {
         <div className="flex items-start gap-3">
           <PhoneCall className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
           <div className="text-xs">
-            <h3 className="font-bold text-slate-900 text-sm">
-              Client Audit Phone Call Workbench (PRD §8.3 &amp; AT-10)
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-900 text-sm">
+                Client Audit Phone Call Workbench (PRD §8.3 &amp; AT-10)
+              </h3>
+              <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                Market: {currentUser?.marketCode || 'NG'}
+              </span>
+            </div>
             <p className="text-slate-700 font-medium mt-0.5">
               Weekly 5% random sampling plus risk-targeted visits. Location verification and client confirmation are separate audit dimensions. Client denials trigger{' '}
               <span className="font-bold text-rose-800">Disputed — Pending Review</span> for human management investigation, never automatic disciplinary action.
@@ -249,6 +407,27 @@ export const ClientAuditWorkbench: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadRealAudits}
+            disabled={isLoadingReal}
+            className="h-8 text-xs font-semibold gap-1.5 bg-white border-emerald-300 text-emerald-900"
+          >
+            {isLoadingReal ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Refresh
+          </Button>
+
+          <Button
+            size="sm"
+            onClick={handleSample5Pct}
+            disabled={isSampling}
+            className="h-8 text-xs font-bold gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white"
+          >
+            {isSampling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            Run 5% Sample
+          </Button>
+
           <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-900 shadow-2xs">
             {pendingCount} Pending Calls • {disputedCount} Open Disputes
           </span>
@@ -354,8 +533,8 @@ export const ClientAuditWorkbench: React.FC = () => {
                   onClick={() => setFilterType('targeted')}
                   className={`px-2 py-0.5 rounded font-bold text-[11px] cursor-pointer ${
                     filterType === 'targeted'
-                      ? 'bg-rose-700 text-white'
-                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      ? 'bg-orange-700 text-white'
+                      : 'bg-orange-50 text-orange-800 border border-orange-200'
                   }`}
                 >
                   Risk Targeted
@@ -366,7 +545,7 @@ export const ClientAuditWorkbench: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Queue Items List */}
+      {/* Audit Queue Grid */}
       <div className="space-y-4">
         {filteredQueue.map((item) => {
           const isPending = item.status === 'pending_call';
@@ -380,10 +559,10 @@ export const ClientAuditWorkbench: React.FC = () => {
             <Card
               key={item.id}
               className={`border transition-all ${
-                isPending
-                  ? 'border-emerald-300 shadow-xs bg-white'
-                  : isDisputed
-                  ? 'border-rose-300 shadow-xs bg-rose-50/30'
+                isDisputed
+                  ? 'border-rose-300 bg-rose-50/20 shadow-xs'
+                  : isPending
+                  ? 'border-amber-200 bg-white shadow-xs'
                   : 'border-slate-200 bg-slate-50/50'
               }`}
             >
@@ -392,18 +571,24 @@ export const ClientAuditWorkbench: React.FC = () => {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                      className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
                         item.sampleType === 'random_5_percent'
                           ? 'bg-blue-100 text-brand-blue border border-blue-200'
-                          : 'bg-rose-100 text-rose-900 border border-rose-200'
+                          : 'bg-orange-100 text-orange-900 border border-orange-200'
                       }`}
                     >
                       {item.sampleType === 'random_5_percent' ? '5% Random Sample' : 'Risk-Based Audit'}
                     </span>
 
                     <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                      {item.id} • {item.visitId}
+                      {item.id}
                     </span>
+
+                    {item.isRealRecord && (
+                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
+                        <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Audit
+                      </span>
+                    )}
 
                     <span className="text-xs text-slate-700 font-semibold">
                       Claimed Rep: <strong className="text-slate-900">{item.repName}</strong>
@@ -549,7 +734,7 @@ export const ClientAuditWorkbench: React.FC = () => {
 
                       {!isPending && (
                         <div className="text-[10px] text-slate-500">
-                          Audited by {item.auditedBy} • {item.auditedAt}
+                          Audited by {item.auditedBy || 'Country Sales Head'} • {item.auditedAt || 'Recorded'}
                         </div>
                       )}
                     </div>
@@ -688,14 +873,14 @@ export const ClientAuditWorkbench: React.FC = () => {
                   value={callNotes}
                   onChange={(e) => setCallNotes(e.target.value)}
                   placeholder="Summarize the client's comments, confirmed meeting details, or reason for denial..."
-                  className="w-full text-xs p-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                  className="w-full text-xs p-3 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-brand-blue"
                 />
               </div>
 
               {clientMetInPerson === 'no' && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-[11px]">
                   <strong>Warning:</strong> Client denial will immediately transition visit to{' '}
-                  <span className="font-bold">Disputed — Pending Review</span> and notify regional leadership for human investigation.
+                  <span className="font-bold">Disputed — Pending Review</span> and raise an automated audit dispute flag in Supabase.
                 </div>
               )}
             </div>
@@ -771,7 +956,7 @@ export const ClientAuditWorkbench: React.FC = () => {
                     value={disputeFindings}
                     onChange={(e) => setDisputeFindings(e.target.value)}
                     placeholder="Document interview with representative, witness statements, gate logbook check..."
-                    className="w-full text-xs p-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                    className="w-full text-xs p-3 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-brand-blue"
                   />
                 </div>
 

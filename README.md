@@ -57,7 +57,7 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 0, 1, 2, 3A, 3B, 3C & 3D Completed)
+## 4. Current Milestone Status (Stages 0, 1, 2, 3A, 3B, 3C, 3D & 3E Completed)
 
 ```
 [✓] Stage 0   — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
@@ -72,12 +72,12 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Stage 3B  — Real Attendance & Workday Management (ADR 0010)
 [✓] Stage 3C  — Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs (ADR 0011, Migrations 00026–00027)
 [✓] Stage 3D  — Durable Offline IndexedDB Journal, Media Queuing & Dependency Synchronisation (ADR 0012)
-[ ] Stage 3E  — Management Reports, Safe CSV Exports & Reconciliation (Awaiting Authorization)
+[✓] Stage 3E  — Management Reports, GPS Pin Governance, Zero Bottleneck MDM & Safe CSV Exports (ADR 0013)
 [ ] Stage 3F  — Security Audit, Real-Device QA & Pilot Deployment
 ```
 
 > [!IMPORTANT]
-> **Operational Data Notice:** **Stage 3A (Supabase GoTrue Auth), Stage 3B (Real Daily Attendance Persistence), Stage 3C (Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs), and Stage 3D (Durable Offline IndexedDB Event Journal, Binary Media Queue & Topological Dependency Sync)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.visits`, `public.meeting_logs`, `public.organisations`, `public.branches`, `public.branch_location_pins`), private Storage buckets (`attendance-selfies`, `visit-premises-photos`, `business-cards`), and local `Dexie.js` IndexedDB (`CarbonOfflineJournalDB`). Live manager approval/export feeds (Stage 3E) remain scheduled for subsequent stages.
+> **Operational Data Notice:** **Stage 3A (Supabase GoTrue Auth), Stage 3B (Real Daily Attendance Persistence), Stage 3C (Real Client Visits, Authoritative PostGIS Geofencing, Camera Evidence & Meeting Logs), Stage 3D (Durable Offline IndexedDB Event Journal, Binary Media Queue & Topological Dependency Sync), and Stage 3E (Real Management & HQ Administration Integration)** are fully operational and backed by the hosted PostgreSQL database (`public.attendance_days`, `public.visits`, `public.meeting_logs`, `public.organisations`, `public.branches`, `public.branch_location_pins`, `public.device_replacement_requests`, `public.client_audit_records`, `public.verification_flags`, `public.export_jobs`, `public.import_batches`), private Storage buckets (`attendance-selfies`, `visit-premises-photos`, `business-cards`), and local `Dexie.js` IndexedDB (`CarbonOfflineJournalDB`).
 
 ---
 
