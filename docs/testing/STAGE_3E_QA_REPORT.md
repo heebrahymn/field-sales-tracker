@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Milestone:** Stage 3E (Real Country Sales Head & HQ Administration Integration)  
-**Status:** Passed (14/14 Vitest Suites, 187/187 Automated Tests incl. 17 Stage 3E Integration Tests + Complete Live Supabase Dev Project Suite + 15 Multi-Viewport Browser Screenshots)  
+**Status:** Passed (14/14 Vitest Suites, 190/190 Automated Tests incl. 20 Stage 3E Integration Tests + Complete Live Supabase Dev Project Suite + 15 Multi-Viewport Browser Screenshots)  
 **Date:** October 28, 2026  
 **Reference:** PRD v1.2 (MVP Updated) §3, §4.2, §6.2, §6.5, §7.1, §7.3, §7.5, §8.1, §8.2, §8.3, §10; Acceptance Tests AT-06, AT-07, AT-08, AT-09, AT-10, AT-13, AT-14, AT-15; ADR 0013  
 
@@ -14,7 +14,7 @@
 
 Stage 3E connects the management console for **Country Sales Heads** and **HQ Enterprise Administrators** to real Supabase tables, views, stored procedures (RPCs), private private Storage buckets, and PostgreSQL Row-Level Security (RLS) policies.
 
-All **17 Stage 3E integration tests** (`src/test/stage-3e-manager-hq.test.tsx`), all **13 prior regression test suites** (`187/187` total Vitest tests), TypeScript strict compilation (`npx tsc --noEmit`), ESLint (`npm run lint`), production build (`npm run build`), the live Supabase database integrity and RPC verification suite (`scripts/test_stage_3e_db_integrity.py`), and the 15-point multi-viewport browser suite (`scripts/verify_stage_3e_browser.py`) passed with zero errors.
+All **20 Stage 3E integration tests** (`src/test/stage-3e-manager-hq.test.tsx`), all **13 prior regression test suites** (`190/190` total Vitest tests), TypeScript strict compilation (`npx tsc --noEmit`), ESLint (`npm run lint`), production build (`npm run build`), the live Supabase database integrity and RPC verification suite (`scripts/test_stage_3e_db_integrity.py`), the Edge Function test suite (`scripts/test_provision_user_edge_function.py`), and the multi-viewport browser suite (`scripts/verify_stage_3e_browser.py`) passed with zero errors.
 
 ---
 
@@ -39,6 +39,9 @@ All **17 Stage 3E integration tests** (`src/test/stage-3e-manager-hq.test.tsx`),
 | **15** | CountryCsvExportModal renders with CWE-1236 notice | Renders modal, displays injection protection notice, triggers export, and logs audit record into `public.export_jobs` | **PASS** |
 | **16** | Shared company telephone permitted across branches (PRD §4.2) | Client Master ERP ingestion allows multiple branches of the same client to share switchboard telephone (+234 1 270 5000) | **PASS** |
 | **17** | Unpinned branches marked `location_pending` (AT-08) | Branches imported without confirmed GPS coordinates are marked `location_pending = true` with `approved_pin_id = null` | **PASS** |
+| **18** | Edge Function user provisioning call | Calls `adminService.provisionUser` invoking `admin-provision-user` edge function; returns success and temporary credentials | **PASS** |
+| **19** | Duplicate email conflict handling (HTTP 409) | Propagates Edge Function conflict error message when provisioning an existing email | **PASS** |
+| **20** | Corporate email validation handling (HTTP 400) | Propagates validation error when email is malformed | **PASS** |
 
 ---
 

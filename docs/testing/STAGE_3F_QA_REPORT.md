@@ -140,6 +140,7 @@ All 19 verification screenshots captured during the live staging E2E test run ha
 | **DEF-3F-01** | High | In cross-market manager RPC execution, managers in Country B could invoke `approve_branch_location_pin` on branches in Country A because `SECURITY DEFINER` functions bypassed table RLS. | Applied Migration 00028 adding explicit `v_branch_market <> public.auth_market()` check in RPC. | **RESOLVED & VERIFIED** |
 | **DEF-3F-02** | Medium | Formula injection sanitization failed for cells with leading tab characters (`\t`) when `.strip()` was invoked prematurely. | Standardized `sanitizeCsvCell` across TypeScript and Python to check prefix before whitespace trimming. | **RESOLVED & VERIFIED** |
 | **DEF-3F-03** | Low | Playwright locator string parsing failed when mixing CSS `:has-text(...)` with Playwright `text=` engine syntax in comma-separated strings. | Refactored locator strings to pure CSS `:has-text(...)` or `.or_()` chains. | **RESOLVED & VERIFIED** |
+| **DEF-3F-04** | Critical (P0) | HQ Admin User Creation did not persist in database or allow login; UI only mutated local React state, and PostgREST schema ambiguity (PGRST201) in adminService.getHqUsers() forced fallback to mock data. | Deployed secure Supabase Edge Function admin-provision-user using GoTrue admin API with service-role token, disambiguated PostgREST foreign key `device_assignments!device_assignments_salesperson_id_fkey`, updated UI with live directory loading and temporary credential modal, verified 190 tests and live E2E login on Vercel staging. | **RESOLVED & VERIFIED** |
 
 ---
 
@@ -154,3 +155,40 @@ The software artifacts deployed to `https://field-sales-tracker-b6l7.vercel.app/
 2. **ERP Master Data Validation:** Prior to uploading live commercial clients into the database, inspect source ERP headers, verify stable customer IDs, and obtain enterprise administrative sign-off.
 3. **Pilot Group Selection:** Conduct a 2-week pilot with 3–5 field sales reps per market before enabling operations across the wider commercial fleet.
 4. **Final Operational Boundary:** Do **NOT** launch unrestricted production operations until the field pilot on physical handsets is completed and formally reviewed.
+
+
+---
+
+## 8. Post-Stage 3F Critical Defect Verification (P0 — User Provisioning)
+
+Following the initial Stage 3F deployment, a critical issue was discovered during manual testing: creating a user in the HQ Admin console did not persist the user to Supabase Auth/DB or allow the user to authenticate.
+
+### Root Cause Analysis
+1. **Frontend Mock Mutation:** `HqUserManagement.tsx` only invoked `setUsers([createdUserRecord, ...users])` on form submission rather than issuing a backend persistence call.
+2. **PostgREST `PGRST201` Schema Ambiguity:** The query in adminService.getHqUsers() embedded `device_assignments(*)` on `profiles`. Because device_assignments has two foreign keys to profiles.id (salesperson_id and assigned_by), PostgREST returned HTTP 300 Multiple Choices. This error caused `getHqUsers()` to catch an exception and silently fall back to static mock data, obscuring the absence of live backend integration.
+
+### Architectural Solution
+1. **Server-Side Edge Function (admin-provision-user):**
+   - Deployed to Supabase project `[SUPABASE_PROJECT_ID]`.
+   - Validates caller JWT and enforces that caller profile is `role = 'hq_admin'` and `is_active = true`.
+   - Prevents duplicate email accounts (HTTP 409).
+   - Invokes `supabaseAdmin.auth.admin.createUser()` with `email_confirm: true`.
+   - Atomically inserts profile into public.profiles matching the auth.users UUID.
+   - Executes compensating rollback (deleting auth user) if profile insertion fails.
+   - Records an immutable audit record in `public.approval_audit` with action `user_provisioned`.
+2. **PostgREST Query Disambiguation:**
+   - Updated adminService.getHqUsers() to reference `device_assignments!device_assignments_salesperson_id_fkey` to explicitly resolve the relation.
+3. **Frontend Integration:**
+   - Wired HqUserManagement.tsx to adminService.provisionUser.
+   - Replaced mock user fallback with live Supabase directory loading and refresh functionality.
+   - Added temporary credential modal showing generated credentials and a 'Copy Credentials' action.
+
+### Live Staging Verification
+- **Automated Backend Security Suite:** Tested unauthenticated caller (401), unauthorized roles (403), duplicate emails (409), and invalid market validation (400) via `scripts/test_provision_user_edge_function.py`.
+- **Live Vercel Staging E2E Test:** Automated with Playwright (`scripts/verify_live_user_provisioning.py`):
+  1. Authenticated as HQ Admin on `https://field-sales-tracker-b6l7.vercel.app/`.
+  2. Provisioned new user `zainab.lawal.test0480@carboncarcare.com` (Nigeria Salesperson).
+  3. Confirmed credentials modal displayed and user appeared in live directory table.
+  4. Logged out, switched to mobile viewport (390x844), and authenticated as `zainab.lawal.test0480@carboncarcare.com`.
+  5. Successfully landed on salesperson dashboard displaying 'Hello, Zainab', 'Nigeria (Africa/Lagos)', and 'Start Workday'.
+- **Evidence:** 8 screenshots recorded in `docs/screenshots/stage3f/p0_fix_*.png`.

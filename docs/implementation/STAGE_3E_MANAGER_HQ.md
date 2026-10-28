@@ -49,7 +49,8 @@ Provides market-scoped operational workflows for Country Sales Heads:
 ### 2.2 HQ Admin Service (`src/services/adminService.ts`)
 Provides cross-market enterprise management:
 - `getHqOperationsOverview()`: Fetches cross-market rollups across Nigeria, Zambia, and Malawi.
-- `getHqUsers()`: Retrieves all system profiles, roles, assigned markets, and device custody bindings.
+- `getHqUsers()`: Retrieves all system profiles, roles, assigned markets, and device custody bindings via disambiguated relation `device_assignments!device_assignments_salesperson_id_fkey`.
+- `provisionUser(payload)`: Provisions new employee accounts in Supabase GoTrue Auth and PostgreSQL `public.profiles` via server-side Edge Function `admin-provision-user`.
 - `updateUserProfile(userId, updates)`: Updates user role, market, phone, or active status.
 - `getHqDevices()`: Retrieves company-issued device fleet inventory, Knox MDM compliance, and assignments.
 - `registerDevice(deviceData)`: Enrolls new company hardware in central depot pool.

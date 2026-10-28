@@ -365,7 +365,7 @@ carbonSalesTracker/
 │   │   └── utils.ts                     # UI styling utilities
 │   ├── types/                           # Strongly-typed schemas
 │   │   └── database.types.ts            # Supabase database TypeScript definitions
-│   └── test/                            # Vitest unit test suites (13 suites, 170 tests)
+│   └── test/                            # Vitest unit test suites (14 suites, 190 tests)
 │       ├── at15-exclusions.test.tsx     # Strict MVP scope boundary assertions
 │       ├── brand-logo.test.tsx          # Brand identity compliance assertions
 │       ├── salesperson-context.test.tsx # AT-03, AT-04, PRD §4.2, §7.4, §9 tests
@@ -374,15 +374,19 @@ carbonSalesTracker/
 │       ├── stage-1e-cross-role-integration.test.tsx # Cross-role state integration tests (Workflows A-E)
 │       ├── stage-3c-client-visits.test.tsx # Stage 3C real client visits, geofencing & meeting logs (18 tests)
 │       ├── stage-3d-offline-sync.test.tsx  # Stage 3D durable IndexedDB journal & dependency sync (27 scenarios)
+│       ├── stage-3e-manager-hq.test.tsx    # Stage 3E management dashboards, review queues & user provisioning (20 tests)
 │       └── status-badge.test.tsx        # Operational status badge tests
 ├── scripts/
 │   ├── provision-users.ts               # Official Supabase Auth Admin API account provisioning
+│   ├── verify_stage_3f_vercel_e2e.py    # Live Vercel staging E2E QA suite (27 tests)
+│   ├── verify_live_user_provisioning.py # Live HQ Admin user provisioning and mobile login verification
 │   └── test-backend.ts                  # Stage 2B automated backend verification suite (60 tests)
 ├── supabase/
-│   └── migrations/                      # 25 sequential declarative SQL migrations
+│   ├── functions/admin-provision-user/  # Secure GoTrue admin user provisioning Edge Function
+│   └── migrations/                      # 28 sequential declarative SQL migrations
 ├── docs/
 │   ├── provisioning.md                  # Account provisioning & credential security protocol
-│   └── decisions/                       # Architecture Decision Records (ADRs 0001–0008)
+│   └── decisions/                       # Architecture Decision Records (ADRs 0001–0014)
 ├── AGENTS.md                            # Always-on Antigravity master instructions
 └── package.json
 ```
@@ -437,7 +441,7 @@ npx tsc --noEmit
 # ESLint static code quality audit
 npm run lint
 
-# Automated unit & integration tests (Vitest — 13 suites, 170 tests)
+# Automated unit & integration tests (Vitest — 14 suites, 190 tests)
 npm test
 ```
 

@@ -98,3 +98,32 @@ When Country Sales Heads or HQ Admins export visit data:
    - `npx tsc --noEmit`: 0 errors.
    - `npm run lint`: 0 errors.
    - `npm run build`: Production bundle completed in 9.24s.
+
+---
+
+## 4. Post-Stage 3F Amendment: P0 Defect Resolution — Server-Side HQ User Provisioning & Directory Disambiguation (2026-10-28)
+
+### Context & Problem Statement
+During manual acceptance testing on live staging, creating a new employee under **HQ Admin → User & Role Management** failed to persist the user to Supabase Auth (`auth.users`) or database profiles (`public.profiles`). The newly provisioned user could not authenticate. Furthermore, the user directory displayed static mock users rather than live database profiles.
+
+### Root Cause
+1. **Frontend Disconnection:** `handleCreateUser` in `HqUserManagement.tsx` merely called `setUsers([createdUserRecord, ...users])` in local React state. `adminService.ts` lacked a backend user provisioning method.
+2. **PostgREST Schema Disambiguation Error (PGRST201):** `adminService.getHqUsers()` queried `profiles` embedded with `device_assignments`. Because `device_assignments` contains two foreign keys pointing to `profiles.id` (`salesperson_id` and `assigned_by`), PostgREST returned HTTP 300 Multiple Choices with code `PGRST201`. The query silently failed and caused the directory to fall back to static mock data.
+
+### Architectural Decision & Solution
+1. **Server-Side Edge Function (`admin-provision-user`):**
+   - Provisioning employee identities requires privileged Auth Admin API calls (`auth.admin.createUser`) that must never expose `SUPABASE_SERVICE_ROLE_KEY` to browser clients.
+   - Deployed Deno Edge Function `admin-provision-user` on Supabase dev project `[SUPABASE_PROJECT_ID]`.
+   - **Authorization Gate:** The function extracts the caller's JWT, validates the user with GoTrue, and inspects `public.profiles`. Only active callers with `role = 'hq_admin'` and `is_active = true` may proceed; Salespeople and Country Sales Heads receive HTTP 403 Forbidden.
+   - **Atomic Provisioning & Compensating Rollback:** The function creates the `auth.users` record (with `email_confirm: true`) and immediately inserts into `public.profiles` with matching UUID, full name, role, and market scoping. If profile insertion fails, the function executes a compensating rollback (`auth.admin.deleteUser`) to prevent orphaned auth identities.
+   - **Audit Trail:** Successful provisioning logs an immutable audit event in `public.approval_audit` (`action: 'user_provisioned'`).
+2. **PostgREST Disambiguation:** Updated `getHqUsers()` to explicitly reference `device_assignments!device_assignments_salesperson_id_fkey`.
+3. **Frontend Integration:**
+   - Wired `HqUserManagement.tsx` to `adminService.provisionUser`.
+   - Added loading spinner and error alerts during submission.
+   - Implemented an interactive "User Account Provisioned" credential modal that displays the employee summary, initial temporary password, and a "Copy Credentials" action.
+   - Added a "Refresh" action in the console header.
+4. **Verification:**
+   - Vitest suite updated to 190/190 passing tests.
+   - Live E2E script `scripts/verify_live_user_provisioning.py` verified on live Vercel staging (`https://field-sales-tracker-b6l7.vercel.app/`): HQ Admin provisioned real employee `zainab.lawal.test0480@carboncarcare.com`, who authenticated immediately in a mobile browser session and reached the Field Sales dashboard.
+   - 8 visual artifacts captured in `docs/screenshots/stage3f/p0_fix_*.png`.

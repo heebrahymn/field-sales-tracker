@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Post-Stage 3F Hotfix] - P0 Defect Resolution: Secure Server-Side HQ Admin User Provisioning & Directory Disambiguation (2026-10-28)
+
+### Fixed (P0 Critical Defect)
+- **HQ Admin User Creation Persistence & Authentication:**
+  - Resolved P0 defect where creating an employee under **HQ Admin → User & Role Management** only updated local React state (`setUsers`) and did not persist records to Supabase GoTrue Auth or PostgreSQL `profiles` table.
+  - Resolved PostgREST relationship ambiguity (`PGRST201`) in `adminService.getHqUsers()` where multiple foreign keys between `profiles` and `device_assignments` (`assigned_by` vs `salesperson_id`) caused directory queries to fail with HTTP 300, forcing the UI into demo fallback mode.
+
+### Added
+- **Server-Side User Provisioning Edge Function (`supabase/functions/admin-provision-user/index.ts`):**
+  - Secure Deno Edge Function deployed to remote Supabase development project `[SUPABASE_PROJECT_ID]`.
+  - Verifies caller session JWT server-side via `auth.getUser()`.
+  - Enforces caller profile authorization: caller must possess `role = 'hq_admin'` and `is_active = true` in `public.profiles` (Salesperson and Country Sales Head callers are rejected with HTTP 403 Forbidden; unauthenticated callers rejected with HTTP 401).
+  - Validates full name, corporate email regex, role (`salesperson`, `country_sales_head`, `hq_admin`), and market scoping (`NG`, `ZM`, `MW` for reps/heads; `null` for global HQ admin).
+  - Enforces duplicate email prevention (HTTP 409 Conflict).
+  - Creates cryptographic identity in `auth.users` via Supabase GoTrue Admin API with `email_confirm: true`.
+  - Creates matching record in `public.profiles` with identical UUID, role, and market code.
+  - Implements compensating rollback: automatically deletes created `auth.users` record if `public.profiles` persistence encounters any constraint violation.
+  - Supports optional company handset device binding in `public.device_assignments`.
+  - Logs immutable audit record in `public.approval_audit` with `action: 'user_provisioned'`.
+- **Frontend Management Service Integration (`src/services/adminService.ts`):**
+  - Added `adminService.provisionUser(payload)` calling the Edge Function with the caller's active GoTrue access token.
+  - Disambiguated `getHqUsers()` query using `device_assignments!device_assignments_salesperson_id_fkey`.
+- **HQ User Management Console UI Polish (`src/features/admin/HqUserManagement.tsx`):**
+  - Connected modal to `adminService.provisionUser` with loading spinner, disabled submission state, and server error banner.
+  - Replaced mock user blending with live Supabase database directory loading.
+  - Added "User Account Provisioned" credential modal displaying employee summary, temporary initial password, and "Copy Credentials" clipboard button.
+  - Added Directory "Refresh" action in header to pull fresh Supabase profiles on demand.
+
+### Verified
+- Automated Vitest suite: 190/190 passing tests across 14 test suites (added 3 unit & error scenarios in `stage-3e-manager-hq.test.tsx`).
+- Live backend security test: `scripts/test_provision_user_edge_function.py` passing 100% (401 unauth, 403 salesperson, 403 sales head, 201 HQ admin, profile persistence, duplicate rejection).
+- Live Vercel Staging E2E Verification: `scripts/verify_live_user_provisioning.py` passing 100% against `https://field-sales-tracker-b6l7.vercel.app/`:
+  - HQ Admin provisioned real employee `zainab.lawal.test0480@carboncarcare.com`.
+  - Successfully logged in as the newly created employee on mobile viewport and confirmed immediate access to Mobile Field Salesperson dashboard.
+- Captured 8 verification screenshots in `docs/screenshots/stage3f/p0_fix_*.png`.
+
+---
+
 ## [Stage 3F] - End-to-End QA, Physical Handset Protocols & Live Vercel Staging Deployment (2026-10-28)
 
 ### Added

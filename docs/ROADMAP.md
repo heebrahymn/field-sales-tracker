@@ -4,7 +4,7 @@
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
 **Last Updated:** October 28, 2026  
-**Current Milestone:** Stage 3E & Stage 3F Completed (Controlled Field Pilot Prepared; Business Rollout Awaiting Authorization)  
+**Current Milestone:** Stage 3F Completed & Post-3F P0 Defect Resolved (Controlled Field Pilot Prepared; Business Rollout Awaiting Authorization)  
 
 ---
 
@@ -28,6 +28,7 @@
 [✓] Stage 3D — Offline IndexedDB Journal, Media Queuing & Dependency Sync (ADR 0012)
 [✓] Stage 3E — Management Dashboards, GPS Pin Governance, Zero Bottleneck MDM, Safe CSV Exports & Dispute Resolution (ADR 0013)
 [✓] Stage 3F — End-to-End QA, Physical Device Protocols, Vercel Staging Deployment & Pilot Readiness (ADR 0014)
+[✓] Post-3F  — P0 Critical Defect Resolved: HQ Admin User Provisioning via Supabase Auth Edge Function & Disambiguated Directory Loading
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Business-Wide Production Rollout across Nigeria, Zambia, and Malawi
 ```
