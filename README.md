@@ -57,7 +57,7 @@ To maintain absolute focus on core field activity verification and operational i
 
 ---
 
-## 4. Current Milestone Status (Stages 0, 1, 2, 3A, 3B, 3C, 3D, 3E & 3F Completed)
+## 4. Current Milestone Status (Stages 0–3F & Supabase Dev SSoT Migration Completed)
 
 ```
 [✓] Stage 0   — Technical Architecture, Database Model & Implementation Plan (ADR 0001)
@@ -74,6 +74,8 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Stage 3D  — Durable Offline IndexedDB Journal, Media Queuing & Dependency Synchronisation (ADR 0012)
 [✓] Stage 3E  — Management Reports, GPS Pin Governance, Zero Bottleneck MDM & Safe CSV Exports (ADR 0013)
 [✓] Stage 3F  — End-to-End QA, Physical Device Protocols & Live Vercel Staging Deployment (ADR 0014)
+[✓] SSoT      — Supabase Development Single Source of Truth & Mock Elimination (ADR 0015)
+[✓] Admin/Cam — Device & User Governance, Pagination, Manual Dialogs & Mobile Camera Flip (ADR 0016)
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
 ```

@@ -15,6 +15,7 @@ import {
   Loader2,
   ShieldCheck,
   RefreshCw,
+  SwitchCamera,
 } from 'lucide-react';
 
 interface StartDayModalProps {
@@ -31,6 +32,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
   const streamRef = useRef<MediaStream | null>(null);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [isVideoReady, setIsVideoReady] = useState<boolean>(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [cameraState, setCameraState] = useState<'requesting' | 'active' | 'captured' | 'error'>('requesting');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [selfieBlob, setSelfieBlob] = useState<Blob | null>(null);
@@ -89,11 +91,13 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
   }, []);
 
   // Initialize Camera
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(async (overrideFacingMode?: 'user' | 'environment') => {
     stopCamera();
     setCameraState('requesting');
     setIsVideoReady(false);
     setCameraError(null);
+
+    const mode = overrideFacingMode || facingMode;
 
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -102,7 +106,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'user',
+          facingMode: mode,
           width: { ideal: 640 },
           height: { ideal: 480 },
         },
@@ -137,12 +141,19 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
           'Camera permission was denied. Please allow camera access in your browser or device permissions to capture your live attendance selfie.'
         );
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setCameraError('No front-facing camera hardware was detected on this device.');
+        setCameraError(`No ${mode === 'user' ? 'front-facing' : 'rear'} camera hardware was detected on this device.`);
       } else {
-        setCameraError(err.message || 'Unable to access front camera.');
+        setCameraError(err.message || `Unable to access ${mode === 'user' ? 'front' : 'rear'} camera.`);
       }
     }
-  }, [stopCamera]);
+  }, [stopCamera, facingMode]);
+
+  // Toggle Camera between Front (user) and Back (environment)
+  const toggleCameraFacing = async () => {
+    const nextMode: 'user' | 'environment' = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+    await startCamera(nextMode);
+  };
 
   // Synchronize stream with video element
   useEffect(() => {
@@ -185,9 +196,11 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Mirror image horizontally to match natural selfie preview
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
+    // Mirror image horizontally only for front selfie camera
+    if (facingMode === 'user') {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     canvas.toBlob(
@@ -339,10 +352,6 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
           accuracy: Math.round(gpsCoords.accuracy),
           provisionalOffline: true,
         });
-
-        setTimeout(() => {
-          onClose();
-        }, 1800);
         return;
       }
 
@@ -379,11 +388,6 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
           accuracy: Math.round(gpsCoords.accuracy),
           provisionalOffline: false,
         });
-
-        // Automatically close modal after brief confirmation view
-        setTimeout(() => {
-          onClose();
-        }, 1800);
       }
     } catch (err: any) {
       setSubmitError(err.message || 'Unexpected error during attendance submission.');
@@ -515,6 +519,18 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                   </span>
                 </div>
               </div>
+
+              {/* Manual Confirmation Button */}
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-11 text-xs gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Acknowledge &amp; Proceed to Field Operations</span>
+                </Button>
+              </div>
             </div>
           ) : (
             <>
@@ -526,12 +542,12 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                 </div>
               </div>
 
-              {/* Front-Camera Viewfinder / Preview */}
+              {/* Camera Viewfinder / Preview (Front/Back Switchable) */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 flex items-center gap-1">
                     <Camera className="w-3.5 h-3.5 text-brand-blue" />
-                    Live Front Camera
+                    Live {facingMode === 'user' ? 'Front Camera' : 'Rear Camera'}
                   </span>
                   <span
                     className={cn(
@@ -596,20 +612,37 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                       setCameraError('Live video feed playback encountered an error.');
                     }}
                     className={cn(
-                      'w-full h-full object-cover -scale-x-100 absolute inset-0',
+                      'w-full h-full object-cover absolute inset-0',
+                      facingMode === 'user' && '-scale-x-100',
                       cameraState === 'active' && isVideoReady ? 'block' : 'hidden'
                     )}
                   />
 
-                  {/* Active Live Video Controls & Dotted Face Outline */}
+                  {/* Active Live Video Controls & Camera Flip Button */}
                   {cameraState === 'active' && isVideoReady && (
                     <>
-                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <div className="w-36 h-44 rounded-full border-2 border-dashed border-white/70 shadow-sm" />
-                      </div>
+                      {facingMode === 'user' && (
+                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                          <div className="w-36 h-44 rounded-full border-2 border-dashed border-white/70 shadow-sm" />
+                        </div>
+                      )}
                       <div className="absolute top-2.5 left-2.5 bg-black/60 backdrop-blur-xs border border-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        Live Stream
+                        Live {facingMode === 'user' ? 'Front' : 'Rear'}
+                      </div>
+                      <div className="absolute top-2.5 right-2.5 z-10">
+                        <button
+                          type="button"
+                          onClick={toggleCameraFacing}
+                          disabled={isSubmitting}
+                          id="btn-switch-camera"
+                          aria-label="Switch camera"
+                          title={`Switch to ${facingMode === 'user' ? 'rear' : 'front'} camera`}
+                          className="bg-black/70 hover:bg-black/90 active:scale-95 text-white text-[10px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-white/25 shadow-md cursor-pointer transition-all"
+                        >
+                          <SwitchCamera className="w-3.5 h-3.5 text-brand-yellow" />
+                          <span>{facingMode === 'user' ? 'Flip to Rear' : 'Flip to Front'}</span>
+                        </button>
                       </div>
                       <div className="absolute bottom-2.5 left-0 right-0 flex justify-center">
                         <Button
@@ -673,7 +706,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={startCamera}
+                        onClick={() => startCamera()}
                         className="text-xs h-8 bg-white/10 hover:bg-white/20 text-white border-white/20 mt-1"
                       >
                         <RefreshCw className="w-3 h-3 mr-1" /> Retry Camera Access

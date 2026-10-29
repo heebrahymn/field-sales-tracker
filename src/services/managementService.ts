@@ -111,6 +111,8 @@ export interface RealBranchPinProposal {
   isActive: boolean;
 }
 
+export type RealBranchPinRecord = RealBranchPinProposal;
+
 export interface RealExceptionItem {
   id: string;
   userId: string;
@@ -1268,5 +1270,40 @@ export const managementService = {
     } catch (err: any) {
       return { rowCount: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
+  },
+
+  /**
+   * Queries active salespeople assigned to a market.
+   */
+  async getMarketSalespeople(
+    marketCode: string
+  ): Promise<{ id: string; full_name: string; email: string; market_code: string }[]> {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, market_code')
+        .eq('role', 'salesperson')
+        .eq('market_code', marketCode)
+        .eq('is_active', true)
+        .order('full_name');
+
+      return (data || []).map((p: any) => ({
+        id: p.id,
+        full_name: p.full_name || 'Field Representative',
+        email: p.email || '',
+        market_code: p.market_code,
+      }));
+    } catch (err) {
+      console.warn('[managementService] Error fetching market salespeople:', err);
+      return [];
+    }
+  },
+
+  /**
+   * Queries pending branch location pins for country review.
+   */
+  async getCountryPendingPins(marketCode: string): Promise<RealBranchPinProposal[]> {
+    const { data } = await this.getBranchLocationPins(marketCode, 'pending_approval');
+    return data || [];
   },
 };

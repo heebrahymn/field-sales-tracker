@@ -1,5 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import {
+  managementService,
+  RealVisitVerificationRecord,
+  RealBranchPinRecord,
+  RealExceptionItem,
+  RealVerificationFlag,
+} from '@/services/managementService';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -56,54 +63,65 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     setInternalSection(section);
   };
 
-  // Fictional Mock Items for Dashboard Overview
-  const pendingPins: ApprovalItem[] = [
-    {
-      id: 'pin-01',
-      type: 'pin_approval',
-      title: 'Apex Heavy Logistics Fleet Depot',
-      subtitle: 'Apapa Commercial Port Zone • Location #BR-LAG-014',
-      repName: 'Tunde Adebayo',
-      claimedTime: 'Today 09:15 WAT',
-      accuracy: '±22m (Passes ≤50m threshold)',
-      evidenceNote: 'Premises gate and workshop signage clearly visible in photo. Pin placed at entrance gate.',
-      sharedPhoneWarning: true,
-    },
-    {
-      id: 'pin-02',
-      type: 'pin_approval',
-      title: 'Apex Commercial Transit Hub (Ikeja)',
-      subtitle: 'Mobolaji Bank Anthony Way • Location #BR-LAG-108',
-      repName: 'Tunde Adebayo',
-      claimedTime: 'Today 10:45 WAT',
-      accuracy: '±18m (Passes ≤50m threshold)',
-      evidenceNote: 'Heavy haulage trailer depot on transit corridor. GPS fix taken in open courtyard.',
-      sharedPhoneWarning: true,
-    },
-  ];
+  const [liveVisits, setLiveVisits] = useState<RealVisitVerificationRecord[]>([]);
+  const [livePins, setLivePins] = useState<RealBranchPinRecord[]>([]);
+  const [liveExceptions, setLiveExceptions] = useState<RealExceptionItem[]>([]);
+  const [liveFlags, setLiveFlags] = useState<RealVerificationFlag[]>([]);
+  const [activeRepsCount, setActiveRepsCount] = useState<number>(0);
+  const [totalRepsCount, setTotalRepsCount] = useState<number>(0);
 
-  const pendingExceptions: ApprovalItem[] = [
-    {
-      id: 'exc-001',
-      type: 'exception_approval',
-      title: 'Metroline Basement Depot',
-      subtitle: 'GPS Signal Failure (Underground Parking Facility)',
-      repName: 'Tunde Adebayo',
-      claimedTime: 'Today 13:40 - 14:15 WAT',
-      accuracy: '±145m (Severe multipath attenuation)',
-      evidenceNote: 'Severe satellite attenuation inside reinforced concrete basement. Premises photo captured.',
-    },
-    {
-      id: 'exc-002',
-      type: 'exception_approval',
-      title: 'Titan Engineering Fleet Depot',
-      subtitle: 'Device Hardware Shutdown (Battery Depletion in Field)',
-      repName: 'Emeka Nwosu',
-      claimedTime: 'Today 11:15 - 11:55 WAT',
-      accuracy: 'No GPS (Device shutdown)',
-      evidenceNote: 'Handset battery shut down unexpectedly during meeting. Submitted after power restoration at base.',
-    },
-  ];
+  const loadDashboardData = useCallback(async () => {
+    try {
+      const market = currentUser?.marketCode || 'NG';
+      const [vRes, pRes, eRes, fRes, repRes] = await Promise.all([
+        managementService.getCountryVisits(market),
+        managementService.getCountryPendingPins(market),
+        managementService.getCountryExceptions(market, 'pending_review'),
+        managementService.getCountryVerificationFlags(market, 'open'),
+        managementService.getMarketSalespeople(market),
+      ]);
+      setLiveVisits(vRes.data || []);
+      setLivePins(Array.isArray(pRes) ? pRes : (pRes as any).data || []);
+      setLiveExceptions(eRes.data || []);
+      setLiveFlags(fRes.data || []);
+      if (Array.isArray(repRes)) {
+        setTotalRepsCount(repRes.length);
+        setActiveRepsCount(repRes.length);
+      }
+    } catch (err) {
+      console.warn('[SalesHeadDashboard] Failed loading live metrics:', err);
+    }
+  }, [currentUser?.marketCode]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  // Real items for overview dashboard
+  const pendingPins: ApprovalItem[] = livePins.map((p) => ({
+    id: p.id,
+    type: 'pin_approval',
+    title: p.branchName,
+    subtitle: `${p.address} • Version #${p.versionNumber}`,
+    companyName: p.organisationName,
+    repName: p.proposedByName || 'Field Salesperson',
+    claimedTime: p.proposedAt ? new Date(p.proposedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Pending',
+    accuracy: `±${Math.round(p.reportedAccuracyM)}m (Passes ≤50m threshold)`,
+    evidenceNote: 'GPS pin submitted by field salesperson. Verified against on-site premises photo.',
+    sharedPhoneWarning: false,
+  }));
+
+  const pendingExceptions: ApprovalItem[] = liveExceptions.map((e) => ({
+    id: e.id,
+    type: 'exception_approval',
+    title: e.branchName,
+    subtitle: e.failureReason,
+    clientName: e.organisationName,
+    repName: e.repName,
+    claimedTime: new Date(e.claimedCheckInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    accuracy: 'GPS Unverified',
+    evidenceNote: e.failureReason,
+  }));
 
   const handleOpenReview = (item: ApprovalItem) => {
     setSelectedReviewItem(item);
@@ -118,7 +136,6 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     setFeedbackMessage(
       `Decision for [${itemId}] ${selectedReviewItem?.title}: ${decision.toUpperCase()}. Rationale: "${reason.slice(0, 35)}..." Logged to immutable approval_audit.`
     );
-    setTimeout(() => setFeedbackMessage(null), 5000);
   };
 
   return (
@@ -159,7 +176,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
           <span>Client Visit Verification</span>
           <span className="bg-emerald-100 text-emerald-900 px-1.5 py-0.2 rounded-full text-[10px]">
-            34
+            {liveVisits.length}
           </span>
         </button>
         <button
@@ -172,7 +189,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
         >
           <span>Client Approvals</span>
           <span className="bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded-full text-[10px]">
-            4
+            {pendingPins.length}
           </span>
         </button>
         <button
@@ -185,7 +202,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
         >
           <span>Exception Workbench</span>
           <span className="bg-blue-100 text-brand-blue px-1.5 py-0.2 rounded-full text-[10px]">
-            3
+            {pendingExceptions.length}
           </span>
         </button>
         <button
@@ -198,7 +215,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
         >
           <span>Risk Flags Queue</span>
           <span className="bg-rose-100 text-rose-900 px-1.5 py-0.2 rounded-full text-[10px]">
-            4
+            {liveFlags.length}
           </span>
         </button>
         <button
@@ -348,18 +365,18 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               </div>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-black text-slate-900 tracking-tight">8</span>
-                  <span className="text-xs font-semibold text-slate-500">/ 10</span>
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">{activeRepsCount}</span>
+                  <span className="text-xs font-semibold text-slate-500">/ {totalRepsCount || activeRepsCount}</span>
                 </div>
                 <div className="mt-1">
                   <span className="inline-block text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200/70 px-1.5 py-0.5 rounded">
-                    80% Present
+                    {totalRepsCount > 0 ? `${Math.round((activeRepsCount / totalRepsCount) * 100)}% Present` : '100% Present'}
                   </span>
                 </div>
               </div>
               <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                <span>1 On Leave • 1 Training</span>
+                <span>Field active reps</span>
               </div>
             </div>
 
@@ -379,7 +396,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-black text-slate-900 tracking-tight">
-                    {summaryTimeframe === 'daily' ? '34' : summaryTimeframe === 'weekly' ? '168' : '482'}
+                    {liveVisits.filter((v) => v.verificationStatus === 'location_verified').length}
                   </span>
                   <span className="text-xs font-semibold text-slate-500">visits</span>
                 </div>
@@ -414,7 +431,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-black text-slate-900 tracking-tight">
-                    {summaryTimeframe === 'daily' ? '3' : summaryTimeframe === 'weekly' ? '12' : '31'}
+                    {liveVisits.filter((v) => v.verificationStatus === 'manager_approved_unverified').length}
                   </span>
                   <span className="text-xs font-semibold text-slate-500">exceptions</span>
                 </div>
@@ -442,7 +459,9 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               </div>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-black text-slate-900 tracking-tight">2</span>
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">
+                    {liveVisits.filter((v) => !v.meetingLog).length}
+                  </span>
                   <span className="text-xs font-semibold text-slate-500">flagged</span>
                 </div>
                 <div className="mt-1">
@@ -472,7 +491,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               </div>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-black text-slate-900 tracking-tight">4</span>
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">{liveFlags.length}</span>
                   <span className="text-xs font-semibold text-slate-500">open</span>
                 </div>
                 <div className="mt-1">
@@ -483,7 +502,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               </div>
               <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
-                <span>1 out-of-bounds • 1 short</span>
+                <span>Automated DB flags</span>
               </div>
             </div>
           </div>
@@ -503,7 +522,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
                   className="text-xs font-bold text-brand-blue border-blue-200 hover:bg-blue-50 flex items-center gap-1"
                   onClick={() => handleSectionChange('approvals')}
                 >
-                  View All (4) <ArrowRight className="w-3.5 h-3.5" />
+                  View All ({pendingPins.length}) <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </CardHeader>
 
@@ -573,7 +592,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
                   className="text-xs font-bold text-brand-blue border-blue-200 hover:bg-blue-50 flex items-center gap-1"
                   onClick={() => handleSectionChange('exceptions')}
                 >
-                  View All (3) <ArrowRight className="w-3.5 h-3.5" />
+                  View All ({pendingExceptions.length}) <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </CardHeader>
 

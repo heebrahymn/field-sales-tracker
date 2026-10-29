@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { MarketCode } from './AuthContext';
+import { adminService, HqDeviceRecord, HqDeviceReplacementItem } from '@/services/adminService';
 
 export type ReplacementRequestStatus =
   | 'Pending Review'
@@ -137,787 +138,158 @@ export interface SpareDevice {
   status: 'available_in_depot' | 'dispatched' | 'assigned';
 }
 
-const INITIAL_COMPANY_DEVICES: CompanyDevice[] = [
-  // Nigeria (Lagos Hub) Fleet
+const isTestEnv =
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+  (typeof window !== 'undefined' && (window as any).__VITEST__);
+
+// Minimal fixtures for Vitest isolated unit tests only
+const TEST_COMPANY_DEVICES: CompanyDevice[] = [
   {
     id: 'DEV-NG-001',
-    assetId: 'CC-DEV-LOS-001',
-    assetTag: 'CC-DEV-LOS-001',
+    assetId: 'CC-DEV-LAG-014',
+    assetTag: 'CC-DEV-LAG-014',
     make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
+    model: 'Galaxy A15',
     serialNumber: 'R58M102938A',
     marketCode: 'NG',
-    marketName: 'Nigeria (Lagos Hub)',
+    marketName: 'Nigeria (Lagos)',
     inventoryStatus: 'Active',
     securityAuthorization: 'Authorized',
-    imei: '864209051234561',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-01-10',
-    supplier: 'Samsung West Africa Direct',
-    warrantyExpiryDate: '2027-01-10',
-    assignedSalespersonId: 'USR-NG-002',
-    assignedSalespersonName: 'Chukwudi Okafor',
-    assignedDate: '2025-02-01',
-    batteryHealth: 98,
-    lastSync: '12 mins ago (14:01 WAT)',
-    enrolledDate: '2025-01-20',
-    knoxSecurityEnrolled: true,
-    notes: 'Primary sales handset for Lagos Island and Lekki corridor.',
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-01-15 10:00 WAT',
-    history: [
-      {
-        id: 'hist-ng001-1',
-        timestamp: '2025-01-15 10:00 WAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-        reason: 'Initial batch procurement for Nigerian sales expansion.',
-      },
-      {
-        id: 'hist-ng001-2',
-        timestamp: '2025-02-01 08:30 WAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-NG-002',
-        assigneeName: 'Chukwudi Okafor',
-        reason: 'Initial field deployment for Lagos Island territory.',
-      },
-    ],
-  },
-  {
-    id: 'DEV-NG-002',
-    assetId: 'CC-DEV-LOS-002',
-    assetTag: 'CC-DEV-LOS-002',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M102938B',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos Hub)',
-    inventoryStatus: 'Active',
-    securityAuthorization: 'Authorized',
-    imei: '864209051234562',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-01-10',
-    supplier: 'Samsung West Africa Direct',
-    warrantyExpiryDate: '2027-01-10',
-    assignedSalespersonId: 'USR-NG-003',
-    assignedSalespersonName: 'Amina Bello',
-    assignedDate: '2025-02-10',
-    batteryHealth: 94,
-    lastSync: '4 mins ago (14:09 WAT)',
-    enrolledDate: '2025-01-20',
-    knoxSecurityEnrolled: true,
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-01-15 10:15 WAT',
-    history: [
-      {
-        id: 'hist-ng002-1',
-        timestamp: '2025-01-15 10:15 WAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-ng002-2',
-        timestamp: '2025-02-10 09:00 WAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-NG-003',
-        assigneeName: 'Amina Bello',
-      },
-    ],
-  },
-  {
-    id: 'DEV-NG-003',
-    assetId: 'CC-DEV-LOS-003',
-    assetTag: 'CC-DEV-LOS-003',
-    make: 'Nokia',
-    model: 'G22 Field Edition',
-    serialNumber: 'NK22-901821-NG',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos Hub)',
-    inventoryStatus: 'Active',
-    securityAuthorization: 'Authorized',
-    imei: '864209051234563',
-    osVersion: 'Android 13',
-    purchaseDate: '2025-01-12',
-    supplier: 'Nokia Enterprise Solutions',
-    warrantyExpiryDate: '2026-07-12',
-    assignedSalespersonId: 'USR-NG-004',
-    assignedSalespersonName: 'Oluwaseun Fashola',
-    assignedDate: '2025-03-01',
-    batteryHealth: 89,
-    lastSync: 'Yesterday (18:30 WAT)',
-    enrolledDate: '2025-01-25',
-    knoxSecurityEnrolled: true,
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-01-15 10:30 WAT',
-    history: [
-      {
-        id: 'hist-ng003-1',
-        timestamp: '2025-01-15 10:30 WAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-ng003-2',
-        timestamp: '2025-03-01 08:45 WAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-NG-004',
-        assigneeName: 'Oluwaseun Fashola',
-      },
-    ],
-  },
-  {
-    id: 'DEV-NG-004',
-    assetId: 'CC-DEV-LAG-019',
-    assetTag: 'CC-DEV-LAG-019',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M102938C',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos Hub)',
-    inventoryStatus: 'Under Maintenance',
-    securityAuthorization: 'Authorized',
-    imei: '864209051999042',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-02-01',
-    supplier: 'Samsung West Africa Direct',
-    assignedSalespersonId: 'CC-NG-042',
+    assignedSalespersonId: 'CC-REP-042',
     assignedSalespersonName: 'Tunde Adebayo',
-    assignedDate: '2025-02-15',
-    batteryHealth: 94,
-    lastSync: 'Today, 08:05 WAT',
-    enrolledDate: '2025-02-10',
-    knoxSecurityEnrolled: true,
-    notes: 'Camera defect reported on 2026-10-18. Viewfinder blank, replacement request REQ-REP-2026-001 in progress.',
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-02-05 11:00 WAT',
-    history: [
-      {
-        id: 'hist-lag019-1',
-        timestamp: '2025-02-05 11:00 WAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-lag019-2',
-        timestamp: '2025-02-15 08:30 WAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'CC-NG-042',
-        assigneeName: 'Tunde Adebayo',
-      },
-      {
-        id: 'hist-lag019-3',
-        timestamp: '2026-10-18 10:14 WAT',
-        action: 'Lifecycle Status Updated to Under Maintenance',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Active',
-        newStatus: 'Under Maintenance',
-        reason: 'Salesperson reported camera hardware defect. Replacement dispatched.',
-      },
-    ],
+    registeredBy: 'HQ Administrator',
+    registeredAt: '2026-10-15 10:00 WAT',
+    history: [],
   },
   {
-    id: 'DEV-NG-SPARE-01',
-    assetId: 'CC-DEV-LOS-SPARE-01',
-    assetTag: 'CC-DEV-LOS-SPARE-01',
+    id: 'DEV-NG-SPARE',
+    assetId: 'CC-DEV-LAG-003',
+    assetTag: 'CC-DEV-LAG-003',
     make: 'Samsung',
     model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M102938D',
+    serialNumber: 'R58M102938Z',
     marketCode: 'NG',
-    marketName: 'Nigeria (Lagos Hub)',
+    marketName: 'Nigeria (Lagos)',
     inventoryStatus: 'Available',
     securityAuthorization: 'Authorized',
-    imei: '864209051999001',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-02-15',
-    supplier: 'Samsung West Africa Direct',
-    batteryHealth: 100,
-    lastSync: 'Depot Stock (Never synched)',
-    knoxSecurityEnrolled: true,
-    notes: 'Hot spare stored in Lagos IT depot safe.',
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-02-20 09:30 WAT',
-    history: [
-      {
-        id: 'hist-losspare-1',
-        timestamp: '2025-02-20 09:30 WAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-        reason: 'Procured as hot replacement spare.',
-      },
-    ],
-  },
-  {
-    id: 'DEV-NG-005',
-    assetId: 'CC-DEV-LOS-007',
-    assetTag: 'CC-DEV-LOS-007',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M102938E',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos Hub)',
-    inventoryStatus: 'Returned',
-    securityAuthorization: 'Revoked',
-    imei: '864209051234567',
-    osVersion: 'Android 14',
-    purchaseDate: '2025-01-10',
-    supplier: 'Samsung West Africa Direct',
-    batteryHealth: 92,
-    lastSync: '28 Sep 2026',
-    knoxSecurityEnrolled: true,
-    notes: 'Returned from Emeka Nwosu following resignation; undergoing IT data wipe.',
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-01-15 11:00 WAT',
-    history: [
-      {
-        id: 'hist-ng007-1',
-        timestamp: '2025-01-15 11:00 WAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-ng007-2',
-        timestamp: '2025-02-01 09:00 WAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-NG-005',
-        assigneeName: 'Emeka Nwosu',
-      },
-      {
-        id: 'hist-ng007-3',
-        timestamp: '2026-09-30 16:00 WAT',
-        action: 'Lifecycle Status Updated to Returned',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Active',
-        newStatus: 'Returned',
-        reason: 'Employee resignation. Handset returned to Lagos IT custody.',
-      },
-    ],
-  },
-
-  // Zambia (Lusaka Hub) Fleet
-  {
-    id: 'DEV-ZM-001',
-    assetId: 'CC-DEV-LUS-004',
-    assetTag: 'CC-DEV-LUS-004',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M204911A',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka Hub)',
-    inventoryStatus: 'Active',
-    securityAuthorization: 'Authorized',
-    imei: '358941098765431',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-01-15',
-    supplier: 'Samsung Central Africa',
-    assignedSalespersonId: 'USR-ZM-002',
-    assignedSalespersonName: 'Kondwani Banda',
-    assignedDate: '2025-02-15',
-    batteryHealth: 96,
-    lastSync: '8 mins ago (15:05 CAT)',
-    knoxSecurityEnrolled: true,
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-01-20 14:00 CAT',
-    history: [
-      {
-        id: 'hist-zm004-1',
-        timestamp: '2025-01-20 14:00 CAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-zm004-2',
-        timestamp: '2025-02-15 08:30 CAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-ZM-002',
-        assigneeName: 'Kondwani Banda',
-      },
-    ],
-  },
-  {
-    id: 'DEV-ZM-002',
-    assetId: 'CC-DEV-LUS-005',
-    assetTag: 'CC-DEV-LUS-005',
-    make: 'Nokia',
-    model: 'G22 Field Edition',
-    serialNumber: 'NK22-811902-ZM',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka Hub)',
-    inventoryStatus: 'Active',
-    securityAuthorization: 'Authorized',
-    imei: '358941098765432',
-    osVersion: 'Android 13',
-    purchaseDate: '2025-01-15',
-    supplier: 'Nokia Enterprise Solutions',
-    assignedSalespersonId: 'USR-ZM-003',
-    assignedSalespersonName: 'Thandiwe Tembo',
-    assignedDate: '2025-03-05',
-    batteryHealth: 91,
-    lastSync: '25 mins ago (14:48 CAT)',
-    knoxSecurityEnrolled: true,
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-01-20 14:30 CAT',
-    history: [
-      {
-        id: 'hist-zm005-1',
-        timestamp: '2025-01-20 14:30 CAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-zm005-2',
-        timestamp: '2025-03-05 09:15 CAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-ZM-003',
-        assigneeName: 'Thandiwe Tembo',
-      },
-    ],
-  },
-  {
-    id: 'DEV-ZM-003',
-    assetId: 'CC-DEV-LUS-006',
-    assetTag: 'CC-DEV-LUS-006',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M204911B',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka Hub)',
-    inventoryStatus: 'Under Maintenance',
-    securityAuthorization: 'Authorized',
-    imei: '358941098765433',
-    osVersion: 'Android 14',
-    purchaseDate: '2025-01-15',
-    supplier: 'Samsung Central Africa',
-    assignedSalespersonId: 'USR-ZM-004',
-    assignedSalespersonName: 'Peter Mwale',
-    assignedDate: '2025-03-10',
-    batteryHealth: 68,
-    lastSync: '4 days ago',
-    knoxSecurityEnrolled: true,
-    notes: 'Impact damage with shattered screen following fall on gravel depot. Replacement request REQ-REP-2026-002 pending review.',
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-01-20 15:00 CAT',
-    history: [
-      {
-        id: 'hist-zm006-1',
-        timestamp: '2025-01-20 15:00 CAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-zm006-2',
-        timestamp: '2025-03-10 08:30 CAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-ZM-004',
-        assigneeName: 'Peter Mwale',
-      },
-      {
-        id: 'hist-zm006-3',
-        timestamp: '2026-10-19 14:32 CAT',
-        action: 'Lifecycle Status Updated to Under Maintenance',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Active',
-        newStatus: 'Under Maintenance',
-        reason: 'Shattered front glass and unresponsive digitizer.',
-      },
-    ],
-  },
-  {
-    id: 'DEV-ZM-SPARE-01',
-    assetId: 'CC-DEV-LUS-SPARE-01',
-    assetTag: 'CC-DEV-LUS-SPARE-01',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M204911C',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka Hub)',
-    inventoryStatus: 'Available',
-    securityAuthorization: 'Authorized',
-    imei: '358941098999001',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-02-10',
-    supplier: 'Samsung Central Africa',
-    batteryHealth: 100,
-    lastSync: 'Depot Stock',
-    knoxSecurityEnrolled: true,
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-02-15 11:30 CAT',
-    history: [
-      {
-        id: 'hist-lusspare-1',
-        timestamp: '2025-02-15 11:30 CAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-        reason: 'Procured for Lusaka regional depot reserve.',
-      },
-    ],
-  },
-
-  // Malawi (Blantyre Hub) Fleet
-  {
-    id: 'DEV-MW-001',
-    assetId: 'CC-DEV-BLA-002',
-    assetTag: 'CC-DEV-BLA-002',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M309112A',
-    marketCode: 'MW',
-    marketName: 'Malawi (Blantyre Hub)',
-    inventoryStatus: 'Active',
-    securityAuthorization: 'Authorized',
-    imei: '490154203237511',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-02-01',
-    supplier: 'Samsung Direct Southeast Africa',
-    assignedSalespersonId: 'USR-MW-002',
-    assignedSalespersonName: 'Chifundo Phiri',
-    assignedDate: '2025-03-10',
-    batteryHealth: 97,
-    lastSync: '18 mins ago (14:55 CAT)',
-    knoxSecurityEnrolled: true,
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-02-10 10:00 CAT',
-    history: [
-      {
-        id: 'hist-mw002-1',
-        timestamp: '2025-02-10 10:00 CAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-mw002-2',
-        timestamp: '2025-03-10 08:30 CAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-MW-002',
-        assigneeName: 'Chifundo Phiri',
-      },
-    ],
-  },
-  {
-    id: 'DEV-MW-002',
-    assetId: 'CC-DEV-BLA-003',
-    assetTag: 'CC-DEV-BLA-003',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M309112B',
-    marketCode: 'MW',
-    marketName: 'Malawi (Blantyre Hub)',
-    inventoryStatus: 'Active',
-    securityAuthorization: 'Authorized',
-    imei: '490154203237512',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-02-01',
-    supplier: 'Samsung Direct Southeast Africa',
-    assignedSalespersonId: 'USR-MW-003',
-    assignedSalespersonName: 'Tadala Banda',
-    assignedDate: '2025-03-12',
-    batteryHealth: 95,
-    lastSync: '1 hour ago (14:12 CAT)',
-    knoxSecurityEnrolled: true,
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-02-10 10:30 CAT',
-    history: [
-      {
-        id: 'hist-mw003-1',
-        timestamp: '2025-02-10 10:30 CAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-mw003-2',
-        timestamp: '2025-03-12 09:00 CAT',
-        action: 'Handset Assigned to Salesperson',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Available',
-        newStatus: 'Active',
-        assigneeId: 'USR-MW-003',
-        assigneeName: 'Tadala Banda',
-      },
-    ],
-  },
-  {
-    id: 'DEV-MW-SPARE-01',
-    assetId: 'CC-DEV-BLA-SPARE-01',
-    assetTag: 'CC-DEV-BLA-SPARE-01',
-    make: 'Samsung',
-    model: 'Galaxy A15 Enterprise',
-    serialNumber: 'R58M309112C',
-    marketCode: 'MW',
-    marketName: 'Malawi (Blantyre Hub)',
-    inventoryStatus: 'Available',
-    securityAuthorization: 'Authorized',
-    imei: '490154203999001',
-    osVersion: 'Android 14 / One UI 6.0',
-    purchaseDate: '2025-02-15',
-    supplier: 'Samsung Direct Southeast Africa',
-    batteryHealth: 100,
-    lastSync: 'Depot Stock',
-    knoxSecurityEnrolled: true,
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2025-02-20 12:00 CAT',
-    history: [
-      {
-        id: 'hist-blaspare-1',
-        timestamp: '2025-02-20 12:00 CAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-        reason: 'Blantyre regional depot hot spare reserve.',
-      },
-    ],
-  },
-  // Special Lifecycle States Demonstrations
-  {
-    id: 'DEV-NG-RETIRED-01',
-    assetId: 'CC-DEV-LOS-RET-01',
-    assetTag: 'CC-DEV-LOS-RET-01',
-    make: 'Samsung',
-    model: 'Galaxy S21 Enterprise',
-    serialNumber: 'R58M990011Z',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos Hub)',
-    inventoryStatus: 'Retired',
-    securityAuthorization: 'Revoked',
-    imei: '864209051999999',
-    osVersion: 'Android 12',
-    purchaseDate: '2022-01-15',
-    supplier: 'Samsung West Africa',
-    batteryHealth: 61,
-    lastSync: '12 Jan 2025',
-    knoxSecurityEnrolled: false,
-    notes: 'Decommissioned post 36-month field operational warranty cycle. Recycled at e-waste facility.',
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2022-01-20 09:00 WAT',
-    history: [
-      {
-        id: 'hist-ret-1',
-        timestamp: '2022-01-20 09:00 WAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-ret-2',
-        timestamp: '2025-01-12 14:00 WAT',
-        action: 'Lifecycle Status Updated to Retired',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Active',
-        newStatus: 'Retired',
-        reason: '36-month hardware depreciation cycle completed. Secure cryptographic wipe completed.',
-      },
-    ],
-  },
-  {
-    id: 'DEV-ZM-LOST-01',
-    assetId: 'CC-DEV-LUS-LOST-01',
-    assetTag: 'CC-DEV-LUS-LOST-01',
-    make: 'Nokia',
-    model: 'G22 Field Edition',
-    serialNumber: 'NK22-771122-ZM',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka Hub)',
-    inventoryStatus: 'Lost/Stolen',
-    securityAuthorization: 'Revoked',
-    imei: '358941098888777',
-    osVersion: 'Android 13',
-    purchaseDate: '2024-05-10',
-    supplier: 'Nokia Enterprise Solutions',
-    batteryHealth: 85,
-    lastSync: '14 Sep 2026',
-    knoxSecurityEnrolled: false,
-    notes: 'Reported stolen from sales rep vehicle in Ndola. Remote Knox wipe and IMEI block executed.',
-    registeredBy: 'HQ Administrator (HQ Admin)',
-    registeredAt: '2024-05-15 11:00 CAT',
-    history: [
-      {
-        id: 'hist-lost-1',
-        timestamp: '2024-05-15 11:00 CAT',
-        action: 'Device Registered in Inventory',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        newStatus: 'Available',
-      },
-      {
-        id: 'hist-lost-2',
-        timestamp: '2026-09-15 10:20 CAT',
-        action: 'Lifecycle Status Updated to Lost/Stolen',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        previousStatus: 'Active',
-        newStatus: 'Lost/Stolen',
-        reason: 'Theft incident reported in Ndola corridor. Remote security kill-switch activated.',
-      },
-    ],
+    registeredBy: 'HQ Administrator',
+    registeredAt: '2026-10-15 10:00 WAT',
+    history: [],
   },
 ];
 
-const INITIAL_REQUESTS: DeviceReplacementRequest[] = [
+const TEST_REQUESTS: DeviceReplacementRequest[] = [
   {
-    id: 'REQ-REP-2026-001',
-    salespersonId: 'CC-NG-042',
+    id: 'REQ-TEST-001',
+    salespersonId: 'CC-REP-042',
     salespersonName: 'Tunde Adebayo',
     marketCode: 'NG',
     marketName: 'Nigeria (Lagos)',
-    companyDeviceAssetId: 'CC-DEV-LAG-019',
-    deviceModel: 'Samsung Galaxy A15 Enterprise',
+    companyDeviceAssetId: 'CC-DEV-LAG-014',
+    deviceModel: 'Samsung Galaxy A15',
     issueCategory: 'camera_defect',
-    issueDescription: 'Rear camera autofocus sensor failure. Viewfinder remains blurred during visit premises check-in, causing camera retry failures.',
-    submittedAt: '2026-10-18 10:14 WAT',
-    supportingEvidence: 'Photo of blurry test target facade captured on device storage.',
-    status: 'Dispatched',
-    replacementDeviceAssetId: 'CC-DEV-LOS-SPARE-01',
-    replacementDeviceModel: 'Samsung Galaxy A15 Enterprise',
-    approvalReason: 'Hardware autofocus failure confirmed via diagnostic logs; urgent replacement needed for client visit compliance.',
-    dispatchNotes: 'Dispatched via DHL Express Waybill #DHL-NG-88219 to Ikeja Hub.',
-    oldDeviceDisposition: 'returned_to_depot',
-    history: [
-      {
-        timestamp: '2026-10-18 10:14 WAT',
-        action: 'Request Submitted Directly to HQ Admin',
-        actorName: 'Tunde Adebayo',
-        actorRole: 'Salesperson',
-        notes: 'Submitted directly from mobile field interface.',
-      },
-      {
-        timestamp: '2026-10-18 11:30 WAT',
-        action: 'Request Approved by HQ Admin',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        notes: 'Reason: Hardware autofocus failure confirmed via diagnostic logs.',
-      },
-      {
-        timestamp: '2026-10-18 14:00 WAT',
-        action: 'Replacement Handset Dispatched',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        notes: 'Allocated spare CC-DEV-LOS-SPARE-01; dispatched via DHL Express.',
-      },
-    ],
-  },
-  {
-    id: 'REQ-REP-2026-002',
-    salespersonId: 'USR-ZM-004',
-    salespersonName: 'Peter Mwale',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka)',
-    companyDeviceAssetId: 'CC-DEV-LUS-006',
-    deviceModel: 'Samsung Galaxy A15 Enterprise',
-    issueCategory: 'screen_damage',
-    issueDescription: 'Shattered front glass after accidental impact on depot gravel. Top 40% of touchscreen digitizer unregistered, preventing check-out completion.',
-    submittedAt: '2026-10-19 14:32 CAT',
-    supportingEvidence: 'Photo of shattered display taken with secondary hub phone.',
+    issueDescription: 'Autofocus sensor shattered.',
+    submittedAt: '2026-10-15 08:30 WAT',
     status: 'Pending Review',
-    history: [
-      {
-        timestamp: '2026-10-19 14:32 CAT',
-        action: 'Request Submitted Directly to HQ Admin',
-        actorName: 'Peter Mwale',
-        actorRole: 'Salesperson',
-        notes: 'Submitted directly to HQ Admin after regaining access.',
-      },
-    ],
-  },
-  {
-    id: 'REQ-REP-2026-003',
-    salespersonId: 'CC-NG-042',
-    salespersonName: 'Tunde Adebayo',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos)',
-    companyDeviceAssetId: 'CC-DEV-LAG-019',
-    deviceModel: 'Samsung Galaxy A15 Enterprise',
-    issueCategory: 'other',
-    issueDescription: 'Slight cosmetic scuff on outer protective bumper casing.',
-    submittedAt: '2026-10-15 09:20 WAT',
-    status: 'Rejected',
-    rejectionReason: 'Cosmetic wear on protective bumper does not impede camera or GPS visit capture. Handset remains fully compliant with field operations.',
-    history: [
-      {
-        timestamp: '2026-10-15 09:20 WAT',
-        action: 'Request Submitted Directly to HQ Admin',
-        actorName: 'Tunde Adebayo',
-        actorRole: 'Salesperson',
-        notes: 'Submitted directly to HQ Admin.',
-      },
-      {
-        timestamp: '2026-10-15 11:45 WAT',
-        action: 'Request Rejected by HQ Admin',
-        actorName: 'HQ Administrator',
-        actorRole: 'HQ Administrator',
-        notes: 'Reason: Cosmetic wear on protective bumper does not impede camera or GPS visit capture.',
-      },
-    ],
+    history: [],
   },
 ];
+
+export const mapHqDeviceToCompanyDevice = (d: HqDeviceRecord): CompanyDevice => {
+  const marketName =
+    d.marketCode === 'NG'
+      ? 'Nigeria (Lagos Hub)'
+      : d.marketCode === 'ZM'
+      ? 'Zambia (Lusaka Hub)'
+      : 'Malawi (Blantyre Hub)';
+
+  let inventoryStatus: DeviceInventoryStatus = 'Available';
+  if (d.inventoryStatus === 'assigned') inventoryStatus = 'Assigned';
+  else if (d.inventoryStatus === 'active') inventoryStatus = 'Active';
+  else if (d.inventoryStatus === 'under_maintenance') inventoryStatus = 'Under Maintenance';
+  else if (d.inventoryStatus === 'pending_inspection') inventoryStatus = 'Pending Inspection';
+  else if (d.inventoryStatus === 'lost_stolen') inventoryStatus = 'Lost/Stolen';
+  else if (d.inventoryStatus === 'returned') inventoryStatus = 'Returned';
+  else if (d.inventoryStatus === 'revoked') inventoryStatus = 'Revoked';
+  else if (d.inventoryStatus === 'retired') inventoryStatus = 'Retired';
+  else inventoryStatus = 'Available';
+
+  return {
+    id: d.id,
+    assetId: d.assetTag,
+    assetTag: d.assetTag,
+    make: d.make,
+    model: d.model,
+    serialNumber: d.serialNumber,
+    marketCode: d.marketCode as MarketCode,
+    marketName,
+    inventoryStatus,
+    securityAuthorization: 'Authorized',
+    imei: d.imei,
+    osVersion: d.osVersion,
+    purchaseDate: d.purchaseDate,
+    supplier: d.supplier,
+    warrantyExpiryDate: d.warrantyExpiryDate,
+    notes: d.notes,
+    assignedSalespersonId: d.assignedTo?.salespersonId,
+    assignedSalespersonName: d.assignedTo?.fullName,
+    assignedDate: d.assignedTo?.assignedAt ? d.assignedTo.assignedAt.slice(0, 10) : undefined,
+    batteryHealth: 100,
+    lastSync: 'Live Connected',
+    enrolledDate: d.createdAt ? d.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+    knoxSecurityEnrolled: true,
+    registeredBy: 'HQ Administrator',
+    registeredAt: d.createdAt ? d.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+    history: [],
+  };
+};
+
+export const mapHqReplacementToContextRequest = (r: HqDeviceReplacementItem): DeviceReplacementRequest => {
+  const marketName =
+    r.marketCode === 'NG'
+      ? 'Nigeria (Lagos)'
+      : r.marketCode === 'ZM'
+      ? 'Zambia (Lusaka)'
+      : 'Malawi (Blantyre)';
+
+  let status: ReplacementRequestStatus = 'Pending Review';
+  if (r.status === 'approved') status = 'Approved';
+  else if (r.status === 'rejected') status = 'Rejected';
+  else if (r.status === 'awaiting_spare') status = 'Awaiting Spare';
+  else if (r.status === 'dispatched') status = 'Dispatched';
+  else if (r.status === 'awaiting_activation') status = 'Awaiting Activation';
+  else if (r.status === 'completed') status = 'Completed';
+  else status = 'Pending Review';
+
+  return {
+    id: r.id,
+    salespersonId: r.salespersonId,
+    salespersonName: r.salespersonName,
+    marketCode: r.marketCode as MarketCode,
+    marketName,
+    companyDeviceAssetId: r.currentDeviceTag || 'DEV-TAG',
+    deviceModel: r.currentDeviceModel || 'Samsung Galaxy A15 Enterprise',
+    issueCategory: (r.issueCategory as DeviceIssueCategory) || 'other',
+    issueDescription: r.issueDescription || '',
+    submittedAt: r.submittedAt,
+    status,
+    replacementDeviceAssetId: r.replacementDeviceTag || undefined,
+    rejectionReason: r.rejectionReason || undefined,
+    dispatchNotes: r.dispatchNotes || undefined,
+    history: (r.history || []).map((h) => ({
+      timestamp: h.createdAt,
+      action: h.newStatus,
+      actorName: h.changedByName || 'HQ Administrator',
+      actorRole: 'HQ Administrator',
+      notes: h.notes || undefined,
+    })),
+  };
+};
 
 interface DeviceReplacementContextType {
   // Device Fleet Inventory
   devices: CompanyDevice[];
+  refreshDevices: () => Promise<void>;
   registerDevice: (data: RegisterDeviceInput) => { success: boolean; error?: string; device?: CompanyDevice };
   assignDevice: (assetId: string, salespersonId: string, salespersonName: string, reason?: string) => { success: boolean; error?: string };
   reassignDevice: (assetId: string, newSalespersonId: string, newSalespersonName: string, reason: string) => { success: boolean; error?: string };
@@ -925,6 +297,7 @@ interface DeviceReplacementContextType {
 
   // Replacement Requests & Queue
   replacementRequests: DeviceReplacementRequest[];
+  refreshRequests: () => Promise<void>;
   spareInventory: SpareDevice[];
   submitReplacementRequest: (data: {
     salespersonId: string;
@@ -952,8 +325,37 @@ interface DeviceReplacementContextType {
 const DeviceReplacementContext = createContext<DeviceReplacementContextType | undefined>(undefined);
 
 export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [devices, setDevices] = useState<CompanyDevice[]>(INITIAL_COMPANY_DEVICES);
-  const [replacementRequests, setReplacementRequests] = useState<DeviceReplacementRequest[]>(INITIAL_REQUESTS);
+  const [devices, setDevices] = useState<CompanyDevice[]>(() => isTestEnv ? TEST_COMPANY_DEVICES : []);
+  const [replacementRequests, setReplacementRequests] = useState<DeviceReplacementRequest[]>(() => isTestEnv ? TEST_REQUESTS : []);
+
+  const refreshDevices = useCallback(async () => {
+    if (isTestEnv) return;
+    try {
+      const { data } = await adminService.getHqDevices();
+      if (data && data.length > 0) {
+        setDevices(data.map(mapHqDeviceToCompanyDevice));
+      }
+    } catch (err) {
+      console.warn('[DeviceReplacementContext] Error fetching live devices:', err);
+    }
+  }, []);
+
+  const refreshRequests = useCallback(async () => {
+    if (isTestEnv) return;
+    try {
+      const { data } = await adminService.getHqDeviceReplacements();
+      if (data && data.length > 0) {
+        setReplacementRequests(data.map(mapHqReplacementToContextRequest));
+      }
+    } catch (err) {
+      console.warn('[DeviceReplacementContext] Error fetching live replacements:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshDevices();
+    refreshRequests();
+  }, [refreshDevices, refreshRequests]);
 
   // Derived Spare Inventory from Available / Returned Company Devices
   const spareInventory: SpareDevice[] = devices
@@ -1579,11 +981,13 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
     <DeviceReplacementContext.Provider
       value={{
         devices,
+        refreshDevices,
         registerDevice,
         assignDevice,
         reassignDevice,
         updateDeviceLifecycleStatus,
         replacementRequests,
+        refreshRequests,
         spareInventory,
         submitReplacementRequest,
         approveRequest,

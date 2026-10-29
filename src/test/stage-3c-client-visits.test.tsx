@@ -293,6 +293,75 @@ describe('Stage 3C: Client Visits, Geofencing, Photo Evidence & Meeting Logs', (
       const acquireGpsBtn = screen.getByRole('button', { name: /Acquire Device GPS/i });
       expect(acquireGpsBtn).toBeInTheDocument();
     });
+
+    it('supports live camera activation and switching between rear and front facing modes', async () => {
+      const mockStopTrack = vi.fn();
+      const mockTrack = { stop: mockStopTrack, kind: 'video' };
+      const mockStream = {
+        getTracks: vi.fn().mockReturnValue([mockTrack]),
+      };
+
+      const originalMediaDevices = navigator.mediaDevices;
+      const getUserMediaMock = vi.fn().mockResolvedValue(mockStream);
+      Object.defineProperty(navigator, 'mediaDevices', {
+        writable: true,
+        value: {
+          getUserMedia: getUserMediaMock,
+        },
+      });
+
+      renderWorkflowView();
+
+      // Select client and branch
+      const searchInput = screen.getByPlaceholderText(/Search business by name/i);
+      fireEvent.focus(searchInput);
+      fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Ltd/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Fleet Depot/i }));
+
+      // Click "Start Camera" button in Step 3
+      const startCameraBtn = screen.getByRole('button', { name: /Start Camera/i });
+      expect(startCameraBtn).toBeInTheDocument();
+      fireEvent.click(startCameraBtn);
+
+      // Verify getUserMedia called with environment facingMode
+      await waitFor(() => {
+        expect(getUserMediaMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            video: expect.objectContaining({
+              facingMode: { ideal: 'environment' },
+            }),
+          })
+        );
+      });
+
+      // Find switch camera flip button
+      const flipBtn = await screen.findByRole('button', { name: /Switch camera/i });
+      expect(flipBtn).toBeInTheDocument();
+      expect(flipBtn).toHaveTextContent(/Flip to Front/i);
+
+      // Click flip button
+      fireEvent.click(flipBtn);
+
+      // Verify getUserMedia called with user facingMode
+      await waitFor(() => {
+        expect(getUserMediaMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            video: expect.objectContaining({
+              facingMode: { ideal: 'user' },
+            }),
+          })
+        );
+      });
+
+      // Button now offers flip back to rear
+      expect(flipBtn).toHaveTextContent(/Flip to Rear/i);
+
+      // Restore
+      Object.defineProperty(navigator, 'mediaDevices', {
+        writable: true,
+        value: originalMediaDevices,
+      });
+    });
   });
 
   // =========================================================================

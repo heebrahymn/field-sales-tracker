@@ -84,10 +84,6 @@ export const CountryCsvExportModal: React.FC<CountryCsvExportModalProps> = ({
 
     setExportedRowCount(rowCount);
     setExportSuccess(true);
-    setTimeout(() => {
-      setExportSuccess(false);
-      onClose();
-    }, 2200);
   };
 
   return (
@@ -239,7 +235,22 @@ export const CountryCsvExportModal: React.FC<CountryCsvExportModalProps> = ({
         </div>
 
         {/* Footer */}
-        {!exportSuccess && (
+        {exportSuccess ? (
+          <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end">
+            <Button
+              variant="default"
+              size="sm"
+              className="text-xs font-bold bg-brand-green-700 hover:bg-brand-green-800 text-white flex items-center gap-1.5 cursor-pointer"
+              onClick={() => {
+                setExportSuccess(false);
+                onClose();
+              }}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Done / Close
+            </Button>
+          </div>
+        ) : (
           <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
             <Button variant="outline" size="sm" className="text-xs" onClick={onClose} disabled={isExporting}>
               Cancel

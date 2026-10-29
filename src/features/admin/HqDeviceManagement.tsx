@@ -21,8 +21,11 @@ import {
   UserCheck,
   ShieldAlert,
   Loader2,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { MarketCode } from '@/context/AuthContext';
 import {
   useDeviceReplacement,
@@ -35,6 +38,11 @@ import {
 } from '@/context/DeviceReplacementContext';
 import { adminService } from '@/services/adminService';
 
+// Salesperson Option loaded from Supabase Profiles (SSoT)
+const isTestEnv =
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+  (typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test');
+
 export interface SalespersonOption {
   id: string;
   name: string;
@@ -45,23 +53,11 @@ export interface SalespersonOption {
   activeDeviceTag?: string;
 }
 
-const FIELD_SALESPEOPLE: SalespersonOption[] = [
-  { id: 'USR-NG-002', name: 'Chukwudi Okafor', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
-  { id: 'USR-NG-003', name: 'Amina Bello', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
-  { id: 'USR-NG-004', name: 'Oluwaseun Fashola', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
-  { id: 'CC-NG-042', name: 'Tunde Adebayo', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
-  { id: 'USR-NG-006', name: 'Kayode Williams', marketCode: 'NG', marketName: 'Nigeria (Lagos Hub)' },
-  { id: 'USR-ZM-002', name: 'Kondwani Banda', marketCode: 'ZM', marketName: 'Zambia (Lusaka Hub)' },
-  { id: 'USR-ZM-003', name: 'Thandiwe Tembo', marketCode: 'ZM', marketName: 'Zambia (Lusaka Hub)' },
-  { id: 'USR-ZM-004', name: 'Peter Mwale', marketCode: 'ZM', marketName: 'Zambia (Lusaka Hub)' },
-  { id: 'USR-MW-002', name: 'Chifundo Phiri', marketCode: 'MW', marketName: 'Malawi (Blantyre Hub)' },
-  { id: 'USR-MW-003', name: 'Tadala Banda', marketCode: 'MW', marketName: 'Malawi (Blantyre Hub)' },
-];
-
 export const HqDeviceManagement: React.FC = () => {
   // Shared Centralized Device Replacement & Fleet Inventory Engine
   const {
     devices,
+    refreshDevices,
     registerDevice,
     assignDevice,
     reassignDevice,
@@ -119,6 +115,7 @@ export const HqDeviceManagement: React.FC = () => {
   });
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [registerSuccess, setRegisterSuccess] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
 
   // Device Assignment Modal State (for Available devices)
   const [deviceToAssign, setDeviceToAssign] = useState<CompanyDevice | null>(null);
@@ -186,27 +183,9 @@ export const HqDeviceManagement: React.FC = () => {
     }
   }, [deviceToAssign, deviceToReassign]);
 
-  // Combined live + fallback mock salespeople (de-duplicated by ID / name)
+  // Authoritative Salespeople from Supabase Profiles (SSoT)
   const combinedSalespeople = useMemo(() => {
-    const list: SalespersonOption[] = [...liveSalespeople];
-    for (const mock of FIELD_SALESPEOPLE) {
-      const alreadyExists = list.some(
-        (u) =>
-          u.id === mock.id ||
-          (u.name.toLowerCase().trim() === mock.name.toLowerCase().trim() &&
-            u.marketCode === mock.marketCode)
-      );
-      if (!alreadyExists) {
-        list.push({
-          id: mock.id,
-          name: mock.name,
-          marketCode: mock.marketCode,
-          marketName: mock.marketName,
-          hasActiveHandset: false,
-        });
-      }
-    }
-    return list;
+    return liveSalespeople;
   }, [liveSalespeople]);
 
   // Device Lifecycle Status Update Modal State
@@ -244,39 +223,327 @@ export const HqDeviceManagement: React.FC = () => {
     });
   }, [replacementRequests, replacementTabFilter]);
 
-  // 1. Submit Register New Device
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  // Device Pagination State (Default 10, options 10, 20, 50, 100)
+  const [devicePage, setDevicePage] = useState(1);
+  const [devicePageSize, setDevicePageSize] = useState(10);
+
+  // Reset page when search or filters change
+  useEffect(() => {
+    setDevicePage(1);
+  }, [searchQuery, marketFilter, statusFilter]);
+
+  const paginatedDevices = useMemo(() => {
+    const start = (devicePage - 1) * devicePageSize;
+    return filteredDevices.slice(start, start + devicePageSize);
+  }, [filteredDevices, devicePage, devicePageSize]);
+
+  // Device Multi-Selection State
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteDevicesModal, setShowBulkDeleteDevicesModal] = useState(false);
+  const [isBulkDeletingDevices, setIsBulkDeletingDevices] = useState(false);
+  const [bulkDeleteDevicesResult, setBulkDeleteDevicesResult] = useState<{
+    deletedCount: number;
+    blockedCount: number;
+    blockedDeviceIds: string[];
+  } | null>(null);
+  const [isBulkRetiringDevices, setIsBulkRetiringDevices] = useState(false);
+
+  const isAllPageDevicesSelected =
+    paginatedDevices.length > 0 && paginatedDevices.every((d) => selectedDeviceIds.has(d.id));
+
+  const isSomePageDevicesSelected =
+    paginatedDevices.some((d) => selectedDeviceIds.has(d.id)) && !isAllPageDevicesSelected;
+
+  const toggleSelectAllPageDevices = () => {
+    const next = new Set(selectedDeviceIds);
+    if (isAllPageDevicesSelected) {
+      paginatedDevices.forEach((d) => next.delete(d.id));
+    } else {
+      paginatedDevices.forEach((d) => next.add(d.id));
+    }
+    setSelectedDeviceIds(next);
+  };
+
+  const toggleSelectDevice = (id: string) => {
+    const next = new Set(selectedDeviceIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedDeviceIds(next);
+  };
+
+  const clearDeviceSelection = () => {
+    setSelectedDeviceIds(new Set());
+  };
+
+  const selectAllFilteredDevices = () => {
+    setSelectedDeviceIds(new Set(filteredDevices.map((d) => d.id)));
+  };
+
+  const handleConfirmBulkDeleteDevices = async () => {
+    setIsBulkDeletingDevices(true);
+    try {
+      const idsToDelete = Array.from(selectedDeviceIds);
+      const res = await adminService.bulkDeleteDevices(idsToDelete);
+
+      if (res.blockedIds.length > 0) {
+        setBulkDeleteDevicesResult({
+          deletedCount: res.deletedIds.length,
+          blockedCount: res.blockedIds.length,
+          blockedDeviceIds: res.blockedIds,
+        });
+        const next = new Set(res.blockedIds);
+        setSelectedDeviceIds(next);
+      } else {
+        setSelectedDeviceIds(new Set());
+        setShowBulkDeleteDevicesModal(false);
+        setBulkDeleteDevicesResult(null);
+      }
+      await refreshDevices();
+    } finally {
+      setIsBulkDeletingDevices(false);
+    }
+  };
+
+  const handleConfirmBulkRetireBlockedDevices = async () => {
+    if (!bulkDeleteDevicesResult) return;
+    setIsBulkRetiringDevices(true);
+    try {
+      await adminService.bulkRetireDevices(
+        bulkDeleteDevicesResult.blockedDeviceIds,
+        'Bulk retired by HQ Admin during fleet inventory cleanup'
+      );
+      setSelectedDeviceIds(new Set());
+      setShowBulkDeleteDevicesModal(false);
+      setBulkDeleteDevicesResult(null);
+      await refreshDevices();
+    } finally {
+      setIsBulkRetiringDevices(false);
+    }
+  };
+
+  // Device Edit Modal State
+  const [deviceToEdit, setDeviceToEdit] = useState<CompanyDevice | null>(null);
+  const [editDeviceForm, setEditDeviceForm] = useState({
+    assetId: '',
+    serialNumber: '',
+    make: 'Samsung',
+    model: 'Galaxy A15 Enterprise',
+    marketCode: 'NG' as MarketCode,
+    inventoryStatus: 'Available' as DeviceInventoryStatus,
+    imei: '',
+    osVersion: 'Android 14 / One UI 6.0',
+    supplier: 'Samsung West Africa Direct',
+    warrantyExpiryDate: '',
+    notes: '',
+  });
+  const [isUpdatingDevice, setIsUpdatingDevice] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccess, setEditSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (deviceToEdit) {
+      setEditDeviceForm({
+        assetId: deviceToEdit.assetId || deviceToEdit.assetTag || '',
+        serialNumber: deviceToEdit.serialNumber || '',
+        make: deviceToEdit.make || 'Samsung',
+        model: deviceToEdit.model || 'Galaxy A15 Enterprise',
+        marketCode: (deviceToEdit.marketCode as MarketCode) || 'NG',
+        inventoryStatus: deviceToEdit.inventoryStatus || 'Available',
+        imei: deviceToEdit.imei || '',
+        osVersion: deviceToEdit.osVersion || 'Android 14 / One UI 6.0',
+        supplier: deviceToEdit.supplier || 'Samsung West Africa Direct',
+        warrantyExpiryDate: deviceToEdit.warrantyExpiryDate || '',
+        notes: deviceToEdit.notes || '',
+      });
+      setEditError(null);
+      setEditSuccess(null);
+    }
+  }, [deviceToEdit]);
+
+  // Device Delete Modal State
+  const [deviceToDelete, setDeviceToDelete] = useState<CompanyDevice | null>(null);
+  const [isDeletingDevice, setIsDeletingDevice] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteHasHistory, setDeleteHasHistory] = useState(false);
+  const [isRetiringDevice, setIsRetiringDevice] = useState(false);
+
+  // Submit Edit Device
+  const handleEditDeviceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deviceToEdit) return;
+    setEditError(null);
+    setEditSuccess(null);
+    setIsUpdatingDevice(true);
+
+    try {
+      let dbStatus: any = 'available';
+      if (editDeviceForm.inventoryStatus === 'Assigned') dbStatus = 'assigned';
+      else if (editDeviceForm.inventoryStatus === 'Active') dbStatus = 'active';
+      else if (editDeviceForm.inventoryStatus === 'Pending Inspection') dbStatus = 'pending_inspection';
+      else if (editDeviceForm.inventoryStatus === 'Under Maintenance') dbStatus = 'under_maintenance';
+      else if (editDeviceForm.inventoryStatus === 'Lost/Stolen') dbStatus = 'lost_stolen';
+      else if (editDeviceForm.inventoryStatus === 'Returned') dbStatus = 'returned';
+      else if (editDeviceForm.inventoryStatus === 'Revoked') dbStatus = 'revoked';
+      else if (editDeviceForm.inventoryStatus === 'Retired') dbStatus = 'retired';
+
+      const res = await adminService.updateDevice(deviceToEdit.id, {
+        assetTag: editDeviceForm.assetId,
+        serialNumber: editDeviceForm.serialNumber,
+        make: editDeviceForm.make,
+        model: editDeviceForm.model,
+        marketCode: editDeviceForm.marketCode,
+        inventoryStatus: dbStatus,
+        imei: editDeviceForm.imei,
+        osVersion: editDeviceForm.osVersion,
+        supplier: editDeviceForm.supplier,
+        warrantyExpiryDate: editDeviceForm.warrantyExpiryDate,
+        notes: editDeviceForm.notes,
+      });
+
+      if (!res.success) {
+        setEditError(res.error?.message || 'Failed to update device.');
+        setIsUpdatingDevice(false);
+        return;
+      }
+
+      setEditSuccess('Company device successfully updated in central inventory.');
+      await refreshDevices();
+      setIsUpdatingDevice(false);
+    } catch (err: any) {
+      setEditError(err.message || 'An unexpected error occurred.');
+      setIsUpdatingDevice(false);
+    }
+  };
+
+  // Submit Delete Device
+  const handleDeleteDeviceSubmit = async () => {
+    if (!deviceToDelete) return;
+    setDeleteError(null);
+    setDeleteHasHistory(false);
+    setIsDeletingDevice(true);
+
+    try {
+      const res = await adminService.deleteDevice(deviceToDelete.id);
+      if (!res.success) {
+        if (res.hasHistory) {
+          setDeleteHasHistory(true);
+        }
+        setDeleteError(res.error?.message || 'Failed to delete device.');
+        setIsDeletingDevice(false);
+        return;
+      }
+
+      await refreshDevices();
+      setIsDeletingDevice(false);
+      setDeviceToDelete(null);
+    } catch (err: any) {
+      setDeleteError(err.message || 'An unexpected error occurred.');
+      setIsDeletingDevice(false);
+    }
+  };
+
+  // Retire Device if deletion is blocked by history
+  const handleRetireDeviceInstead = async () => {
+    if (!deviceToDelete) return;
+    setIsRetiringDevice(true);
+    try {
+      const res = await adminService.retireDevice(
+        deviceToDelete.id,
+        'Decommissioned / retired by HQ Admin instead of hard delete'
+      );
+      if (!res.success) {
+        setDeleteError(res.error?.message || 'Failed to retire device.');
+        setIsRetiringDevice(false);
+        return;
+      }
+
+      await refreshDevices();
+      setIsRetiringDevice(false);
+      setDeviceToDelete(null);
+    } catch (err: any) {
+      setDeleteError(err.message || 'An unexpected error occurred.');
+      setIsRetiringDevice(false);
+    }
+  };
+
+  // 1. Submit Register New Device (Persisted to Supabase)
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegisterError(null);
     setRegisterSuccess(null);
+    setIsRegistering(true);
 
-    const res = registerDevice(registerForm);
-    if (!res.success) {
-      setRegisterError(res.error || 'Failed to register company device.');
-      return;
+    try {
+      // 1. Validate in frontend context (client-side checks)
+      const res = registerDevice(registerForm);
+      if (!res.success) {
+        setRegisterError(res.error || 'Failed to register company device.');
+        setIsRegistering(false);
+        return;
+      }
+
+      // 2. Persist to real Supabase
+      if (!isTestEnv) {
+        const { error: dbErr } = await adminService.registerDevice({
+          assetTag: registerForm.assetId,
+          serialNumber: registerForm.serialNumber,
+          make: registerForm.make,
+          model: registerForm.model,
+          marketCode: registerForm.marketCode,
+          inventoryStatus: registerForm.initialStatus as any,
+          imei: registerForm.imei,
+          osVersion: registerForm.osVersion,
+          purchaseDate: registerForm.purchaseDate,
+          supplier: registerForm.supplier,
+          warrantyExpiryDate: registerForm.warrantyExpiryDate,
+          notes: registerForm.notes,
+        });
+
+        if (dbErr) {
+          setRegisterError(dbErr.message);
+          setIsRegistering(false);
+          await refreshDevices();
+          return;
+        }
+
+        // Refresh devices from Supabase so the new device has its real database UUID
+        await refreshDevices();
+      }
+
+      const marketLabel =
+        registerForm.marketCode === 'NG'
+          ? 'Nigeria (Lagos Hub)'
+          : registerForm.marketCode === 'ZM'
+          ? 'Zambia (Lusaka Hub)'
+          : 'Malawi (Blantyre Hub)';
+
+      setRegisterSuccess(`Device ${registerForm.assetId.trim()} successfully registered in ${marketLabel} inventory.`);
+
+      // Reset form
+      setRegisterForm({
+        assetId: '',
+        make: 'Samsung',
+        model: 'Galaxy A15 Enterprise',
+        serialNumber: '',
+        marketCode: 'NG',
+        initialStatus: 'Available',
+        imei: '',
+        osVersion: 'Android 14 / One UI 6.0',
+        purchaseDate: new Date().toISOString().slice(0, 10),
+        supplier: 'Samsung West Africa Direct',
+        warrantyExpiryDate: '',
+        notes: '',
+      });
+
+      // Kept open until user manually dismisses or registers another device
+    } catch (err: any) {
+      setRegisterError(err.message || 'An unexpected error occurred while registering device.');
+    } finally {
+      setIsRegistering(false);
     }
-
-    setRegisterSuccess(`Device ${res.device?.assetId} successfully registered in ${res.device?.marketName} inventory.`);
-    // Reset form
-    setRegisterForm({
-      assetId: '',
-      make: 'Samsung',
-      model: 'Galaxy A15 Enterprise',
-      serialNumber: '',
-      marketCode: 'NG',
-      initialStatus: 'Available',
-      imei: '',
-      osVersion: 'Android 14 / One UI 6.0',
-      purchaseDate: new Date().toISOString().slice(0, 10),
-      supplier: 'Samsung West Africa Direct',
-      warrantyExpiryDate: '',
-      notes: '',
-    });
-
-    setTimeout(() => {
-      setShowRegisterModal(false);
-      setRegisterSuccess(null);
-    }, 1200);
   };
 
   // 2. Submit Device Assignment
@@ -1045,10 +1312,63 @@ export const HqDeviceManagement: React.FC = () => {
 
       {/* Devices Inventory Table */}
       <Card className="border-slate-200/90 shadow-xs overflow-hidden">
+        {/* Bulk Selection Action Bar */}
+        {selectedDeviceIds.size > 0 && (
+          <div className="bg-blue-50/90 border-b border-blue-100 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2 animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-brand-blue animate-pulse" />
+                {selectedDeviceIds.size} device{selectedDeviceIds.size > 1 ? 's' : ''} selected
+              </span>
+              {selectedDeviceIds.size < filteredDevices.length && (
+                <button
+                  type="button"
+                  onClick={selectAllFilteredDevices}
+                  className="text-xs font-semibold text-brand-blue hover:underline cursor-pointer"
+                >
+                  Select all {filteredDevices.length} filtered devices
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={clearDeviceSelection}
+                className="text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
+              >
+                Clear selection
+              </button>
+            </div>
+
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setBulkDeleteDevicesResult(null);
+                setShowBulkDeleteDevicesModal(true);
+              }}
+              className="h-7 text-xs font-semibold gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedDeviceIds.size})</span>
+            </Button>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase font-bold text-[10px] tracking-wider">
               <tr>
+                <th className="py-3 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isAllPageDevicesSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isSomePageDevicesSelected;
+                    }}
+                    onChange={toggleSelectAllPageDevices}
+                    className="w-4 h-4 rounded border-slate-300 text-brand-blue focus:ring-brand-blue/20 cursor-pointer"
+                    title="Select all on this page"
+                  />
+                </th>
                 <th className="py-3 px-4">Asset ID & Serial Number</th>
                 <th className="py-3 px-3">Make & Model</th>
                 <th className="py-3 px-3">Market Hub</th>
@@ -1061,15 +1381,34 @@ export const HqDeviceManagement: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredDevices.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                  <td colSpan={8} className="py-12 text-center text-slate-500">
                     <Smartphone className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="font-semibold text-slate-700">No matching handsets found</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">Adjust filter tags or search terms</p>
                   </td>
                 </tr>
               ) : (
-                filteredDevices.map((device) => (
-                  <tr key={device.id} className="hover:bg-slate-50/80 transition-colors">
+                paginatedDevices.map((device) => (
+                  <tr
+                    key={device.id}
+                    className={cn(
+                      'transition-colors',
+                      selectedDeviceIds.has(device.id)
+                        ? 'bg-blue-50/60 hover:bg-blue-50/80'
+                        : 'hover:bg-slate-50/80'
+                    )}
+                  >
+                    {/* Row Checkbox */}
+                    <td className="py-3.5 px-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedDeviceIds.has(device.id)}
+                        onChange={() => toggleSelectDevice(device.id)}
+                        className="w-4 h-4 rounded border-slate-300 text-brand-blue focus:ring-brand-blue/20 cursor-pointer"
+                        title={`Select device ${device.assetId}`}
+                      />
+                    </td>
+
                     {/* Asset ID & Serial */}
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
@@ -1162,6 +1501,21 @@ export const HqDeviceManagement: React.FC = () => {
                           </Button>
                         )}
 
+                        {/* Edit Device Details */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setDeviceToEdit(device);
+                            setEditError(null);
+                            setEditSuccess(null);
+                          }}
+                          className="h-7 px-1.5 text-[11px] text-slate-600 hover:text-brand-blue"
+                          title="Edit Device Details"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+
                         {/* Lifecycle Status Update */}
                         <Button
                           variant="ghost"
@@ -1188,6 +1542,21 @@ export const HqDeviceManagement: React.FC = () => {
                         >
                           <History className="w-3.5 h-3.5" />
                         </Button>
+
+                        {/* Delete Device */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setDeviceToDelete(device);
+                            setDeleteError(null);
+                            setDeleteHasHistory(false);
+                          }}
+                          className="h-7 px-1.5 text-[11px] text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                          title="Delete Device from Fleet"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -1196,6 +1565,17 @@ export const HqDeviceManagement: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Table Pagination */}
+        <TablePagination
+          currentPage={devicePage}
+          pageSize={devicePageSize}
+          totalItems={filteredDevices.length}
+          onPageChange={setDevicePage}
+          onPageSizeChange={setDevicePageSize}
+          pageSizeOptions={[10, 20, 50, 100]}
+          itemName="devices"
+        />
       </Card>
 
       {/* ========================================================================= */}
@@ -1229,14 +1609,44 @@ export const HqDeviceManagement: React.FC = () => {
               </div>
             )}
 
-            {registerSuccess && (
-              <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>{registerSuccess}</span>
+            {registerSuccess ? (
+              <div className="space-y-4 py-2">
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-sm text-emerald-800">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span>Company Device Registered Successfully</span>
+                  </div>
+                  <p className="text-xs text-emerald-800 leading-relaxed pl-7">
+                    {registerSuccess}
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setRegisterSuccess(null);
+                    }}
+                    className="text-xs border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Register Another Handset
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      setShowRegisterModal(false);
+                      setRegisterSuccess(null);
+                    }}
+                    className="text-xs bg-brand-blue hover:bg-blue-700 text-white font-bold cursor-pointer"
+                  >
+                    Done / Close
+                  </Button>
+                </div>
               </div>
-            )}
-
-            <form onSubmit={handleRegisterSubmit} className="space-y-4 text-xs">
+            ) : (
+              <form onSubmit={handleRegisterSubmit} className="space-y-4 text-xs">
               {/* Section 1: Required Identification */}
               <div className="space-y-2.5">
                 <span className="font-bold text-slate-700 text-[11px] uppercase tracking-wide block">
@@ -1420,12 +1830,15 @@ export const HqDeviceManagement: React.FC = () => {
                 <Button
                   id="btn-submit-register-device"
                   type="submit"
-                  className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold"
+                  disabled={isRegistering}
+                  className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5"
                 >
-                  Confirm Registration
+                  {isRegistering && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {isRegistering ? 'Registering...' : 'Confirm Registration'}
                 </Button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
@@ -1487,7 +1900,7 @@ export const HqDeviceManagement: React.FC = () => {
                   className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
                 >
                   <option value="">
-                    {isLoadingSalespeople ? 'Loading representatives...' : '-- Choose Sales Representative --'}
+                    {isLoadingSalespeople ? 'Loading representatives from Supabase...' : '-- Choose Sales Representative --'}
                   </option>
                   {combinedSalespeople
                     .filter((p) => p.marketCode === deviceToAssign.marketCode)
@@ -1496,8 +1909,7 @@ export const HqDeviceManagement: React.FC = () => {
                         Boolean(rep.hasActiveHandset) ||
                         devices.some(
                           (d) =>
-                            (d.assignedSalespersonId === rep.id ||
-                              (rep.name && d.assignedSalespersonName?.toLowerCase() === rep.name.toLowerCase())) &&
+                            d.assignedSalespersonId === rep.id &&
                             (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
                         );
                       const displayTag = rep.email || rep.id;
@@ -1597,7 +2009,7 @@ export const HqDeviceManagement: React.FC = () => {
                   className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
                 >
                   <option value="">
-                    {isLoadingSalespeople ? 'Loading representatives...' : '-- Choose New Custodian --'}
+                    {isLoadingSalespeople ? 'Loading representatives from Supabase...' : '-- Choose New Custodian --'}
                   </option>
                   {combinedSalespeople
                     .filter(
@@ -2313,6 +2725,486 @@ export const HqDeviceManagement: React.FC = () => {
               >
                 Close Audit History
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* EDIT COMPANY DEVICE MODAL */}
+      {/* ========================================================================= */}
+      {deviceToEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in select-none">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Edit Company Device</h3>
+                  <p className="text-[11px] text-slate-500">Update hardware specifications, inventory status & telemetry</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeviceToEdit(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            {editSuccess ? (
+              <div className="space-y-4 py-2">
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-sm text-emerald-800">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span>Device Updated Successfully</span>
+                  </div>
+                  <p className="text-xs text-emerald-800 leading-relaxed pl-7">
+                    {editSuccess}
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      setDeviceToEdit(null);
+                      setEditSuccess(null);
+                      setIsUpdatingDevice(false);
+                    }}
+                    className="text-xs bg-brand-blue hover:bg-blue-700 text-white font-bold cursor-pointer"
+                  >
+                    Done / Close
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleEditDeviceSubmit} className="space-y-4 text-xs">
+              {/* Section 1: Required Identification */}
+              <div className="space-y-2.5">
+                <span className="font-bold text-slate-700 text-[11px] uppercase tracking-wide block">
+                  Device Identification & Assignment
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Company Asset ID *</label>
+                    <input
+                      required
+                      type="text"
+                      value={editDeviceForm.assetId}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, assetId: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono uppercase focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Manufacturer Serial Number *</label>
+                    <input
+                      required
+                      type="text"
+                      value={editDeviceForm.serialNumber}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, serialNumber: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono uppercase focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Device Make *</label>
+                    <select
+                      value={editDeviceForm.make}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, make: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    >
+                      <option value="Samsung">Samsung</option>
+                      <option value="Nokia">Nokia</option>
+                      <option value="Xiaomi">Xiaomi</option>
+                      <option value="Google">Google</option>
+                      <option value="Other">Other Enterprise Handset</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Device Model *</label>
+                    <input
+                      required
+                      type="text"
+                      value={editDeviceForm.model}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, model: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Assigned Market *</label>
+                    <select
+                      value={editDeviceForm.marketCode}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, marketCode: e.target.value as MarketCode })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue font-semibold"
+                    >
+                      <option value="NG">Nigeria (Lagos Hub)</option>
+                      <option value="ZM">Zambia (Lusaka Hub)</option>
+                      <option value="MW">Malawi (Blantyre Hub)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Inventory Status *</label>
+                  <select
+                    value={editDeviceForm.inventoryStatus}
+                    onChange={(e) => setEditDeviceForm({ ...editDeviceForm, inventoryStatus: e.target.value as DeviceInventoryStatus })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                  >
+                    <option value="Available">Available (In Depot)</option>
+                    <option value="Assigned">Assigned</option>
+                    <option value="Active">Active in Field</option>
+                    <option value="Pending Inspection">Pending Inspection</option>
+                    <option value="Under Maintenance">Under Maintenance</option>
+                    <option value="Lost/Stolen">Lost / Stolen</option>
+                    <option value="Returned">Returned to Depot</option>
+                    <option value="Revoked">Revoked</option>
+                    <option value="Retired">Retired / Recycled</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Section 2: Optional Enterprise Metadata */}
+              <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                <span className="font-bold text-slate-700 text-[11px] uppercase tracking-wide block">
+                  Optional Enterprise Metadata
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-medium text-slate-600 mb-1">15-Digit IMEI</label>
+                    <input
+                      type="text"
+                      maxLength={15}
+                      placeholder="e.g. 864209051999123"
+                      value={editDeviceForm.imei}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, imei: e.target.value.replace(/\D/g, '') })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-600 mb-1">OS & Build Version</label>
+                    <input
+                      type="text"
+                      value={editDeviceForm.osVersion}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, osVersion: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-medium text-slate-600 mb-1">Supplier / Vendor</label>
+                    <input
+                      type="text"
+                      value={editDeviceForm.supplier}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, supplier: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-600 mb-1">Warranty Expiry Date</label>
+                    <input
+                      type="date"
+                      value={editDeviceForm.warrantyExpiryDate}
+                      onChange={(e) => setEditDeviceForm({ ...editDeviceForm, warrantyExpiryDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-600 mb-1">Administrative Notes</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Enter deployment notes or storage location..."
+                    value={editDeviceForm.notes}
+                    onChange={(e) => setEditDeviceForm({ ...editDeviceForm, notes: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDeviceToEdit(null)}
+                  disabled={isUpdatingDevice}
+                  className="text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isUpdatingDevice}
+                  className="bg-brand-blue hover:bg-blue-700 text-white font-bold text-xs"
+                >
+                  {isUpdatingDevice ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
+                </Button>
+              </div>
+            </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* BULK DELETE DEVICES MODAL */}
+      {/* ========================================================================= */}
+      {showBulkDeleteDevicesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in select-none">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Bulk Delete Company Handsets</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Removing {selectedDeviceIds.size} selected device{selectedDeviceIds.size > 1 ? 's' : ''} from inventory
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowBulkDeleteDevicesModal(false);
+                  setBulkDeleteDevicesResult(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {bulkDeleteDevicesResult ? (
+              <div className="space-y-3 text-xs">
+                {bulkDeleteDevicesResult.deletedCount > 0 && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 flex items-center gap-2 font-medium">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{bulkDeleteDevicesResult.deletedCount} unreferenced handset(s) deleted successfully.</span>
+                  </div>
+                )}
+
+                {bulkDeleteDevicesResult.blockedCount > 0 && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 space-y-2">
+                    <div className="flex items-start gap-2 font-semibold">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <span>{bulkDeleteDevicesResult.blockedCount} handset(s) could not be deleted due to operational audit history:</span>
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-relaxed pl-6">
+                      These devices have recorded field visits or attendance logs and cannot be erased under compliance policy.
+                      You can retire/decommission them instead, which terminates custody and removes them from active circulation while preserving audit integrity.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowBulkDeleteDevicesModal(false);
+                      setBulkDeleteDevicesResult(null);
+                    }}
+                    className="text-xs"
+                  >
+                    Close
+                  </Button>
+                  {bulkDeleteDevicesResult.blockedCount > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={handleConfirmBulkRetireBlockedDevices}
+                      disabled={isBulkRetiringDevices}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5"
+                    >
+                      {isBulkRetiringDevices && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Retire Blocked Handsets ({bulkDeleteDevicesResult.blockedCount})
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 text-xs">
+                <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-1.5 text-rose-900">
+                  <p className="font-semibold">
+                    Are you sure you want to delete {selectedDeviceIds.size} selected device{selectedDeviceIds.size > 1 ? 's' : ''} from central inventory?
+                  </p>
+                  <p className="text-[11px] text-rose-700 leading-relaxed">
+                    Unreferenced handsets will be permanently deleted. Devices with operational history (recorded field visits or attendance) cannot be erased and will be flagged for retirement instead.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowBulkDeleteDevicesModal(false)}
+                    disabled={isBulkDeletingDevices}
+                    className="text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleConfirmBulkDeleteDevices}
+                    disabled={isBulkDeletingDevices}
+                    className="font-bold text-xs gap-1.5"
+                  >
+                    {isBulkDeletingDevices && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    Confirm Delete ({selectedDeviceIds.size})
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DELETE COMPANY DEVICE MODAL */}
+      {/* ========================================================================= */}
+      {deviceToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in select-none">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Delete Company Handset</h3>
+                  <p className="text-[11px] font-mono text-slate-500">{deviceToDelete.assetId} • {deviceToDelete.serialNumber}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeviceToDelete(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                <p className="text-slate-600">
+                  Model: <strong className="text-slate-900">{deviceToDelete.make} {deviceToDelete.model}</strong>
+                </p>
+                <p className="text-slate-600">
+                  Market Hub: <strong className="text-slate-900">{deviceToDelete.marketName}</strong>
+                </p>
+                <p className="text-slate-600">
+                  Current Status: <strong className="text-slate-900">{deviceToDelete.inventoryStatus}</strong>
+                </p>
+                {deviceToDelete.assignedSalespersonName && (
+                  <p className="text-amber-800 font-semibold bg-amber-50 p-1.5 rounded border border-amber-200 mt-1">
+                    ⚠️ Handset is currently assigned to: {deviceToDelete.assignedSalespersonName}
+                  </p>
+                )}
+              </div>
+
+              {deleteError && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{deleteError}</span>
+                </div>
+              )}
+
+              {deleteHasHistory ? (
+                <div className="space-y-3 pt-1">
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
+                    <strong>Enterprise Audit Notice:</strong> This device has recorded field visits or attendance check-ins and cannot be erased. You can transition its status to <em>Retired / Recycled</em> to remove it from active field circulation while preserving audit integrity.
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDeviceToDelete(null)}
+                      className="text-xs"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={isRetiringDevice}
+                      onClick={handleRetireDeviceInstead}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
+                    >
+                      {isRetiringDevice ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                          Retiring...
+                        </>
+                      ) : (
+                        'Retire Handset Instead'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-slate-600 leading-relaxed">
+                    Are you sure you want to permanently delete this device from central inventory? This action is immediate and cannot be undone.
+                  </p>
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDeviceToDelete(null)}
+                      disabled={isDeletingDevice}
+                      className="text-xs"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={isDeletingDevice}
+                      onClick={handleDeleteDeviceSubmit}
+                      className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs"
+                    >
+                      {isDeletingDevice ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        'Confirm Delete Handset'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

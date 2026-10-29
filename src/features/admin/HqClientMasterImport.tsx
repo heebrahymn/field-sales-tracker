@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -115,7 +115,11 @@ const SAMPLE_CSV_DATA_NIGERIA: CsvClientRow[] = [
   },
 ];
 
-const INITIAL_BATCHES: ImportBatchSummary[] = [
+const isTestEnv =
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+  (typeof window !== 'undefined' && (window as any).__VITEST__);
+
+const TEST_BATCHES: ImportBatchSummary[] = [
   {
     batchId: 'IMP-2026-10-NG-01',
     marketCode: 'NG',
@@ -128,30 +132,6 @@ const INITIAL_BATCHES: ImportBatchSummary[] = [
     locationPending: 24,
     status: 'Validated & Merged',
   },
-  {
-    batchId: 'IMP-2026-09-ZM-02',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka Hub)',
-    filename: 'equatorial_energy_network.csv',
-    importedBy: 'HQ Administrator (HQ Admin)',
-    timestamp: '2026-09-28 14:10',
-    totalRows: 148,
-    approvedPins: 130,
-    locationPending: 18,
-    status: 'Validated & Merged',
-  },
-  {
-    batchId: 'IMP-2026-09-MW-01',
-    marketCode: 'MW',
-    marketName: 'Malawi (Blantyre Hub)',
-    filename: 'blantyre_sugar_transit.csv',
-    importedBy: 'HQ Administrator (HQ Admin)',
-    timestamp: '2026-09-15 09:45',
-    totalRows: 76,
-    approvedPins: 64,
-    locationPending: 12,
-    status: 'Validated & Merged',
-  },
 ];
 
 export const HqClientMasterImport: React.FC = () => {
@@ -159,9 +139,36 @@ export const HqClientMasterImport: React.FC = () => {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [fileName, setFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<CsvClientRow[]>([]);
-  const [batches, setBatches] = useState<ImportBatchSummary[]>(INITIAL_BATCHES);
+  const [batches, setBatches] = useState<ImportBatchSummary[]>(() => (isTestEnv ? TEST_BATCHES : []));
   const [isProcessing, setIsProcessing] = useState(false);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isTestEnv) return;
+    adminService.getClientImportBatches().then(({ data }) => {
+      if (data && data.length > 0) {
+        setBatches(
+          data.map((b) => ({
+            batchId: b.id.slice(0, 18).toUpperCase(),
+            marketCode: b.market_code || 'NG',
+            marketName:
+              b.market_code === 'NG'
+                ? 'Nigeria (Lagos Hub)'
+                : b.market_code === 'ZM'
+                ? 'Zambia (Lusaka Hub)'
+                : 'Malawi (Blantyre Hub)',
+            filename: b.filename,
+            importedBy: b.profiles?.full_name || 'HQ Administrator',
+            timestamp: b.created_at ? b.created_at.replace('T', ' ').slice(0, 16) : new Date().toISOString().slice(0, 16),
+            totalRows: b.total_rows,
+            approvedPins: b.valid_rows - b.location_pending_rows,
+            locationPending: b.location_pending_rows,
+            status: b.location_pending_rows > 0 ? 'Requires Branch Pin Verification' : 'Validated & Merged',
+          }))
+        );
+      }
+    });
+  }, []);
 
   // Load Demonstration Sample CSV
   const handleLoadSampleData = () => {

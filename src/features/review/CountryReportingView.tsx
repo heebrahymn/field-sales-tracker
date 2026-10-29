@@ -1,4 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { managementService, RealVisitVerificationRecord } from '@/services/managementService';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -47,266 +49,181 @@ export interface GranularVisitRecord {
 }
 
 export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ marketName }) => {
+  const { currentUser } = useAuth();
+  const [realVisits, setRealVisits] = useState<RealVisitVerificationRecord[]>([]);
+  const [salespeople, setSalespeople] = useState<{ id: string; name: string; territory: string }[]>([]);
+  const [_loading, setLoading] = useState(false);
+
   // Timeframe and Multi-Dimensional Filter States
   const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'quarterly'>('weekly');
   const [selectedRep, setSelectedRep] = useState<string>('all');
   const [selectedDateRange, setSelectedDateRange] = useState<'daily' | 'weekly' | 'quarterly' | 'custom'>('weekly');
-  const [customStartDate, setCustomStartDate] = useState<string>('2026-10-13');
-  const [customEndDate, setCustomEndDate] = useState<string>('2026-10-19');
+  const [customStartDate, setCustomStartDate] = useState<string>(new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
+  const [customEndDate, setCustomEndDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'summary' | 'granular'>('summary');
 
-  // Baseline Rollup Figures per timeframe
-  const baselineData = {
-    daily: {
-      label: 'Today (Provisional — Subject to 19:00 WAT Cutoff)',
-      scheduledReps: 10,
-      activePresent: 8,
-      onLeave: 1,
-      nonVisitWorkday: 1,
-      verifiedVisits: 34,
-      managerApprovedUnverified: 3,
-      uniqueBranches: 28,
-      missingLogs: 2,
-      offlineEventShare: '18%',
-      logCompliance: '94%',
-      auditSampleRate: '5.2%',
-      provisional: true,
-    },
-    weekly: {
-      label: 'Current Workweek (13 - 19 Oct 2026)',
-      scheduledReps: 10,
-      activePresent: 9.2,
-      onLeave: 1,
-      nonVisitWorkday: 2,
-      verifiedVisits: 168,
-      managerApprovedUnverified: 12,
-      uniqueBranches: 94,
-      missingLogs: 3,
-      offlineEventShare: '14.5%',
-      logCompliance: '95%',
-      auditSampleRate: '5.1%',
-      provisional: false,
-    },
-    quarterly: {
-      label: 'Quarter 4 (Oct - Dec 2026, QTD)',
-      scheduledReps: 10,
-      activePresent: 9.4,
-      onLeave: 3,
-      nonVisitWorkday: 8,
-      verifiedVisits: 482,
-      managerApprovedUnverified: 31,
-      uniqueBranches: 142,
-      missingLogs: 7,
-      offlineEventShare: '15.8%',
-      logCompliance: '93%',
-      auditSampleRate: '5.0%',
-      provisional: false,
-    },
-  };
+  useEffect(() => {
+    let mounted = true;
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const currentMarket = currentUser?.marketCode || 'NG';
+        const [vRes, reps] = await Promise.all([
+          managementService.getCountryVisits(currentMarket),
+          managementService.getMarketSalespeople(currentMarket)
+        ]);
+        if (!mounted) return;
+        setRealVisits(vRes.data || []);
+        setSalespeople(
+          reps.map((r: { id: string; full_name: string; market_code: string }) => ({
+            id: r.id,
+            name: r.full_name,
+            territory:
+              r.market_code === 'NG'
+                ? 'Nigeria (Lagos Hub)'
+                : r.market_code === 'ZM'
+                ? 'Zambia (Lusaka Hub)'
+                : 'Malawi (Blantyre Hub)',
+          }))
+        );
+      } catch (err) {
+        console.error('Failed to load country report data from Supabase:', err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    loadData();
+    return () => {
+      mounted = false;
+    };
+  }, [currentUser?.marketCode]);
 
-  // Canonical Mock Sales Representatives
-  const salesReps = [
-    {
-      id: 'CC-REP-042',
-      name: 'Tunde Adebayo',
-      territory: 'Lagos Island & Lekki',
-      daily: { verified: 8, unverified: 1, branches: 7, offline: '12%', compliance: '98%' },
-      weekly: { verified: 38, unverified: 3, branches: 24, offline: '12%', compliance: '98%' },
-      quarterly: { verified: 112, unverified: 6, branches: 35, offline: '13%', compliance: '97%' },
-    },
-    {
-      id: 'CC-REP-038',
-      name: 'Chinyere Nwosu',
-      territory: 'Apapa Port Corridor',
-      daily: { verified: 7, unverified: 0, branches: 6, offline: '19%', compliance: '95%' },
-      weekly: { verified: 36, unverified: 2, branches: 21, offline: '19%', compliance: '95%' },
-      quarterly: { verified: 108, unverified: 5, branches: 32, offline: '18%', compliance: '94%' },
-    },
-    {
-      id: 'CC-REP-039',
-      name: 'Emeka Nwosu',
-      territory: 'Ibeju-Lekki Hub',
-      daily: { verified: 6, unverified: 1, branches: 5, offline: '15%', compliance: '91%' },
-      weekly: { verified: 32, unverified: 4, branches: 19, offline: '15%', compliance: '91%' },
-      quarterly: { verified: 98, unverified: 9, branches: 28, offline: '16%', compliance: '90%' },
-    },
-    {
-      id: 'CC-REP-044',
-      name: 'Ibrahim Sani',
-      territory: 'Kano North Transit Route',
-      daily: { verified: 5, unverified: 1, branches: 5, offline: '26%', compliance: '88%' },
-      weekly: { verified: 30, unverified: 3, branches: 18, offline: '26%', compliance: '88%' },
-      quarterly: { verified: 92, unverified: 8, branches: 26, offline: '24%', compliance: '89%' },
-    },
-  ];
+  // Real Granular Operational Records from Supabase
+  const allRecords: GranularVisitRecord[] = useMemo(() => {
+    return realVisits.map((v) => {
+      const checkInDate = v.workDate || (v.checkInAt ? v.checkInAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
+      const checkInTime = v.checkInAt
+        ? new Date(v.checkInAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT'
+        : '--:--';
 
-  // Canonical Granular Operational Records (MVP Scope: No financial or pipeline fields)
-  const allRecords: GranularVisitRecord[] = [
-    {
-      id: 'VIS-LAG-901',
-      repId: 'CC-REP-042',
-      repName: 'Tunde Adebayo',
-      branchCode: 'BR-LAG-108',
-      branchName: 'Apex Commercial Transit Hub',
-      clientCompany: 'Apex Commercial Transit Ltd',
-      date: '2026-10-19',
-      timeWAT: '09:15 WAT',
-      status: 'location_verified',
-      offlineCaptured: false,
-      logStatus: 'complete',
-      logDurationMinutes: 12,
-      productsDiscussed: 'Heavy Duty Coolant 20L, Fleet Degreaser',
-      territory: 'Lagos Island & Lekki',
-    },
-    {
-      id: 'VIS-LAG-904',
-      repId: 'CC-REP-042',
-      repName: 'Tunde Adebayo',
-      branchCode: 'BR-LAG-014',
-      branchName: 'Apex Heavy Logistics Fleet Depot',
-      clientCompany: 'Apex Heavy Logistics Ltd',
-      date: '2026-10-19',
-      timeWAT: '11:30 WAT',
-      status: 'location_verified',
-      offlineCaptured: true,
-      logStatus: 'complete',
-      logDurationMinutes: 18,
-      productsDiscussed: 'Ceramic Glass Coat Pro, Tire Dressing 5L',
-      territory: 'Lagos Island & Lekki',
-    },
-    {
-      id: 'VIS-LAG-908',
-      repId: 'CC-REP-042',
-      repName: 'Tunde Adebayo',
-      branchCode: 'BR-LAG-052',
-      branchName: 'Metroline Basement Depot',
-      clientCompany: 'Metroline Express Logistics',
-      date: '2026-10-19',
-      timeWAT: '14:00 WAT',
-      status: 'manager_approved_unverified',
-      offlineCaptured: true,
-      logStatus: 'complete',
-      logDurationMinutes: 25,
-      productsDiscussed: 'Premium Carnauba Wash & Wax',
-      territory: 'Lagos Island & Lekki',
-    },
-    {
-      id: 'VIS-LAG-892',
-      repId: 'CC-REP-038',
-      repName: 'Chinyere Nwosu',
-      branchCode: 'BR-LAG-014',
-      branchName: 'Apex Heavy Logistics Fleet Depot',
-      clientCompany: 'Apex Heavy Logistics Ltd',
-      date: '2026-10-18',
-      timeWAT: '10:15 WAT',
-      status: 'location_verified',
-      offlineCaptured: false,
-      logStatus: 'complete',
-      logDurationMinutes: 8,
-      productsDiscussed: 'Fleet Degreaser 25L, Heavy Duty Wash Sponge',
-      territory: 'Apapa Port Corridor',
-    },
-    {
-      id: 'VIS-LAG-896',
-      repId: 'CC-REP-038',
-      repName: 'Chinyere Nwosu',
-      branchCode: 'BR-LAG-091',
-      branchName: 'Dangote Flour Transport Wing',
-      clientCompany: 'Dangote Group',
-      date: '2026-10-19',
-      timeWAT: '13:20 WAT',
-      status: 'location_verified',
-      offlineCaptured: true,
-      logStatus: 'missing',
-      logDurationMinutes: 0,
-      productsDiscussed: 'Pending log entry by representative',
-      territory: 'Apapa Port Corridor',
-    },
-    {
-      id: 'VIS-LAG-885',
-      repId: 'CC-REP-039',
-      repName: 'Emeka Nwosu',
-      branchCode: 'BR-LAG-077',
-      branchName: 'Titan Engineering Fleet Depot',
-      clientCompany: 'Titan Engineering Ltd',
-      date: '2026-10-19',
-      timeWAT: '11:45 WAT',
-      status: 'manager_approved_unverified',
-      offlineCaptured: true,
-      logStatus: 'complete',
-      logDurationMinutes: 40,
-      productsDiscussed: 'Engine Degreaser Concentrate, Microfiber Bales',
-      territory: 'Ibeju-Lekki Hub',
-    },
-    {
-      id: 'VIS-LAG-888',
-      repId: 'CC-REP-039',
-      repName: 'Emeka Nwosu',
-      branchCode: 'BR-LAG-108',
-      branchName: 'Apex Commercial Transit Hub',
-      clientCompany: 'Apex Commercial Transit Ltd',
-      date: '2026-10-17',
-      timeWAT: '15:10 WAT',
-      status: 'disputed',
-      offlineCaptured: false,
-      logStatus: 'complete',
-      logDurationMinutes: 15,
-      productsDiscussed: 'Wheel Cleaner Acid-Free 5L',
-      territory: 'Ibeju-Lekki Hub',
-    },
-    {
-      id: 'VIS-KAN-701',
-      repId: 'CC-REP-044',
-      repName: 'Ibrahim Sani',
-      branchCode: 'BR-KAN-003',
-      branchName: 'Kano Freight Express Terminal',
-      clientCompany: 'Kano Freight Express Ltd',
-      date: '2026-10-19',
-      timeWAT: '08:45 WAT',
-      status: 'location_verified',
-      offlineCaptured: true,
-      logStatus: 'complete',
-      logDurationMinutes: 22,
-      productsDiscussed: 'All-Purpose Fleet Cleaner 20L',
-      territory: 'Kano North Transit Route',
-    },
-    {
-      id: 'VIS-KAN-705',
-      repId: 'CC-REP-044',
-      repName: 'Ibrahim Sani',
-      branchCode: 'BR-KAN-003',
-      branchName: 'Kano Freight Express Terminal',
-      clientCompany: 'Kano Freight Express Ltd',
-      date: '2026-10-16',
-      timeWAT: '14:30 WAT',
-      status: 'location_verified',
-      offlineCaptured: true,
-      logStatus: 'missing',
-      logDurationMinutes: 0,
-      productsDiscussed: 'Pending log entry (>2h SLA flagged)',
-      territory: 'Kano North Transit Route',
-    },
-    {
-      id: 'VIS-LAG-870',
-      repId: 'CC-REP-039',
-      repName: 'Emeka Nwosu',
-      branchCode: 'BR-LAG-063',
-      branchName: 'Seven-Up Logistics Hub',
-      clientCompany: 'Seven-Up Bottling Company',
-      date: '2026-10-14',
-      timeWAT: '11:00 WAT',
-      status: 'location_verified',
-      offlineCaptured: false,
-      logStatus: 'complete',
-      logDurationMinutes: 10,
-      productsDiscussed: 'Truck Wash Concentrate, Interior Foam',
-      territory: 'Ibeju-Lekki Hub',
-    },
-  ];
+      let status: GranularVisitRecord['status'] = 'pending_review';
+      if (v.verificationStatus === 'location_verified') status = 'location_verified';
+      else if (v.verificationStatus === 'manager_approved_unverified') status = 'manager_approved_unverified';
+      else status = 'pending_review';
+
+      return {
+        id: v.id.slice(0, 8).toUpperCase(),
+        repId: v.repId,
+        repName: v.repName || 'Field Representative',
+        branchCode: v.branchAddress?.slice(0, 10) || v.branchName.slice(0, 10),
+        branchName: v.branchName || 'Client Branch',
+        clientCompany: v.organisationName || 'Client Organisation',
+        date: checkInDate,
+        timeWAT: checkInTime,
+        status,
+        offlineCaptured: !v.withinGeofence,
+        logStatus: v.meetingLog ? 'complete' : 'missing',
+        logDurationMinutes: 15,
+        productsDiscussed: v.meetingLog?.productsDiscussed?.join(', ') || 'General portfolio discussion',
+        territory: marketName,
+      };
+    });
+  }, [realVisits, marketName]);
+
+  // Unique client locations from real records
+  const uniqueBranchesList = useMemo(() => {
+    const map = new Map<string, string>();
+    allRecords.forEach((r) => {
+      if (!map.has(r.branchCode)) {
+        map.set(r.branchCode, r.branchName);
+      }
+    });
+    return Array.from(map.entries()).map(([code, name]) => ({ code, name }));
+  }, [allRecords]);
+
+  // Dynamic Sales Representative Aggregations
+  const salesReps = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const oneWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+    return salespeople.map((rep) => {
+      const repVisits = allRecords.filter((r) => r.repId === rep.id);
+
+      const calcSlice = (visits: GranularVisitRecord[]) => {
+        const verified = visits.filter((r) => r.status === 'location_verified').length;
+        const unverified = visits.filter((r) => r.status === 'manager_approved_unverified').length;
+        const branches = new Set(visits.map((r) => r.branchCode)).size;
+        const offlineCount = visits.filter((r) => r.offlineCaptured).length;
+        const offlinePct = visits.length > 0 ? Math.round((offlineCount / visits.length) * 100) : 0;
+        const compliantLogs = visits.filter((r) => r.logStatus === 'complete').length;
+        const compliancePct = visits.length > 0 ? Math.round((compliantLogs / visits.length) * 100) : 100;
+        return {
+          verified,
+          unverified,
+          branches,
+          offline: `${offlinePct}%`,
+          compliance: `${compliancePct}%`,
+        };
+      };
+
+      const dailyVisits = repVisits.filter((r) => r.date === todayStr);
+      const weeklyVisits = repVisits.filter((r) => r.date >= oneWeekAgo);
+
+      return {
+        id: rep.id,
+        name: rep.name,
+        territory: rep.territory,
+        daily: calcSlice(dailyVisits),
+        weekly: calcSlice(weeklyVisits),
+        quarterly: calcSlice(repVisits),
+      };
+    });
+  }, [salespeople, allRecords]);
+
+  // Dynamic Baseline Rollup Figures from live Supabase visits
+  const baselineData = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const oneWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+    const calcRollup = (records: GranularVisitRecord[], label: string, isProvisional: boolean) => {
+      const verified = records.filter((r) => r.status === 'location_verified').length;
+      const unverified = records.filter((r) => r.status === 'manager_approved_unverified').length;
+      const uniqueBranchSet = new Set(records.map((r) => r.branchCode));
+      const offlineCount = records.filter((r) => r.offlineCaptured).length;
+      const offlinePct = records.length > 0 ? Math.round((offlineCount / records.length) * 100) : 0;
+      const compliantLogs = records.filter((r) => r.logStatus === 'complete').length;
+      const logCompliancePct = records.length > 0 ? Math.round((compliantLogs / records.length) * 100) : 100;
+
+      return {
+        label,
+        scheduledReps: salespeople.length,
+        activePresent: salespeople.length,
+        onLeave: 0,
+        nonVisitWorkday: 0,
+        verifiedVisits: verified,
+        managerApprovedUnverified: unverified,
+        uniqueBranches: uniqueBranchSet.size,
+        missingLogs: records.filter((r) => r.logStatus === 'missing').length,
+        offlineEventShare: `${offlinePct}%`,
+        logCompliance: `${logCompliancePct}%`,
+        auditSampleRate: '5.0%',
+        provisional: isProvisional,
+      };
+    };
+
+    const dailyRecords = allRecords.filter((r) => r.date === todayStr);
+    const weeklyRecords = allRecords.filter((r) => r.date >= oneWeekAgo);
+
+    return {
+      daily: calcRollup(dailyRecords, `Today (${todayStr} — Subject to 19:00 Cutoff)`, true),
+      weekly: calcRollup(weeklyRecords, 'Current Workweek', false),
+      quarterly: calcRollup(allRecords, 'Quarter to Date', false),
+    };
+  }, [allRecords, salespeople.length]);
 
   // Active Filter Count calculation
   const activeFilterCount = useMemo(() => {
@@ -360,7 +277,12 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
       }
 
       // 4. Date range filter
-      if (selectedDateRange === 'daily' && record.date !== '2026-10-19') {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const oneWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      if (selectedDateRange === 'daily' && record.date !== todayStr) {
+        return false;
+      }
+      if (selectedDateRange === 'weekly' && record.date < oneWeekAgo) {
         return false;
       }
       if (selectedDateRange === 'custom') {
@@ -495,11 +417,12 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
               onChange={(e) => setSelectedRep(e.target.value)}
               className="w-full text-xs h-9 px-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
-              <option value="all">All Salespeople (4 active)</option>
-              <option value="CC-REP-042">Tunde Adebayo (CC-REP-042)</option>
-              <option value="CC-REP-038">Chinyere Nwosu (CC-REP-038)</option>
-              <option value="CC-REP-039">Emeka Nwosu (CC-REP-039)</option>
-              <option value="CC-REP-044">Ibrahim Sani (CC-REP-044)</option>
+              <option value="all">All Salespeople ({salespeople.length} active)</option>
+              {salespeople.map((rep) => (
+                <option key={rep.id} value={rep.id}>
+                  {rep.name}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -513,9 +436,9 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
               onChange={(e) => handleDateRangeChange(e.target.value as any)}
               className="w-full text-xs h-9 px-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
-              <option value="daily">Daily: Today (19 Oct 2026)</option>
-              <option value="weekly">Weekly: Workweek 42 (13 - 19 Oct 2026)</option>
-              <option value="quarterly">Quarterly: Q4 (Oct - Dec 2026 QTD)</option>
+              <option value="daily">Daily: Today ({new Date().toISOString().slice(0, 10)})</option>
+              <option value="weekly">Weekly: Workweek Rollup (Last 7 Days)</option>
+              <option value="quarterly">Quarterly: Quarter to Date</option>
               <option value="custom">Custom Date Range...</option>
             </select>
           </div>
@@ -530,14 +453,12 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
               onChange={(e) => setSelectedBranch(e.target.value)}
               className="w-full text-xs h-9 px-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-brand-blue"
             >
-              <option value="all">All Client Locations</option>
-              <option value="BR-LAG-108">Apex Commercial Transit Hub (BR-LAG-108)</option>
-              <option value="BR-LAG-014">Apex Heavy Logistics Fleet Depot (BR-LAG-014)</option>
-              <option value="BR-LAG-052">Metroline Basement Depot (BR-LAG-052)</option>
-              <option value="BR-LAG-077">Titan Engineering Fleet Depot (BR-LAG-077)</option>
-              <option value="BR-KAN-003">Kano Freight Express Terminal (BR-KAN-003)</option>
-              <option value="BR-LAG-091">Dangote Flour Transport Wing (BR-LAG-091)</option>
-              <option value="BR-LAG-063">Seven-Up Bottling Logistics Hub (BR-LAG-063)</option>
+              <option value="all">All Client Locations ({uniqueBranchesList.length})</option>
+              {uniqueBranchesList.map((b) => (
+                <option key={b.code} value={b.code}>
+                  {b.name} ({b.code})
+                </option>
+              ))}
             </select>
           </div>
 

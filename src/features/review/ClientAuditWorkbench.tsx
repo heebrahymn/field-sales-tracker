@@ -58,7 +58,7 @@ export interface AuditQueueItem {
 
 export const ClientAuditWorkbench: React.FC = () => {
   const { currentUser } = useAuth();
-  const { audits: demoAudits, recordAuditCall, resolveDispute } = useAudit();
+  const { recordAuditCall, resolveDispute } = useAudit();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'random' | 'targeted'>('all');
@@ -123,7 +123,6 @@ export const ClientAuditWorkbench: React.FC = () => {
       setToastMessage(`Sampling failed: ${err.message}`);
     } finally {
       setIsSampling(false);
-      setTimeout(() => setToastMessage(null), 5000);
     }
   };
 
@@ -166,52 +165,8 @@ export const ClientAuditWorkbench: React.FC = () => {
       };
     });
 
-    // Map demo audits as fallback
-    const demoMapped: AuditQueueItem[] = demoAudits
-      .filter((a) => a.marketCode === (currentUser?.marketCode || 'NG') && !realAudits.some((r) => r.id === a.id))
-      .map((a) => {
-        let status: AuditQueueItem['status'] = 'pending_call';
-        if (a.callStatus === 'confirmed_meeting') {
-          status = a.disputeDecision === 'cleared' ? 'resolved_cleared' : 'confirmed';
-        } else if (a.callStatus === 'disputed_client_denial') {
-          status =
-            a.disputeDecision === 'violation'
-              ? 'resolved_violation'
-              : a.disputeDecision === 'cleared'
-              ? 'resolved_cleared'
-              : 'disputed';
-        } else if (a.callStatus === 'unreachable_rescheduled') {
-          status = 'unavailable';
-        }
-
-        return {
-          id: a.id,
-          visitId: a.visitId,
-          sampleType: a.sampleType,
-          clientName: a.organisationName,
-          branchName: a.branchName,
-          contactName: a.clientContactPerson,
-          contactRole: a.clientContactRole,
-          contactPhone: a.clientContactPhone,
-          repName: a.salespersonName,
-          claimedDate: a.visitDate,
-          claimedTime: a.claimedTime || '09:30 WAT',
-          productsDiscussed: a.productsDiscussed || 'Fleet Radiator Coolant, Degreaser',
-          status,
-          callAttempts: a.callAttemptCount,
-          callNotes: a.callNotes,
-          disputeFindings: a.disputeFindings,
-          secondaryContact: a.secondaryContact,
-          auditedBy: a.auditorName,
-          auditedAt: a.lastCallTimestamp,
-          resolvedBy: a.resolvedBy,
-          resolvedAt: a.resolvedAt,
-          isRealRecord: false,
-        };
-      });
-
-    return [...realMapped, ...demoMapped];
-  }, [realAudits, demoAudits, currentUser?.marketCode]);
+    return realMapped;
+  }, [realAudits]);
 
   const handleOpenCallModal = (item: AuditQueueItem) => {
     setActiveCallItem(item);
@@ -290,7 +245,6 @@ export const ClientAuditWorkbench: React.FC = () => {
       setToastMessage(`Audit call [${activeCallItem.id}] recorded as: "${statusLabel}".`);
     }
 
-    setTimeout(() => setToastMessage(null), 5000);
     setActiveCallItem(null);
   };
 
@@ -338,7 +292,6 @@ export const ClientAuditWorkbench: React.FC = () => {
       setToastMessage(`Dispute for [${activeDisputeItem.id}] resolved: "${resolutionLabel}".`);
     }
 
-    setTimeout(() => setToastMessage(null), 5000);
     setActiveDisputeItem(null);
   };
 

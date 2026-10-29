@@ -6,6 +6,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Post-Stage 3F Milestone] - Device & User Admin Governance, Pagination, Manual Dialog Dismissal & Mobile Camera Switching (2026-10-29)
+
+### Architecture, Administration & Mobile Camera (ADR 0016)
+- **Unassigned Device Market Filtering Discrepancies Resolved:**
+  - Expanded `adminService.getUnassignedDevicesByMarket()` to return available fleet handsets across `'available'`, `'in_depot'`, and `'returned_to_depot'` inventory statuses.
+  - Eliminated discrepancy where unassigned devices in Nigeria, Zambia, and Malawi were omitted from the User Provisioning modal handset assignment dropdown.
+- **Direct Supabase Handset Registration:**
+  - Connected `Register New Company Device` modal in `HqDeviceManagement.tsx` directly to Supabase (`adminService.registerCompanyDevice()`), storing serial number, asset tag, model, make, IMEI, build version, supplier, warranty, and notes to `public.devices`.
+  - Newly registered handsets immediately appear in the inventory directory and become available for user assignment without page refresh.
+- **HQ Administrative Governance (Device & User CRUD):**
+  - **Edit Device:** Implemented modal for updating handset metadata with live PostgreSQL persistence (`adminService.updateCompanyDevice()`).
+  - **Delete Device:** Added safe deletion/retirement workflow with validation checks preventing deletion of devices currently deployed in the field (`adminService.deleteCompanyDevice()`).
+  - **Edit User:** Implemented modal allowing HQ Admin to modify Full Name and Mobile Phone (`adminService.updateHqUserProfile()`).
+  - **Password Reset:** Added administrative password reset modal with support for custom passwords or auto-generating cryptographically secure 20-character passwords via Edge Function (`adminService.adminResetUserPassword()`).
+  - **Delete User:** Added double-confirmation deletion modal invoking GoTrue Admin `deleteUser()` and profile cleanup (`adminService.deleteHqUser()`).
+  - **Actions Dropdown:** Converted inline action buttons into an accessible, responsive dropdown menu (`DropdownMenu` primitive with `ChevronDown`).
+- **Table Pagination & Multi-Select Bulk Operations:**
+  - Created reusable `TablePagination` component (`src/components/ui/table-pagination.tsx`).
+  - Configured 10 items default with 20/50/100 page size options on both User Management and Device Management tables.
+  - Implemented multi-select row checkboxes with header indeterminate state, sticky selection count action bar, and bulk deletion confirmation modals.
+- **Strict Manual Dismissal for Modals & Banners:**
+  - Eliminated all automatic `setTimeout` auto-dismissals across all modules.
+  - Success dialogs and notification banners remain visible until explicitly dismissed by user interaction via clear confirmation CTAs (e.g. "Acknowledge & Proceed to Field Operations", "Done & Select Location", "Close & View Summary").
+- **Mobile Live Feed Camera Switching (Front $\leftrightarrow$ Back):**
+  - **Start Day Workday Selfie:** Added `#btn-switch-camera` on the live camera viewport defaulting to front selfie mode with one-tap toggle to rear camera and dynamic selfie mirroring (`-scale-x-100`).
+  - **Visit Premises Photo:** Added `#btn-visit-switch-camera` on the live viewfinder defaulting to rear premises mode with one-tap toggle to front camera.
+  - Graceful stream track stopping, hardware re-initialization, and fallback error handling.
+
+### Verified
+- **TypeScript:** `npx tsc --noEmit` passed with 0 errors.
+- **Vitest Suite:** 199 / 199 tests passing across all 14 test suites (added dedicated unit tests for camera toggling).
+- **Production Build:** `npm run build` (`tsc -b && vite build`) passed in 11.05s.
+- **Browser Playwright E2E:** Verified live camera stream toggling, dynamic button state updates, and snapshot captures on phone viewport ($390 \times 844$).
+- **Evidence:** 18 new responsive screenshots captured and stored in `docs/screenshots/stage3f/`.
+
+---
+
+## [Post-Stage 3F Milestone] - Supabase Development SSoT & Frontend Mock Elimination (2026-10-29)
+
+### Architecture & Data Consistency
+- **Supabase Single Source of Truth (SSoT):**
+  - Enforced hosted Supabase development project (`[SUPABASE_PROJECT_ID].supabase.co`) as the single authoritative source of operational, managerial, and audit records.
+  - Eliminated all hardcoded demonstration arrays and artificial metric floors (`Math.max(...)`) across Salesperson, Country Sales Head, and HQ Administrator modules in runtime code (`process.env.NODE_ENV !== 'test'`).
+  - Updated `DemoDataBanner.tsx` with `Supabase Dev SSoT` badge confirming direct live connection to `[SUPABASE_PROJECT_ID]`.
+- **HQ Device Management Custodian Dropdown Fix (P0):**
+  - Eliminated obsolete `FIELD_SALESPEOPLE` (hardcoded 5 mock reps) in `src/features/admin/HqDeviceManagement.tsx`.
+  - Replaced with dynamic hydration via `adminService.getHqUsers()`.
+  - Verified 22 live Supabase representatives (including `bayo Ayodele`, `Ibrahim Babangida`, `Tunde Adebayo`, `Amina Bello`, `Chukwudi Okafor`) appear in the dropdown with zero mock user codes (`USR-NG-002`, `USR-NG-006`).
+  - Connected device assignment, reassignment, and registration to PostgreSQL persistence.
+- **HQ Management & Oversight Refactoring:**
+  - Removed `INITIAL_COMPANY_DEVICES` and `INITIAL_REQUESTS` in `DeviceReplacementContext.tsx`.
+  - Removed `INITIAL_MOCK_USERS` in `HqUserManagement.tsx`.
+  - Removed static batches in `HqClientMasterImport.tsx`; now hydrates live from `adminService.getClientImportBatches()`.
+  - Removed static exceptions in `HqExceptionOversight.tsx`; now hydrates live from `managementService.getCountryExceptions('ALL')`.
+  - Replaced static fallback mergers in `HqSystemAuditLog.tsx` with live ledger stream.
+  - Removed artificial metric minimums in `HqOperationsDashboard.tsx`.
+- **Management & Review Refactoring:**
+  - `CountryReportingView.tsx` derives all metrics from `managementService.getCountryVisits()` and `managementService.getMarketSalespeople()`.
+  - Connected `BranchApprovalsQueue.tsx` to `managementService.getBranchLocationPins()`.
+  - Connected `TeamAttendanceReview.tsx` to `attendanceService.getMarketAttendance()`.
+
+### Verified
+- Automated Vitest Suite: 197/197 tests passing across all 14 test files (0 failures).
+- Production Build: `tsc -b && vite build` completed in 12.65 seconds (0 errors).
+- Localhost Playwright E2E: Verified dynamic 22-rep dropdown and live handset assignment handover at `http://localhost:5173`.
+- Strict local isolation: Zero commits pushed to GitHub and zero Vercel deployments triggered per user instruction.
+
+---
+
 ## [Post-Stage 3F Hotfix] - P1 Hotfix: Real Fleet Device Assignment Dropdown & Salesperson Live Camera Preview (2026-10-28)
 
 ### Fixed (P1 Functional Corrections)

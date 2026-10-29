@@ -317,6 +317,191 @@ export const visitService = {
   },
 
   /**
+   * Registers a new branch under an organisation in Supabase, inserts contact person,
+   * and proposes an initial GPS location pin for Country Sales Head approval.
+   */
+  async registerClientBranch(params: {
+    organisationId?: string;
+    organisationName: string;
+    branchName: string;
+    category: string;
+    city: string;
+    streetAddress: string;
+    switchboardPhone: string;
+    marketCode: string;
+    contactName: string;
+    contactRole: string;
+    contactPhone: string;
+    contactEmail?: string;
+    estimatedFleetSize?: number;
+    latitude: number;
+    longitude: number;
+    accuracyM: number;
+    premisesPhotoPath: string;
+  }): Promise<{ data: DatabaseBranchWithDetails | null; error: Error | null }> {
+    try {
+      let orgId = params.organisationId;
+      if (!orgId) {
+        // Resolve organisation in market
+        const { data: orgs } = await supabase
+          .from('organisations')
+          .select('id, name')
+          .eq('market_code', params.marketCode);
+
+        const matched = orgs?.find(
+          (o) => o.name.toLowerCase() === params.organisationName.trim().toLowerCase()
+        );
+        if (matched) {
+          orgId = matched.id;
+        } else if (orgs && orgs.length > 0) {
+          orgId = orgs[0].id;
+        } else {
+          return { data: null, error: new Error(`No organisation found for market ${params.marketCode}`) };
+        }
+      }
+
+      // Map category to allowed enum
+      const validCategories = ['fleet_operator', 'workshop', 'dealer', 'distributor', 'retail', 'logistics'];
+      let safeCategory: any = 'logistics';
+      const catLower = params.category.toLowerCase();
+      if (catLower.includes('fleet')) safeCategory = 'fleet_operator';
+      else if (catLower.includes('workshop')) safeCategory = 'workshop';
+      else if (catLower.includes('dealer')) safeCategory = 'dealer';
+      else if (catLower.includes('distributor')) safeCategory = 'distributor';
+      else if (catLower.includes('retail')) safeCategory = 'retail';
+      else if (validCategories.includes(catLower)) safeCategory = catLower;
+
+      // 1. Insert Branch into public.branches
+      const { data: newBranch, error: branchErr } = await supabase
+        .from('branches')
+        .insert({
+          organisation_id: orgId,
+          branch_name: params.branchName.trim(),
+          category: safeCategory,
+          city: params.city.trim() || 'Commercial Hub',
+          street_address: params.streetAddress.trim(),
+          switchboard_phone: params.switchboardPhone.trim(),
+          estimated_fleet_size: params.estimatedFleetSize || null,
+          market_code: params.marketCode,
+          operating_status: 'pending_approval',
+        })
+        .select('*')
+        .single();
+
+      if (branchErr || !newBranch) {
+        return { data: null, error: new Error(branchErr?.message || 'Failed to create branch') };
+      }
+
+      // 2. Insert Contact into public.client_contacts
+      if (params.contactName.trim()) {
+        await supabase.from('client_contacts').insert({
+          branch_id: newBranch.id,
+          organisation_id: orgId,
+          full_name: params.contactName.trim(),
+          designation: params.contactRole.trim() || 'Operations Lead',
+          phone_number: params.contactPhone.trim() || params.switchboardPhone.trim(),
+          email: params.contactEmail?.trim() || null,
+          is_primary: true,
+        });
+      }
+
+      // 3. Propose Location Pin via RPC propose_branch_location_pin
+      let proposedPinId: string | null = null;
+      if (params.latitude && params.longitude) {
+        const { data: pinData, error: pinErr } = await supabase.rpc('propose_branch_location_pin', {
+          p_branch_id: newBranch.id,
+          p_latitude: params.latitude,
+          p_longitude: params.longitude,
+          p_accuracy_m: params.accuracyM || 15,
+          p_photo_url: params.premisesPhotoPath || 'visit-premises-photos/pending_proposal.jpg',
+        });
+        if (!pinErr) {
+          proposedPinId = pinData as string;
+        }
+      }
+
+      // 4. Fetch full branch record with relations
+      const { data: fetchedBranches } = await this.getClientsAndBranches(params.marketCode);
+      const createdWithDetails = fetchedBranches.find((b) => b.id === newBranch.id);
+
+      return {
+        data: createdWithDetails || {
+          ...newBranch,
+          client_contacts: [
+            {
+              id: 'temp-c',
+              full_name: params.contactName,
+              designation: params.contactRole,
+              phone_number: params.contactPhone,
+              email: params.contactEmail || null,
+              is_primary: true,
+            },
+          ],
+          branch_location_pins: proposedPinId
+            ? [
+                {
+                  id: proposedPinId,
+                  latitude: params.latitude,
+                  longitude: params.longitude,
+                  reported_accuracy_m: params.accuracyM,
+                  status: 'pending_approval',
+                  is_active: false,
+                  version_number: 1,
+                },
+              ]
+            : [],
+        },
+        error: null,
+      };
+    } catch (err: any) {
+      return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Submits a salesperson-authored field visit exception directly to Supabase.
+   * Enforces PRD §2 sole-author boundary: Salesperson authors exception, Country Sales Head reviews.
+   */
+  async submitSalespersonException(params: {
+    branchId: string;
+    exceptionType: 'gps_failure' | 'camera_failure' | 'device_depletion' | 'missed_visit' | 'non_visit_day';
+    claimedVisitTime: string;
+    reason: string;
+    attendanceDayId?: string;
+    supportingEvidenceUrl?: string;
+  }): Promise<{ data: any; error: Error | null }> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { data: null, error: new Error('User must be authenticated to submit an exception') };
+      }
+
+      const { data, error } = await supabase
+        .from('exceptions')
+        .insert({
+          user_id: user.id,
+          branch_id: params.branchId,
+          exception_type: params.exceptionType,
+          claimed_visit_time: params.claimedVisitTime,
+          reason: params.reason,
+          attendance_day_id: params.attendanceDayId || null,
+          supporting_evidence_url: params.supportingEvidenceUrl || null,
+          status: 'pending_review',
+        })
+        .select('*')
+        .single();
+
+      if (error) {
+        return { data: null, error: new Error(error.message) };
+      }
+
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
    * Retrieves the active approved GPS pin for a specific branch.
    */
   async getBranchApprovedPin(branchId: string): Promise<{

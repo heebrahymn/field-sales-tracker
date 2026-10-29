@@ -156,10 +156,6 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
           accuracy: gpsCoords ? Math.round(gpsCoords.accuracy) : null,
           provisionalOffline: true,
         });
-
-        setTimeout(() => {
-          onClose();
-        }, 1800);
         return;
       }
 
@@ -207,10 +203,6 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
         accuracy: gpsCoords ? Math.round(gpsCoords.accuracy) : null,
         provisionalOffline: false,
       });
-
-      setTimeout(() => {
-        onClose();
-      }, 1800);
     } catch (err: any) {
       console.error('[EndDayModal] Error ending workday:', err);
       setSubmitError(err.message || 'Unexpected failure while ending workday.');
@@ -314,6 +306,18 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
                       : 'Completed (Ended)'}
                   </span>
                 </div>
+              </div>
+
+              {/* Manual Confirmation Button */}
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold h-11 text-xs gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <CalendarCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Acknowledge &amp; Finish Workday</span>
+                </Button>
               </div>
             </div>
           ) : activeVisit ? (

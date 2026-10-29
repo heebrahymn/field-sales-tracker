@@ -71,10 +71,6 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
       });
 
       setSubmitted(true);
-      setTimeout(() => {
-        setSubmitted(false);
-        onClose();
-      }, 1600);
     } catch (err: any) {
       console.error('[NonVisitDayModal] Submission error:', err);
       setSubmitError(err.message || 'Failed to submit non-visit workday request.');
@@ -122,6 +118,17 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
             </p>
             <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-[11px] text-purple-950 text-left">
               <strong>Attendance Note:</strong> If approved, this workday will credit daily attendance but strictly <strong>zero</strong> physical-visit targets.
+            </div>
+
+            <div className="pt-2">
+              <Button
+                type="button"
+                onClick={onClose}
+                className="w-full bg-purple-700 hover:bg-purple-800 text-white font-bold h-10 text-xs gap-1.5 shadow-sm cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Done</span>
+              </Button>
             </div>
           </div>
         ) : (

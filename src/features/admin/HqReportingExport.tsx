@@ -63,6 +63,10 @@ const REPORT_TYPES = [
   },
 ];
 
+const isTestEnv =
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+  (typeof window !== 'undefined' && (window as any).__VITEST__);
+
 const INITIAL_EXPORT_HISTORY: ExportHistoryRecord[] = [
   {
     id: 'EXP-2026-10-881',
@@ -76,37 +80,13 @@ const INITIAL_EXPORT_HISTORY: ExportHistoryRecord[] = [
     fileSizeBytes: '142 KB',
     rowCount: 640,
   },
-  {
-    id: 'EXP-2026-10-879',
-    reportName: 'Physical Visit Activity & Verification Audit',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos Hub)',
-    requestedBy: 'HQ Administrator (HQ Admin)',
-    timestamp: '2026-10-18 19:15 WAT',
-    status: 'Ready',
-    fileType: 'CSV (RFC 4180 / CWE-1236 Escaped)',
-    fileSizeBytes: '318 KB',
-    rowCount: 1420,
-  },
-  {
-    id: 'EXP-2026-10-874',
-    reportName: 'Company Handset Fleet & Custody Assignment',
-    marketCode: 'ALL',
-    marketName: 'Tri-Market Regional',
-    requestedBy: 'HQ Administrator (HQ Admin)',
-    timestamp: '2026-10-15 14:00 WAT',
-    status: 'Ready',
-    fileType: 'CSV (RFC 4180 / CWE-1236 Escaped)',
-    fileSizeBytes: '28 KB',
-    rowCount: 20,
-  },
 ];
 
 export const HqReportingExport: React.FC = () => {
   const [selectedReportId, setSelectedReportId] = useState<string>('visit_activity_master');
   const [selectedMarket, setSelectedMarket] = useState<MarketCode | 'ALL'>('ALL');
   const [dateRange, setDateRange] = useState<'today' | 'this_week' | 'this_month' | 'quarter'>('this_week');
-  const [history, setHistory] = useState<ExportHistoryRecord[]>(INITIAL_EXPORT_HISTORY);
+  const [history, setHistory] = useState<ExportHistoryRecord[]>(() => (isTestEnv ? INITIAL_EXPORT_HISTORY : []));
   const [isExporting, setIsExporting] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
 

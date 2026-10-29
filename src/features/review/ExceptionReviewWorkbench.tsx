@@ -45,7 +45,7 @@ export interface ExceptionRecord extends ApprovalItem {
 
 export const ExceptionReviewWorkbench: React.FC = () => {
   const { currentUser } = useAuth();
-  const { exceptions: sharedExceptions, approveException, rejectException, escalateException } = useFieldSession();
+  const { approveException, rejectException, escalateException } = useFieldSession();
 
   const [filterType, setFilterType] = useState<'all' | 'gps_failure' | 'device_failure' | 'missed_visit'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'resolved'>('all');
@@ -124,52 +124,8 @@ export const ExceptionReviewWorkbench: React.FC = () => {
       };
     });
 
-    // Map demo exceptions from context
-    const demoMapped: ExceptionRecord[] = sharedExceptions
-      .filter((s) => !realExceptions.some((r) => r.id === s.id))
-      .map((item) => {
-        let mappedType: ExceptionRecord['exceptionType'] = 'gps_failure';
-        if (item.type === 'device_breakdown') mappedType = 'device_failure';
-        else if (item.type === 'missed_visit_claim') mappedType = 'missed_visit';
-        else if (item.type === 'camera_failure') mappedType = 'device_failure';
-
-        let mappedStatus: ExceptionRecord['status'] = 'pending_review';
-        if (item.status === 'approved_unverified') mappedStatus = 'manager_approved_unverified';
-        else if (item.status === 'rejected') mappedStatus = 'rejected';
-        else if (item.status === 'escalated') mappedStatus = 'escalated';
-
-        return {
-          id: item.id,
-          type: 'exception_approval',
-          exceptionType: mappedType,
-          title: item.title,
-          subtitle: `${item.reason.slice(0, 65)}...`,
-          clientName: item.branchName.replace(/ Depot| Hub| Yard| Terminal/i, '') + ' Transit Ltd',
-          branchName: item.branchName,
-          repName: item.repName || 'Tunde Adebayo (CC-REP-042)',
-          claimedTime: `${item.claimedDate} • ${item.claimedTime}`,
-          claimedDuration: item.claimedDuration || '35 mins',
-          submissionLag: item.submissionLag || '15 mins post-visit',
-          accuracy: item.accuracy || '±135m (Exceeds ≤100m visit limit)',
-          evidenceNote: item.evidenceNote,
-          productsDiscussed: item.productsDiscussed || 'Fleet Radiator Coolant, Heavy Duty Degreaser 20L',
-          contactMet: item.contactMet || 'Facility Operations Lead',
-          failureReason: item.reason,
-          status: mappedStatus,
-          isRealRecord: false,
-          managerDecision: item.managerComment
-            ? {
-                action: item.status === 'rejected' ? 'rejected' : item.status === 'escalated' ? 'escalated' : 'approved',
-                reason: item.managerComment,
-                decidedBy: item.decidedBy || 'HQ Administrator (Country Head)',
-                decidedAt: item.decisionDate || 'Today 14:45 WAT',
-              }
-            : undefined,
-        };
-      });
-
-    return [...realMapped, ...demoMapped];
-  }, [realExceptions, sharedExceptions]);
+    return realMapped;
+  }, [realExceptions]);
 
   const handleOpenDecision = (item: ExceptionRecord) => {
     setSelectedException(item);
@@ -226,8 +182,6 @@ export const ExceptionReviewWorkbench: React.FC = () => {
         `Exception [${itemId}] marked as "${statusLabel}". Rationale recorded to demonstration audit log.`
       );
     }
-
-    setTimeout(() => setToastMessage(null), 6000);
   };
 
   const filteredExceptions = exceptions.filter((item) => {

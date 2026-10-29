@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, Stage 3C, Stage 3D, Stage 3E, and Stage 3F Completed; Controlled Field Pilot Staging Deployed; Final Business Operational Rollout Authorisation Pending  
+**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, Stage 3C, Stage 3D, Stage 3E, Stage 3F, and Supabase Dev SSoT Migration Completed; Controlled Field Pilot Staging Deployed; Final Business Operational Rollout Authorisation Pending  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -229,6 +229,8 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **3D** | Durable Offline IndexedDB Journal (`Dexie.js`), Binary Media Queue (`Uint8Array` / `Blob`), Topological Dependency Sync, Safe App-Shell Service Worker (`/sw.js`), Idempotent Retries & Provisional State Governance (ADR 0012) | **Completed** (Tag `stage-3d-offline-sync-approved`; Verified via 170/170 Vitest Tests incl. 27 Stage 3D Scenarios & Full 16-Step Offline Workday Browser E2E) |
 | **3E** | Operational Dashboards, Manager Review Queues, GPS Pin Governance, Zero Bottleneck Company Device Replacement, 5% Audit Workbench, Safe CSV Export & Client Master ERP Import (ADR 0013) | **Completed** (Commit `d4dbb37`, Tag `stage-3e-management-approved`; Verified via 187/187 Vitest Tests incl. 17 Stage 3E Tests, Complete Live Supabase Integrity Suite & 15 Multi-Viewport Browser Screenshots) |
 | **3F** | End-to-End QA, Physical Device Testing Protocols, Live Vercel Staging Deployment (27/27 E2E Pass), and Field Pilot Readiness | **Completed** (ADR 0014, Deployed to `https://field-sales-tracker-b6l7.vercel.app/`; 187/187 Vitest, 9/9 Live Security Suites, 27/27 Staging E2E Tests, 19 Responsive Screenshots) |
+| **SSoT** | Supabase Development Single Source of Truth & Frontend Mock Data Elimination | **Completed** (ADR 0015; Multi-Market Seeding, Custodian Dynamic Pool, 197/197 Tests Passing) |
+| **Admin/Cam** | Administration Governance, Pagination, Device Lifecycle, Manual Dialog Dismissals & Mobile Camera Switching | **Completed** (ADR 0016; 199/199 Vitest, 0 TypeScript Errors, Full Mobile & Desktop Browser E2E Verified) |
 | **Field Pilot** | Real-device physical GPS/camera/offline QA on Samsung Galaxy A15 / Nokia G22, local IT commissioning, final field pilot reconciliation | Ready for Controlled Execution |
 | **Operational Rollout** | Business-wide multi-market operational go-live across Nigeria, Zambia, and Malawi | Awaiting Final Stakeholder Authorisation |
 

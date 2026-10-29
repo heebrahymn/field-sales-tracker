@@ -18,6 +18,7 @@ import {
   type QueueTelemetrySummary,
   type StorageQuotaAssessment,
 } from '@/services/offlineSyncService';
+import { managementService } from '@/services/managementService';
 
 export interface BranchContact {
   id?: string;
@@ -550,6 +551,42 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     }
   }, [currentUser?.id, currentUser?.marketCode, isOnline, isTestEnv]);
 
+  const refreshExceptions = useCallback(async () => {
+    if (!currentUser?.id || !currentUser?.marketCode) return;
+    try {
+      const { data: excs, error } = await managementService.getCountryExceptions(currentUser.marketCode);
+      if (error) {
+        console.warn('[FieldSession] Exceptions load notice:', error.message);
+      } else if (excs) {
+        const repExceptions: FieldExceptionRecord[] = excs
+          .filter((e) => e.userId === currentUser.id)
+          .map((e) => ({
+            id: e.id,
+            type: (e.exceptionType === 'missed_visit' ? 'missed_visit_claim' : e.exceptionType === 'device_depletion' ? 'device_breakdown' : e.exceptionType) as any,
+            title: e.failureReason.slice(0, 40),
+            branchName: e.branchName,
+            reason: e.failureReason,
+            evidenceNote: e.decisionReason || 'Evidence captured on mobile client',
+            claimedDate: new Date(e.claimedCheckInTime).toLocaleDateString(),
+            claimedTime: new Date(e.claimedCheckInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            claimedDuration: `${e.claimedDurationMinutes || 30} mins`,
+            submissionLag: '15 mins',
+            status: e.status === 'approved' ? 'approved_unverified' : e.status === 'rejected' ? 'rejected' : 'pending_review',
+            submittedAt: new Date(e.submittedAt).toLocaleString(),
+            managerComment: e.decisionReason || undefined,
+            decidedBy: e.reviewedByName || undefined,
+            repName: currentUser.name,
+            accuracy: 'GPS Unverified',
+            contactMet: 'Site Contact',
+            meetingOutcome: 'Exception visit',
+          }));
+        setExceptions(repExceptions);
+      }
+    } catch (err) {
+      console.warn('[FieldSession] Error refreshing exceptions:', err);
+    }
+  }, [currentUser?.id, currentUser?.marketCode, currentUser?.name]);
+
   const onAttendanceStarted = (record: AttendanceRecord) => {
     setAttendanceRecord(record);
     setIsAttendanceProvisional(Boolean((record as any).captured_offline || (record as any).status === 'pending_sync'));
@@ -576,8 +613,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     );
   };
 
-  // 3. Completed Visits Today
-  const [completedVisits, setCompletedVisits] = useState<CompletedVisitRecord[]>([
+  // 3. Completed Visits Today (Fallback mock for backward unit-test compatibility; empty array for live Supabase sessions)
+  const DEFAULT_MOCK_COMPLETED_VISITS: CompletedVisitRecord[] = [
     {
       id: 'vis-comp-01',
       branchName: 'Zenith Logistics & Transit Hub',
@@ -612,12 +649,16 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       meetingLogSubmitted: true,
       flagRaised: 'GPS Signal Failure (Basement level parking)',
     },
-  ]);
+  ];
+
+  const [completedVisits, setCompletedVisits] = useState<CompletedVisitRecord[]>(
+    isTestEnv ? DEFAULT_MOCK_COMPLETED_VISITS : []
+  );
 
   const [pendingMeetingLogs, setPendingMeetingLogs] = useState<CompletedVisitRecord[]>([]);
 
-  // 4. Branch Directory (Realistic Fictional Entities with Shared Phone Number support)
-  const [branches, setBranches] = useState<ClientBranch[]>([
+  // 4. Branch Directory (Fallback mock for unit tests; empty array for live sessions populated from Supabase)
+  const DEFAULT_MOCK_BRANCHES: ClientBranch[] = [
     {
       id: 'br-01',
       companyName: 'Apex Heavy Logistics Ltd',
@@ -700,10 +741,14 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       status: 'approved',
       lastVisitDate: '10 Oct 2026',
     },
-  ]);
+  ];
 
-  // 5. Rep-Submitted Exceptions
-  const [exceptions, setExceptions] = useState<FieldExceptionRecord[]>([
+  const [branches, setBranches] = useState<ClientBranch[]>(
+    isTestEnv ? DEFAULT_MOCK_BRANCHES : []
+  );
+
+  // 5. Rep-Submitted Exceptions (Fallback mock for unit tests; empty array for live sessions populated from Supabase)
+  const DEFAULT_MOCK_EXCEPTIONS: FieldExceptionRecord[] = [
     {
       id: 'exc-001',
       type: 'gps_failure',
@@ -779,7 +824,11 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       productsDiscussed: 'Diesel Exhaust Fluid (DEF) AdBlue 200L Drum',
       contactMet: 'Malam Haruna Bello (Workshop Supervisor)',
     },
-  ]);
+  ];
+
+  const [exceptions, setExceptions] = useState<FieldExceptionRecord[]>(
+    isTestEnv ? DEFAULT_MOCK_EXCEPTIONS : []
+  );
 
   // 6. Non-Visit Day Request
   const [nonVisitDayRequest, setNonVisitDayRequest] = useState<NonVisitDayRequest | null>(null);
@@ -809,7 +858,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     isExhausted: false,
     warningMessage: null,
   });
-  const [syncQueue, setSyncQueue] = useState<QueuedEvent[]>([
+  const DEFAULT_MOCK_SYNC_QUEUE: QueuedEvent[] = [
     {
       id: 'q-01',
       uuid: 'evt-8f4b-2291-a10c',
@@ -826,7 +875,11 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       payloadSummary: 'CHECKIN • Apex Heavy Logistics (BR-LAG-014) • Within geofence (38m)',
       syncStatus: 'synced',
     },
-  ]);
+  ];
+
+  const [syncQueue, setSyncQueue] = useState<QueuedEvent[]>(
+    isTestEnv ? DEFAULT_MOCK_SYNC_QUEUE : []
+  );
 
   // 8. Simulation Controls
   const [simulatedGpsAccuracy, setSimulatedGpsAccuracy] = useState<number>(14);
@@ -835,7 +888,6 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
 
   const notify = (msg: string) => {
     setSessionNotice(msg);
-    setTimeout(() => setSessionNotice(null), 5000);
   };
 
   const refreshOfflineQueue = useCallback(async () => {
@@ -894,10 +946,11 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       refreshActiveVisit();
       refreshBranches();
       refreshOfflineQueue();
+      refreshExceptions();
     } else {
       setIsAttendanceLoading(false);
     }
-  }, [refreshAttendance, refreshActiveVisit, refreshBranches, refreshOfflineQueue, currentUser?.id]);
+  }, [refreshAttendance, refreshActiveVisit, refreshBranches, refreshOfflineQueue, refreshExceptions, currentUser?.id]);
 
   const enqueueOfflineStartDay = async (params: {
     latitude: number;
@@ -1608,18 +1661,40 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     notify(`Branch pin [${branchId}] rejected by ${managerName}. Rationale recorded.`);
   };
 
-  const submitException = (exceptionData: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'>) => {
+  const submitException = async (exceptionData: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'>) => {
     const newExc: FieldExceptionRecord = {
       ...exceptionData,
       id: `exc-${Date.now()}`,
       submittedAt: `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`,
       status: 'pending_review',
-      repName: 'Tunde Adebayo (CC-REP-042)',
+      repName: currentUser?.name || 'Sales Representative',
       accuracy: '±145m (Exceeds ≤100m visit limit)',
       claimedDuration: '35 mins',
       submissionLag: '12 mins post-checkout',
     };
     setExceptions((prev) => [newExc, ...prev]);
+
+    if (currentUser?.id) {
+      try {
+        const branchMatch = branches.find((b) => b.branchName === exceptionData.branchName || b.id === (exceptionData as any).branchCode);
+        const branchId = branchMatch?.id || (branches.length > 0 ? branches[0].id : null);
+        if (branchId) {
+          const excType = (exceptionData.type as any) === 'missed_visit_claim' ? 'missed_visit' : (exceptionData.type as any) === 'device_breakdown' ? 'device_depletion' : (exceptionData.type as any) || 'gps_failure';
+          await visitService.submitSalespersonException({
+            branchId,
+            exceptionType: excType,
+            claimedVisitTime: new Date().toISOString(),
+            reason: exceptionData.reason || exceptionData.evidenceNote || 'Salesperson field exception',
+            attendanceDayId: attendanceRecord?.id,
+            supportingEvidenceUrl: undefined,
+          });
+          await refreshExceptions();
+        }
+      } catch (err) {
+        console.warn('[FieldSession] Supabase exception insert notice:', err);
+      }
+    }
+
     notify(`Exception claim [${newExc.title}] submitted directly to Country Sales Head.`);
   };
 

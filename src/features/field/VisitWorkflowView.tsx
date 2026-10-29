@@ -31,6 +31,7 @@ import {
   X,
   Check,
   Video,
+  SwitchCamera,
 } from 'lucide-react';
 
 interface VisitWorkflowViewProps {
@@ -104,9 +105,10 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   // Register New Client modal directly in Step 1 (Change 4)
   const [isRegisterClientModalOpen, setIsRegisterClientModalOpen] = useState(false);
 
-  // Live Rear-Camera Viewfinder & Capture states
+  // Live Camera Viewfinder & Capture states (Front / Rear switchable)
   const videoRef = useRef<HTMLVideoElement>(null);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [hasCapturedPhoto, setHasCapturedPhoto] = useState<boolean>(false);
@@ -258,17 +260,21 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Start Rear Camera Viewfinder
-  const startCamera = async () => {
+  // Start Camera Viewfinder (Front or Back)
+  const startCamera = async (overrideFacingMode?: 'user' | 'environment') => {
     setCameraError(null);
+    const mode = overrideFacingMode || facingMode;
     try {
       if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
         setCameraError('Camera API is not supported in this browser environment.');
         return;
       }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: { ideal: 'environment' },
+          facingMode: { ideal: mode },
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -285,11 +291,17 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         msg = 'Camera permission denied. Please allow camera permissions.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'No camera device detected on this hardware.';
+        msg = `No ${mode === 'environment' ? 'rear' : 'front'} camera detected on this hardware.`;
       }
       setCameraError(msg);
       setIsCameraActive(false);
     }
+  };
+
+  const toggleCameraFacing = async () => {
+    const nextMode: 'user' | 'environment' = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(nextMode);
+    await startCamera(nextMode);
   };
 
   const stopCamera = () => {
@@ -325,6 +337,10 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
         canvas.height = video.videoHeight || 480;
         const ctx = canvas.getContext('2d');
         if (ctx) {
+          if (facingMode === 'user') {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+          }
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
           canvas.toBlob(
@@ -1051,7 +1067,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                   Step 3: Live Premises Photo
                 </span>
                 <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">
-                  Rear Camera • Required
+                  {facingMode === 'environment' ? 'Rear Camera • Default' : 'Front Camera • Active'}
                 </span>
               </div>
 
@@ -1109,12 +1125,25 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                         autoPlay
                         playsInline
                         muted
-                        className="w-full h-full object-cover"
+                        className={`w-full h-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`}
                       />
-                      <div className="absolute top-2.5 right-2.5">
+                      <div className="absolute top-2.5 left-2.5">
                         <span className="text-[10px] font-bold text-emerald-400 bg-black/70 px-2 py-0.5 rounded flex items-center gap-1.5 border border-emerald-500/30">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Live Viewfinder
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Live Viewfinder ({facingMode === 'environment' ? 'Rear' : 'Front'})
                         </span>
+                      </div>
+                      <div className="absolute top-2.5 right-2.5 z-10">
+                        <button
+                          type="button"
+                          onClick={toggleCameraFacing}
+                          id="btn-visit-switch-camera"
+                          aria-label="Switch camera"
+                          title={`Switch to ${facingMode === 'environment' ? 'front' : 'rear'} camera`}
+                          className="bg-black/70 hover:bg-black/90 active:scale-95 text-white text-[10px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-white/25 shadow-md cursor-pointer transition-all"
+                        >
+                          <SwitchCamera className="w-3.5 h-3.5 text-brand-yellow" />
+                          <span>{facingMode === 'environment' ? 'Flip to Front' : 'Flip to Rear'}</span>
+                        </button>
                       </div>
                       <div className="absolute bottom-2.5 inset-x-2.5 flex items-center justify-between">
                         <Button
@@ -1139,7 +1168,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                       )}
                       <div className="flex items-center gap-2 mt-1">
                         <Button
-                          onClick={startCamera}
+                          onClick={() => startCamera()}
                           size="sm"
                           className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs h-9 px-3"
                         >

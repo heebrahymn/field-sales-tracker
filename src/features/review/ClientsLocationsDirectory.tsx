@@ -142,7 +142,6 @@ export const ClientsLocationsDirectory: React.FC = () => {
     }
 
     setToastMessage(`Location pin decision recorded: ${decision.toUpperCase()}. Rationale logged to immutable audit history.`);
-    setTimeout(() => setToastMessage(null), 5000);
   };
 
   return (

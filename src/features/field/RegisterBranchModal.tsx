@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useFieldSession, ClientBranch } from '@/context/FieldSessionContext';
+import { visitService } from '@/services/visitService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -30,7 +31,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
   defaultCompanyName,
 }) => {
   const { currentUser } = useAuth();
-  const { registerBranch, branches } = useFieldSession();
+  const { branches, refreshBranches } = useFieldSession();
 
   // Distinct list of registered client companies
   const existingCompanies = useMemo(() => {
@@ -41,6 +42,10 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
   const [clientType, setClientType] = useState<'new' | 'existing'>(
     defaultCompanyName && existingCompanies.includes(defaultCompanyName) ? 'existing' : 'new'
   );
+
+  // Default coordinate based on market
+  const defaultLat = currentUser.marketCode === 'ZM' ? -15.3875 : currentUser.marketCode === 'MW' ? -15.7861 : 6.5892;
+  const defaultLng = currentUser.marketCode === 'ZM' ? 28.3228 : currentUser.marketCode === 'MW' ? 35.0058 : 3.3581;
 
   // Form states
   const [selectedExistingCompany, setSelectedExistingCompany] = useState<string>(
@@ -62,9 +67,33 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
   const [sharedCompanyPhone, setSharedCompanyPhone] = useState('');
 
   // Pin & Camera
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number; accuracy: number }>({
+    lat: defaultLat,
+    lng: defaultLng,
+    accuracy: 18,
+  });
+  const [isCalibratingGps, setIsCalibratingGps] = useState<boolean>(false);
   const [gpsCaptured, setGpsCaptured] = useState<boolean>(true);
   const [photoCaptured, setPhotoCaptured] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [successRegisteredBranch, setSuccessRegisteredBranch] = useState<ClientBranch | null>(null);
+
+  const recalibrateGps = async () => {
+    setIsCalibratingGps(true);
+    try {
+      const fix = await visitService.getCurrentLocation();
+      setGpsCoords({
+        lat: fix.latitude,
+        lng: fix.longitude,
+        accuracy: Math.round(fix.accuracy),
+      });
+      setGpsCaptured(true);
+    } catch (err) {
+      console.warn('[RegisterBranchModal] GPS fix warning, keeping current fix:', err);
+    } finally {
+      setIsCalibratingGps(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -87,7 +116,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!effectiveCompanyName.trim() || !branchName.trim() || !address.trim()) {
       return;
@@ -95,33 +124,60 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
 
     setIsSubmitting(true);
 
-    const newBranch: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'> = {
-      companyName: effectiveCompanyName.trim(),
-      branchName: branchName.trim(),
-      branchCode: `BR-LAG-${Math.floor(100 + Math.random() * 900)}`,
-      category,
-      address: address.trim(),
-      landmark: landmark.trim() || undefined as any,
-      contacts: [
-        {
-          name: contactName.trim() || 'Site Operations Contact',
-          role: contactRole.trim() || 'Operations Manager',
-          phone: contactPhone.trim() || '+234 800 000 0000',
-        },
-      ],
-      hasSharedPhone,
-      sharedCompanyPhone: hasSharedPhone ? sharedCompanyPhone.trim() : undefined,
-      approvedGpsLat: 6.5892,
-      approvedGpsLng: 3.3581,
-      isRegisteredByRep: true,
-    };
+    try {
+      // 1. Write authoritative branch, contact, and proposed pin to Supabase
+      const { data: createdBranch } = await visitService.registerClientBranch({
+        organisationName: effectiveCompanyName.trim(),
+        branchName: branchName.trim(),
+        category,
+        city: currentUser.marketCode === 'ZM' ? 'Lusaka' : currentUser.marketCode === 'MW' ? 'Blantyre' : 'Lagos',
+        streetAddress: address.trim(),
+        switchboardPhone: hasSharedPhone && sharedCompanyPhone.trim() ? sharedCompanyPhone.trim() : (contactPhone.trim() || '+234 1 000 0000'),
+        marketCode: currentUser.marketCode || 'NG',
+        contactName: contactName.trim(),
+        contactRole: contactRole.trim(),
+        contactPhone: contactPhone.trim(),
+        latitude: gpsCoords.lat,
+        longitude: gpsCoords.lng,
+        accuracyM: gpsCoords.accuracy,
+        premisesPhotoPath: 'visit-premises-photos/pending_proposal.jpg',
+      });
 
-    setTimeout(() => {
-      const created = registerBranch(newBranch);
+      // 2. Refresh live branches from Supabase SSoT
+      await refreshBranches();
+
+      if (createdBranch) {
+        const mappedBranch: ClientBranch = {
+          id: createdBranch.id,
+          companyName: effectiveCompanyName.trim(),
+          branchName: createdBranch.branch_name,
+          branchCode: createdBranch.id.slice(0, 8).toUpperCase(),
+          category: createdBranch.category,
+          address: createdBranch.street_address,
+          landmark: landmark.trim() || 'Central Commercial Hub',
+          contacts: [
+            {
+              name: contactName.trim() || 'Site Operations Contact',
+              role: contactRole.trim() || 'Operations Lead',
+              phone: contactPhone.trim(),
+            },
+          ],
+          hasSharedPhone,
+          sharedCompanyPhone: hasSharedPhone ? sharedCompanyPhone.trim() : undefined,
+          status: 'pending_approval',
+          approvedGpsLat: gpsCoords.lat,
+          approvedGpsLng: gpsCoords.lng,
+          distanceMeters: 120,
+          isRegisteredByRep: true,
+          accuracyMeters: gpsCoords.accuracy,
+        };
+        setSuccessRegisteredBranch(mappedBranch);
+      }
+    } catch (err) {
+      console.warn('[RegisterBranchModal] Direct registration error:', err);
+    } finally {
       setIsSubmitting(false);
-      onSuccess?.(created);
-      onClose();
-    }, 400);
+    }
   };
 
   return (
@@ -143,15 +199,75 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => {
+              if (successRegisteredBranch) {
+                onSuccess?.(successRegisteredBranch);
+              }
+              onClose();
+            }}
             className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4 text-xs text-slate-700">
+        {/* Success View or Scrollable Form Body */}
+        {successRegisteredBranch ? (
+          <div className="p-6 text-center space-y-4 animate-in fade-in zoom-in-95">
+            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-xs">
+              <CheckCircle2 className="w-7 h-7" />
+            </div>
+
+            <div>
+              <h4 className="font-bold text-slate-900 text-base">Client Location Registered</h4>
+              <p className="text-xs text-slate-600 max-w-sm mx-auto leading-relaxed mt-1">
+                Your client branch registration and proposed location pin have been recorded in the central operational ledger.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-left space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Organisation:</span>
+                <span className="font-bold text-slate-900">{successRegisteredBranch.companyName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Branch Location:</span>
+                <span className="font-bold text-slate-800">{successRegisteredBranch.branchName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Address:</span>
+                <span className="text-slate-700">{successRegisteredBranch.address}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Proposed Pin:</span>
+                <span className="font-mono text-slate-800">
+                  {successRegisteredBranch.approvedGpsLat.toFixed(5)}, {successRegisteredBranch.approvedGpsLng.toFixed(5)} (±{Math.round(successRegisteredBranch.accuracyMeters || 0)}m)
+                </span>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-200/80">
+                <span className="text-slate-500 font-medium">Status:</span>
+                <span className="font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[11px]">
+                  Pending Manager Pin Approval
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <Button
+                type="button"
+                onClick={() => {
+                  onSuccess?.(successRegisteredBranch);
+                  onClose();
+                }}
+                className="w-full bg-brand-blue hover:bg-blue-700 text-white font-bold h-11 text-xs gap-1.5 shadow-sm cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Done &amp; Select Location</span>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4 text-xs text-slate-700">
           {/* PRD §4.2 Rule Guidance */}
           <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-start gap-2.5">
             <Info className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
@@ -373,17 +489,20 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
 
             <div className="bg-white p-2.5 rounded-lg border border-slate-200 font-mono flex items-center justify-between text-[11px]">
               <div>
-                <span className="font-bold text-slate-900">6.5892° N, 3.3581° E</span>
-                <span className="text-slate-500 block text-[10px]">Fix accuracy: ±22m (GPS verified on-site)</span>
+                <span className="font-bold text-slate-900">
+                  {gpsCoords.lat.toFixed(4)}° {gpsCoords.lat >= 0 ? 'N' : 'S'}, {gpsCoords.lng.toFixed(4)}° {gpsCoords.lng >= 0 ? 'E' : 'W'}
+                </span>
+                <span className="text-slate-500 block text-[10px]">Fix accuracy: ±{gpsCoords.accuracy}m (GPS verified on-site)</span>
               </div>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setGpsCaptured(true)}
+                disabled={isCalibratingGps}
+                onClick={recalibrateGps}
                 className="text-[11px] h-8 font-semibold border-slate-300"
               >
-                {gpsCaptured ? 'Recalibrate Pin' : 'Capture Pin'}
+                {isCalibratingGps ? 'Fixing GPS...' : gpsCaptured ? 'Recalibrate Pin' : 'Capture Pin'}
               </Button>
             </div>
           </div>
@@ -446,6 +565,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
             </Button>
           </div>
         </form>
+      )}
       </div>
     </div>
   );

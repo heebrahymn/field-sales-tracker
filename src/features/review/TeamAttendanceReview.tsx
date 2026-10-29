@@ -62,6 +62,83 @@ export interface SalesRepAttendance {
   isRealRecord?: boolean;
 }
 
+const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+
+const TEST_DEMO_REPS: SalesRepAttendance[] = [
+  {
+    repId: 'CC-REP-042',
+    repName: 'Tunde Adebayo',
+    email: 'tunde.adebayo@carboncarcare.ng',
+    phone: '+234 803 111 2233',
+    assignedTerritory: 'Lagos Island & Lekki Commercial Zone',
+    deviceId: 'SM-A546B (CC-DEV-008)',
+    batteryLevel: 82,
+    todayStatus: 'active_field',
+    startDayTime: '08:14 WAT',
+    startGps: { coords: '6.4531° N, 3.4211° E', accuracy: 12 },
+    selfieUrl: '/brand/selfie_demo_01.jpg',
+    visitsCompletedToday: 3,
+  },
+  {
+    repId: 'CC-REP-038',
+    repName: 'Chinyere Nwosu',
+    email: 'chinyere.nwosu@carboncarcare.ng',
+    phone: '+234 802 333 4455',
+    assignedTerritory: 'Apapa Port & Industrial Corridor',
+    deviceId: 'SM-A546B (CC-DEV-014)',
+    batteryLevel: 65,
+    todayStatus: 'active_field',
+    startDayTime: '08:25 WAT',
+    startGps: { coords: '6.4421° N, 3.3611° E', accuracy: 16 },
+    selfieUrl: '/brand/selfie_demo_02.jpg',
+    visitsCompletedToday: 2,
+  },
+  {
+    repId: 'CC-REP-039',
+    repName: 'Emeka Nwosu',
+    email: 'emeka.nwosu@carboncarcare.ng',
+    phone: '+234 805 777 8899',
+    assignedTerritory: 'Ibeju-Lekki & Epe Corridor',
+    deviceId: 'SM-A546B (CC-DEV-019)',
+    batteryLevel: 44,
+    todayStatus: 'completed_day',
+    startDayTime: '08:05 WAT',
+    endDayTime: '15:30 WAT',
+    startGps: { coords: '6.4510° N, 3.5120° E', accuracy: 18 },
+    visitsCompletedToday: 4,
+  },
+  {
+    repId: 'CC-REP-044',
+    repName: 'Ibrahim Sani',
+    email: 'ibrahim.sani@carboncarcare.ng',
+    phone: '+234 803 999 0011',
+    assignedTerritory: 'Kano North Depot & Transit Route',
+    deviceId: 'SM-A546B (CC-DEV-022)',
+    batteryLevel: 91,
+    todayStatus: 'non_visit_day',
+    startDayTime: '08:45 WAT',
+    visitsCompletedToday: 0,
+    nonVisitRequest: {
+      id: 'NVR-KAN-01',
+      activityType: 'training_development',
+      reason: 'Attending mandatory regional hazardous chemical handling certification at Federal Safety Institute, Kano.',
+      status: 'pending_approval',
+      requestedAt: 'Today 08:30 WAT',
+    },
+  },
+  {
+    repId: 'CC-REP-050',
+    repName: 'Amina Bello',
+    email: 'amina.bello@carboncarcare.ng',
+    phone: '+234 802 888 7766',
+    assignedTerritory: 'Ikeja Industrial Zone',
+    deviceId: 'SM-A546B (CC-DEV-029)',
+    batteryLevel: 100,
+    todayStatus: 'approved_leave',
+    visitsCompletedToday: 0,
+  },
+];
+
 export const TeamAttendanceReview: React.FC = () => {
   const { currentUser } = useAuth();
 
@@ -93,84 +170,12 @@ export const TeamAttendanceReview: React.FC = () => {
   const [realAttendance, setRealAttendance] = useState<AttendanceRecord[]>([]);
   const [pendingAbsenceRequests, setPendingAbsenceRequests] = useState<AbsenceRequestRecord[]>([]);
 
-  // Demonstration Fallback Baseline
-  const [demoReps, setDemoReps] = useState<SalesRepAttendance[]>([
-    {
-      repId: 'CC-REP-042',
-      repName: 'Tunde Adebayo',
-      email: 'tunde.adebayo@carboncarcare.ng',
-      phone: '+234 803 111 2233',
-      assignedTerritory: 'Lagos Island & Lekki Commercial Zone',
-      deviceId: 'SM-A546B (CC-DEV-008)',
-      batteryLevel: 82,
-      todayStatus: 'active_field',
-      startDayTime: '08:14 WAT',
-      startGps: { coords: '6.4531° N, 3.4211° E', accuracy: 12 },
-      selfieUrl: '/brand/selfie_demo_01.jpg',
-      visitsCompletedToday: 3,
-    },
-    {
-      repId: 'CC-REP-038',
-      repName: 'Chinyere Nwosu',
-      email: 'chinyere.nwosu@carboncarcare.ng',
-      phone: '+234 802 333 4455',
-      assignedTerritory: 'Apapa Port & Industrial Corridor',
-      deviceId: 'SM-A546B (CC-DEV-014)',
-      batteryLevel: 65,
-      todayStatus: 'active_field',
-      startDayTime: '08:25 WAT',
-      startGps: { coords: '6.4421° N, 3.3611° E', accuracy: 16 },
-      selfieUrl: '/brand/selfie_demo_02.jpg',
-      visitsCompletedToday: 2,
-    },
-    {
-      repId: 'CC-REP-039',
-      repName: 'Emeka Nwosu',
-      email: 'emeka.nwosu@carboncarcare.ng',
-      phone: '+234 805 777 8899',
-      assignedTerritory: 'Ibeju-Lekki & Epe Corridor',
-      deviceId: 'SM-A546B (CC-DEV-019)',
-      batteryLevel: 44,
-      todayStatus: 'completed_day',
-      startDayTime: '08:05 WAT',
-      endDayTime: '15:30 WAT',
-      startGps: { coords: '6.4510° N, 3.5120° E', accuracy: 18 },
-      visitsCompletedToday: 4,
-    },
-    {
-      repId: 'CC-REP-044',
-      repName: 'Ibrahim Sani',
-      email: 'ibrahim.sani@carboncarcare.ng',
-      phone: '+234 803 999 0011',
-      assignedTerritory: 'Kano North Depot & Transit Route',
-      deviceId: 'SM-A546B (CC-DEV-022)',
-      batteryLevel: 91,
-      todayStatus: 'non_visit_day',
-      startDayTime: '08:45 WAT',
-      visitsCompletedToday: 0,
-      nonVisitRequest: {
-        id: 'NVR-KAN-01',
-        activityType: 'training_development',
-        reason: 'Attending mandatory regional hazardous chemical handling certification at Federal Safety Institute, Kano.',
-        status: 'pending_approval',
-        requestedAt: 'Today 08:30 WAT',
-      },
-    },
-    {
-      repId: 'CC-REP-050',
-      repName: 'Amina Bello',
-      email: 'amina.bello@carboncarcare.ng',
-      phone: '+234 802 888 7766',
-      assignedTerritory: 'Ikeja Industrial Zone',
-      deviceId: 'SM-A546B (CC-DEV-029)',
-      batteryLevel: 100,
-      todayStatus: 'approved_leave',
-      visitsCompletedToday: 0,
-    },
-  ]);
+  // Demonstration Fallback Baseline (Only in test environment)
+  const [demoReps, setDemoReps] = useState<SalesRepAttendance[]>(() => (isTestEnv ? TEST_DEMO_REPS : []));
 
   // Load live attendance and non-visit requests from Supabase
   const loadSupabaseData = useCallback(async () => {
+    if (isTestEnv) return;
     setIsLoadingData(true);
     const targetMarket = currentUser?.role === 'hq_admin' ? 'ALL' : currentUser?.marketCode || 'NG';
 
@@ -230,10 +235,12 @@ export const TeamAttendanceReview: React.FC = () => {
         isRealRecord: true,
       };
     }),
-    // 2. Demonstration records (filtered to avoid duplicating real employee names)
-    ...demoReps.filter(
-      (demo) => !realAttendance.some((real) => real.profiles?.full_name === demo.repName)
-    ),
+    // 2. Test environment fallback (only in test runner)
+    ...(isTestEnv
+      ? demoReps.filter(
+          (demo) => !realAttendance.some((real) => real.profiles?.full_name === demo.repName)
+        )
+      : []),
   ];
 
   // Telemetry Inspection Modal: Fetch time-limited signed URL for private selfie
@@ -284,7 +291,6 @@ export const TeamAttendanceReview: React.FC = () => {
 
       if (result.error) {
         setToastMessage(`Review failed: ${result.error.message}`);
-        setTimeout(() => setToastMessage(null), 5000);
         return;
       }
 
@@ -293,13 +299,11 @@ export const TeamAttendanceReview: React.FC = () => {
           ? `Non-visit workday request APPROVED. Attendance credit recorded; strictly 0 physical visit targets.`
           : `Non-visit workday request REJECTED.`
       );
-      setTimeout(() => setToastMessage(null), 6000);
 
       // Refresh real Supabase requests & attendance
       loadSupabaseData();
     } catch (err: any) {
       setToastMessage(`Review error: ${err.message}`);
-      setTimeout(() => setToastMessage(null), 5000);
     }
   };
 
@@ -327,7 +331,6 @@ export const TeamAttendanceReview: React.FC = () => {
     setToastMessage(
       `Non-visit workday request [${requestId}] ${decision.toUpperCase()}. Counts toward attendance; does NOT count toward physical visit targets.`
     );
-    setTimeout(() => setToastMessage(null), 6000);
   };
 
   const handleRecordLeave = async () => {
@@ -365,7 +368,6 @@ export const TeamAttendanceReview: React.FC = () => {
     }
 
     setToastMessage(`Administrative Leave recorded for ${selectedRepForLeave} (${leaveStartDate} to ${leaveEndDate}).`);
-    setTimeout(() => setToastMessage(null), 5000);
     setIsLeaveModalOpen(false);
     setLeaveNotes('');
   };

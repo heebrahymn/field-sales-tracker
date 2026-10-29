@@ -44,69 +44,6 @@ export interface RiskFlagRecord {
   isRealRecord?: boolean;
 }
 
-const DEMO_FLAGS: RiskFlagRecord[] = [
-  {
-    id: 'FLG-101',
-    flagType: 'rapid_travel',
-    severity: 'high',
-    repName: 'Ibrahim Sani (CC-REP-044)',
-    clientName: 'Northern Freight Corridors Ltd',
-    branchName: 'Kano Transit Yard • Location #BR-KAN-012',
-    detectedAt: 'Today 13:45 WAT',
-    metricObserved: '112 km/h apparent velocity over 18km gap',
-    thresholdLimit: 'Maximum plausible road speed: 80 km/h',
-    explanation:
-      'System telemetry recorded consecutive check-in 18km away only 9 minutes after checkout at preceding client. Possible mock location app or passenger transit on express highway.',
-    status: 'open_review',
-    isRealRecord: false,
-  },
-  {
-    id: 'FLG-102',
-    flagType: 'out_of_bounds_checkout',
-    severity: 'high',
-    repName: 'Tunde Adebayo (CC-REP-042)',
-    clientName: 'Global Maritime Supplies',
-    branchName: 'Apapa Port Terminal • Location #BR-LAG-088',
-    detectedAt: 'Today 11:22 WAT',
-    metricObserved: '380m distance from registered client location pin',
-    thresholdLimit: 'Maximum allowed geofence: 200m',
-    explanation:
-      'Check-in was verified at 45m from pin, but check-out was recorded 380m away. System permitted check-out per PRD §7.4 rules but raised an automated manager flag.',
-    status: 'open_review',
-    isRealRecord: false,
-  },
-  {
-    id: 'FLG-103',
-    flagType: 'short_visit',
-    severity: 'medium',
-    repName: 'Emeka Nwosu (CC-REP-039)',
-    clientName: 'Atlantic Heavy Transport',
-    branchName: 'Lekki Depot Yard • Location #BR-LAG-015',
-    detectedAt: 'Today 10:15 WAT',
-    metricObserved: '3 minutes 40 seconds on-site duration',
-    thresholdLimit: 'Minimum credible meeting duration: 5 minutes',
-    explanation:
-      'Visit completed in under 5 minutes. Inadequate time for commercial meeting or technical discussion. Requires manager review.',
-    status: 'open_review',
-    isRealRecord: false,
-  },
-  {
-    id: 'FLG-104',
-    flagType: 'late_meeting_log',
-    severity: 'medium',
-    repName: 'Chinyere Nwosu (CC-REP-038)',
-    clientName: 'Zenith Marine Fleet Terminal',
-    branchName: 'Dockyard Road • Location #BR-LAG-002',
-    detectedAt: 'Today 15:00 WAT',
-    metricObserved: '3 hours 10 mins overdue since check-out',
-    thresholdLimit: 'Meeting Log SLA: ≤ 2 hours post-checkout',
-    explanation:
-      'Salesperson checked out at 11:50 WAT but meeting log has not been completed within the 2-hour window.',
-    status: 'open_review',
-    isRealRecord: false,
-  },
-];
-
 export const RiskFlagsWorkbench: React.FC = () => {
   const { currentUser } = useAuth();
   const [filterSeverity, setFilterSeverity] = useState<'all' | 'high' | 'medium' | 'low'>('all');
@@ -180,8 +117,7 @@ export const RiskFlagsWorkbench: React.FC = () => {
       };
     });
 
-    const demoFiltered = DEMO_FLAGS.filter((df) => !realFlags.some((rf) => rf.id === df.id));
-    return [...realMapped, ...demoFiltered];
+    return realMapped;
   }, [realFlags]);
 
   const handleOpenActionModal = (
@@ -230,7 +166,6 @@ export const RiskFlagsWorkbench: React.FC = () => {
         : 'Confirmed Policy Violation';
 
     setToastMessage(`Flag [${selectedFlagForAction.id}] updated: ${actionText}. Audit logged.`);
-    setTimeout(() => setToastMessage(null), 5000);
     setSelectedFlagForAction(null);
     setActionType(null);
   };

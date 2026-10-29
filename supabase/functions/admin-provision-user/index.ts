@@ -253,8 +253,8 @@ Deno.serve(async (req: Request) => {
 
         if (devErr || !deviceRecord) {
           deviceAssignmentError = "Selected company device could not be found in fleet inventory.";
-        } else if (deviceRecord.inventory_status !== "available") {
-          deviceAssignmentError = `Device ${deviceRecord.asset_tag} is no longer available (Status: ${deviceRecord.inventory_status}).`;
+        } else if (deviceRecord.inventory_status !== "available" && deviceRecord.inventory_status !== "returned") {
+          deviceAssignmentError = `Device ${deviceRecord.asset_tag} is no longer available in depot (Status: ${deviceRecord.inventory_status}).`;
         } else if (sanitizedMarketCode && deviceRecord.market_code !== sanitizedMarketCode) {
           deviceAssignmentError = `Device ${deviceRecord.asset_tag} (${deviceRecord.market_code}) cannot be assigned to an employee in ${sanitizedMarketCode}. Cross-market assignment is restricted.`;
         } else {

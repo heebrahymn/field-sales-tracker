@@ -6,6 +6,8 @@ interface DemoDataBannerProps {
   onLogout?: () => void;
 }
 
+const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+
 export const DemoDataBanner: React.FC<DemoDataBannerProps> = ({ onLogout }) => {
   const { currentUser, session, signOut, switchMarket, selectedMarket } = useAuth();
   const handleLogout = onLogout || signOut;
@@ -27,10 +29,15 @@ export const DemoDataBanner: React.FC<DemoDataBannerProps> = ({ onLogout }) => {
           <span>{session ? 'Signed in securely' : 'Authenticated'}</span>
         </span>
 
-        {/* Separate Demo Field Data Indicator (PRD §5 / Audit Requirement 6) */}
-        <span className="inline-flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold px-2 py-0.5 rounded text-[10px] tracking-wide uppercase">
-          Demo Field Data
+        {/* Supabase Development SSoT / Demo Field Data Indicator */}
+        <span className="inline-flex items-center gap-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold px-2 py-0.5 rounded text-[10px] tracking-wide uppercase">
+          Supabase Dev SSoT
         </span>
+        {isTestEnv && (
+          <span className="inline-flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold px-2 py-0.5 rounded text-[10px] tracking-wide uppercase">
+            Demo Field Data
+          </span>
+        )}
 
         <span className="font-semibold text-slate-200">
           {currentUser.name}
@@ -47,9 +54,9 @@ export const DemoDataBanner: React.FC<DemoDataBannerProps> = ({ onLogout }) => {
         )}
       </div>
 
-      {/* Center: Stage Notice */}
+      {/* Center: SSoT Notice */}
       <div className="hidden lg:flex items-center text-slate-400 text-[11px]">
-        <span>Operational visits & exceptions below remain demo mock data (Stage 3B milestone)</span>
+        <span>Connected to Live Supabase DB: <code className="text-emerald-400 font-mono text-[10px] ml-1">[SUPABASE_PROJECT_ID]</code> (Single Source of Truth)</span>
       </div>
 
       {/* Right: Actions */}

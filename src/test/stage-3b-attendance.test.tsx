@@ -727,6 +727,72 @@ describe('Stage 3B: Real Attendance & Workday Management Tests', () => {
         value: originalMediaDevices,
       });
     });
+
+    it('toggles live camera between front (user) and rear (environment) on flip button click', async () => {
+      const mockStopTrack = vi.fn();
+      const mockTrack = { stop: mockStopTrack, kind: 'video' };
+      const mockStream = {
+        getTracks: vi.fn().mockReturnValue([mockTrack]),
+      };
+
+      const originalMediaDevices = navigator.mediaDevices;
+      const getUserMediaMock = vi.fn().mockResolvedValue(mockStream);
+      Object.defineProperty(navigator, 'mediaDevices', {
+        writable: true,
+        value: {
+          getUserMedia: getUserMediaMock,
+        },
+      });
+
+      render(
+        <AuthProvider>
+          <FieldSessionProvider>
+            <StartDayModal isOpen={true} onClose={vi.fn()} />
+          </FieldSessionProvider>
+        </AuthProvider>
+      );
+
+      // Verify initial call with facingMode: 'user'
+      await waitFor(() => {
+        expect(getUserMediaMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            video: expect.objectContaining({
+              facingMode: 'user',
+            }),
+          })
+        );
+      });
+
+      // Find flip button
+      const flipBtn = await screen.findByRole('button', { name: /Switch camera/i });
+      expect(flipBtn).toBeInTheDocument();
+      expect(flipBtn).toHaveTextContent(/Flip to Rear/i);
+
+      // Click flip button
+      fireEvent.click(flipBtn);
+
+      // Verify getUserMedia was called again with facingMode: 'environment'
+      await waitFor(() => {
+        expect(getUserMediaMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            video: expect.objectContaining({
+              facingMode: 'environment',
+            }),
+          })
+        );
+      });
+
+      // Button now offers flip back to front
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Switch camera/i })).toHaveTextContent(/Flip to Front/i);
+      });
+
+      // Restore
+      Object.defineProperty(navigator, 'mediaDevices', {
+        writable: true,
+        value: originalMediaDevices,
+      });
+    });
   });
 
   // =========================================================================

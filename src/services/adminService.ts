@@ -87,6 +87,12 @@ export interface HqDeviceRecord {
   model: string;
   marketCode: string;
   inventoryStatus: DeviceInventoryStatus;
+  imei?: string;
+  osVersion?: string;
+  purchaseDate?: string;
+  supplier?: string;
+  warrantyExpiryDate?: string;
+  notes?: string;
   assignedTo?: {
     salespersonId: string;
     fullName: string;
@@ -422,22 +428,254 @@ export const adminService = {
     userId: string,
     updates: {
       role?: Database['public']['Enums']['app_role'];
-      market_code?: string;
+      market_code?: string | null;
       is_active?: boolean;
       full_name?: string;
       phone_number?: string;
     }
   ): Promise<{ success: boolean; error: Error | null }> {
     try {
-      const { error } = await supabase.from('profiles').update(updates as any).eq('id', userId);
+      const payload: Record<string, any> = {};
+      if (updates.role !== undefined) payload.role = updates.role;
+      if (updates.market_code !== undefined) payload.market_code = updates.market_code;
+      if (updates.is_active !== undefined) payload.is_active = updates.is_active;
+      if (updates.full_name !== undefined) payload.full_name = updates.full_name;
+      if (updates.phone_number !== undefined) payload.phone_number = updates.phone_number;
+
+      const { error } = await supabase.from('profiles').update(payload as any).eq('id', userId);
 
       if (error) {
         return { success: false, error: new Error(error.message) };
       }
+
+      // Record in approval_audit
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const actorId = sessionData?.session?.user?.id;
+        if (actorId) {
+          await supabase.from('approval_audit').insert({
+            entity_type: 'profiles',
+            entity_id: userId,
+            action: 'user_profile_updated',
+            actor_id: actorId,
+            mandatory_reason: `Profile updated by HQ Admin: ${Object.keys(payload).join(', ')}`,
+            new_state: JSON.stringify(payload),
+            previous_state: null,
+          });
+        }
+      } catch {
+        // non-blocking
+      }
+
       return { success: true, error: null };
     } catch (err: any) {
       return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
     }
+  },
+
+  /**
+   * Resets or changes an employee's password in Supabase Auth.
+   * Can either auto-generate/set direct password via server endpoint or send recovery email.
+   */
+  async resetUserPassword(
+    userId: string,
+    email: string,
+    newPassword?: string,
+    sendEmailLink?: boolean
+  ): Promise<{ success: boolean; mode: 'direct' | 'email_link'; temporaryPassword?: string; error: Error | null }> {
+    try {
+      if (sendEmailLink) {
+        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email);
+        if (resetErr) {
+          return { success: false, mode: 'email_link', error: new Error(resetErr.message) };
+        }
+        return { success: true, mode: 'email_link', error: null };
+      }
+
+      const targetPassword =
+        newPassword && newPassword.trim().length >= 8
+          ? newPassword.trim()
+          : this.generateSecurePassword();
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      let apiSuccess = false;
+      if (accessToken) {
+        try {
+          const resp = await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              action: 'reset_password',
+              userId,
+              newPassword: targetPassword,
+            }),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.success) {
+              apiSuccess = true;
+            }
+          }
+        } catch {
+          // fallback below
+        }
+      }
+
+      if (!apiSuccess) {
+        const { error: fallbackErr } = await supabase.auth.resetPasswordForEmail(email);
+        if (fallbackErr) {
+          return { success: false, mode: 'email_link', error: new Error(fallbackErr.message) };
+        }
+        return { success: true, mode: 'email_link', error: null };
+      }
+
+      try {
+        const actorId = sessionData?.session?.user?.id;
+        if (actorId) {
+          await supabase.from('approval_audit').insert({
+            entity_type: 'profiles',
+            entity_id: userId,
+            action: 'password_reset_direct',
+            actor_id: actorId,
+            mandatory_reason: `Password reset directly for ${email} by HQ Admin.`,
+            new_state: 'credentials_updated',
+            previous_state: null,
+          });
+        }
+      } catch {
+        // non-blocking
+      }
+
+      return { success: true, mode: 'direct', temporaryPassword: targetPassword, error: null };
+    } catch (err: any) {
+      return { success: false, mode: 'direct', error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Deletes an employee user account, unlinking any assigned company handset back to available depot inventory.
+   */
+  async deleteUser(userId: string): Promise<{ success: boolean; error: Error | null }> {
+    try {
+      const nowIso = new Date().toISOString();
+
+      // 1. Unlink any active device assignments
+      const { data: activeAssignments } = await supabase
+        .from('device_assignments')
+        .select('id, device_id')
+        .eq('salesperson_id', userId)
+        .eq('is_current', true);
+
+      if (activeAssignments && activeAssignments.length > 0) {
+        for (const assign of activeAssignments) {
+          await supabase
+            .from('device_assignments')
+            .update({ is_current: false, returned_at: nowIso, handover_reason: 'User account removed by HQ Admin' })
+            .eq('id', assign.id);
+
+          await supabase
+            .from('devices')
+            .update({ inventory_status: 'available', updated_at: nowIso })
+            .eq('id', assign.device_id);
+        }
+      }
+
+      // 2. Delete from public.profiles
+      const { error: profileErr } = await supabase.from('profiles').delete().eq('id', userId);
+      if (profileErr) {
+        return { success: false, error: new Error(profileErr.message) };
+      }
+
+      // 3. Remove from auth.users via API endpoint
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (accessToken) {
+          await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              action: 'delete_user',
+              userId,
+            }),
+          });
+        }
+      } catch {
+        // non-fatal
+      }
+
+      // 4. Record audit log
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const actorId = sessionData?.session?.user?.id;
+        if (actorId) {
+          await supabase.from('approval_audit').insert({
+            entity_type: 'profiles',
+            entity_id: userId,
+            action: 'user_deleted',
+            actor_id: actorId,
+            mandatory_reason: `User account deleted and company handset unassigned by HQ Admin.`,
+            new_state: 'deleted',
+            previous_state: 'active',
+          });
+        }
+      } catch {
+        // non-blocking
+      }
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Bulk deletes multiple employee accounts, unlinking assigned company handsets back to available depot inventory.
+   */
+  async bulkDeleteUsers(
+    userIds: string[]
+  ): Promise<{ deletedIds: string[]; errors: string[] }> {
+    const deletedIds: string[] = [];
+    const errors: string[] = [];
+
+    for (const id of userIds) {
+      const res = await this.deleteUser(id);
+      if (res.success) {
+        deletedIds.push(id);
+      } else {
+        errors.push(res.error?.message || `Failed to delete user ${id}`);
+      }
+    }
+
+    return { deletedIds, errors };
+  },
+
+  /**
+   * Helper: Generates a cryptographically strong 20-character password.
+   */
+  generateSecurePassword(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
+    let pwd = 'C3!';
+    const array = new Uint8Array(20);
+    if (typeof window !== 'undefined' && window.crypto) {
+      window.crypto.getRandomValues(array);
+      for (let i = 0; i < array.length; i++) {
+        pwd += chars[array[i] % chars.length];
+      }
+    } else {
+      for (let i = 0; i < 20; i++) {
+        pwd += chars[Math.floor(Math.random() * chars.length)];
+      }
+    }
+    return pwd;
   },
 
   /**
@@ -458,6 +696,12 @@ export const adminService = {
           model,
           market_code,
           inventory_status,
+          imei,
+          os_version,
+          purchase_date,
+          supplier,
+          warranty_expiry_date,
+          notes,
           created_at,
           device_assignments (
             id,
@@ -499,6 +743,12 @@ export const adminService = {
           model: row.model,
           marketCode: row.market_code,
           inventoryStatus: row.inventory_status,
+          imei: row.imei || '',
+          osVersion: row.os_version || 'Android 14',
+          purchaseDate: row.purchase_date || '',
+          supplier: row.supplier || '',
+          warrantyExpiryDate: row.warranty_expiry_date || '',
+          notes: row.notes || '',
           assignedTo: activeAssignment?.profiles
             ? {
                 salespersonId: activeAssignment.profiles.id,
@@ -526,10 +776,33 @@ export const adminService = {
     make: string;
     model: string;
     marketCode: string;
+    inventoryStatus?: string;
+    imei?: string;
+    osVersion?: string;
+    purchaseDate?: string;
+    supplier?: string;
+    warrantyExpiryDate?: string;
+    notes?: string;
   }): Promise<{ deviceId: string | null; error: Error | null }> {
     try {
       const { data: userResp } = await supabase.auth.getUser();
       const currentUserId = userResp?.user?.id || '00000000-0000-0000-0000-000000000000';
+
+      const validStatuses = [
+        'available',
+        'assigned',
+        'active',
+        'pending_inspection',
+        'under_maintenance',
+        'lost_stolen',
+        'returned',
+        'revoked',
+        'retired',
+      ];
+      const inventoryStatus =
+        deviceData.inventoryStatus && validStatuses.includes(deviceData.inventoryStatus)
+          ? deviceData.inventoryStatus
+          : 'available';
 
       const { data, error } = await supabase
         .from('devices')
@@ -540,10 +813,16 @@ export const adminService = {
           make: deviceData.make,
           model: deviceData.model,
           market_code: deviceData.marketCode,
-          inventory_status: 'available',
+          inventory_status: inventoryStatus as any,
           security_authorization: 'authorized',
           knox_enrolled: true,
           registered_by: currentUserId,
+          imei: deviceData.imei || null,
+          os_version: deviceData.osVersion || null,
+          purchase_date: deviceData.purchaseDate || null,
+          supplier: deviceData.supplier || null,
+          warranty_expiry_date: deviceData.warrantyExpiryDate || null,
+          notes: deviceData.notes || null,
         })
         .select('id')
         .single();
@@ -554,6 +833,25 @@ export const adminService = {
       return { deviceId: data.id, error: null };
     } catch (err: any) {
       return { deviceId: null, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * PRD §4.2 / AT-08: Fetches import batches from public.import_batches.
+   */
+  async getClientImportBatches(): Promise<{ data: any[] | null; error: Error | null }> {
+    try {
+      const { data, error } = await supabase
+        .from('import_batches')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        return { data: null, error: new Error(error.message) };
+      }
+      return { data: data || [], error: null };
+    } catch (err: any) {
+      return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
     }
   },
 
@@ -771,6 +1069,255 @@ export const adminService = {
     } catch (err: any) {
       return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
     }
+  },
+
+  /**
+   * Updates an existing company device's specifications, status, and metadata.
+   */
+  async updateDevice(
+    deviceId: string,
+    updates: {
+      assetTag?: string;
+      serialNumber?: string;
+      make?: string;
+      model?: string;
+      marketCode?: string;
+      inventoryStatus?: DeviceInventoryStatus;
+      imei?: string;
+      osVersion?: string;
+      supplier?: string;
+      warrantyExpiryDate?: string;
+      notes?: string;
+    }
+  ): Promise<{ success: boolean; error: Error | null }> {
+    try {
+      const payload: Record<string, any> = {};
+      if (updates.assetTag !== undefined) payload.asset_tag = updates.assetTag.trim();
+      if (updates.serialNumber !== undefined) payload.serial_number = updates.serialNumber.trim();
+      if (updates.make !== undefined) payload.make = updates.make;
+      if (updates.model !== undefined) payload.model = updates.model;
+      if (updates.marketCode !== undefined) payload.market_code = updates.marketCode;
+      if (updates.inventoryStatus !== undefined) payload.inventory_status = updates.inventoryStatus;
+      if (updates.imei !== undefined) payload.imei = updates.imei.trim();
+      if (updates.osVersion !== undefined) payload.os_version = updates.osVersion.trim();
+      if (updates.supplier !== undefined) payload.supplier = updates.supplier.trim();
+      if (updates.warrantyExpiryDate !== undefined) payload.warranty_expiry_date = updates.warrantyExpiryDate || null;
+      if (updates.notes !== undefined) payload.notes = updates.notes.trim();
+
+      payload.updated_at = new Date().toISOString();
+
+      const { error } = await supabase.from('devices').update(payload as any).eq('id', deviceId);
+
+      if (error) {
+        return { success: false, error: new Error(error.message) };
+      }
+
+      // Record in approval_audit
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const actorId = sessionData?.session?.user?.id;
+        if (actorId) {
+          await supabase.from('approval_audit').insert({
+            entity_type: 'devices',
+            entity_id: deviceId,
+            action: 'device_updated',
+            actor_id: actorId,
+            mandatory_reason: `Device specifications updated by HQ Admin: ${Object.keys(payload).join(', ')}`,
+            new_state: JSON.stringify(payload),
+            previous_state: null,
+          });
+        }
+      } catch {
+        // non-blocking
+      }
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Deletes a company device from inventory.
+   * If the device has legal/audit historical visits or attendance records, returns hasHistory: true.
+   */
+  async deleteDevice(
+    deviceId: string
+  ): Promise<{ success: boolean; hasHistory?: boolean; error: Error | null }> {
+    try {
+      // 1. Check if device has attendance or visit records
+      const { count: visitsCount } = await supabase
+        .from('visits')
+        .select('id', { count: 'exact', head: true })
+        .eq('device_id', deviceId);
+
+      const { count: attendanceCount } = await supabase
+        .from('attendance_days')
+        .select('id', { count: 'exact', head: true })
+        .eq('device_id', deviceId);
+
+      if ((visitsCount && visitsCount > 0) || (attendanceCount && attendanceCount > 0)) {
+        return {
+          success: false,
+          hasHistory: true,
+          error: new Error(
+            'DEVICE_HAS_HISTORY: This company handset has historical field visit or attendance records. In compliance with enterprise audit integrity, it cannot be permanently deleted. You can retire / decommission it instead.'
+          ),
+        };
+      }
+
+      // 2. Clean up any unassigned device_assignments referencing this device
+      await supabase.from('device_assignments').delete().eq('device_id', deviceId);
+
+      // 3. Delete from devices table
+      const { error } = await supabase.from('devices').delete().eq('id', deviceId);
+      if (error) {
+        if (error.code === '23503') {
+          return {
+            success: false,
+            hasHistory: true,
+            error: new Error(
+              'DEVICE_HAS_HISTORY: This handset is referenced in operational logs and cannot be deleted. You can retire / decommission it instead.'
+            ),
+          };
+        }
+        return { success: false, error: new Error(error.message) };
+      }
+
+      // Record in approval_audit
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const actorId = sessionData?.session?.user?.id;
+        if (actorId) {
+          await supabase.from('approval_audit').insert({
+            entity_type: 'devices',
+            entity_id: deviceId,
+            action: 'device_deleted',
+            actor_id: actorId,
+            mandatory_reason: `Company handset ${deviceId} deleted from central inventory by HQ Admin.`,
+            new_state: 'deleted',
+            previous_state: 'inventory',
+          });
+        }
+      } catch {
+        // non-blocking
+      }
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Retires/decommissions a company handset, terminating active custody and archiving the record.
+   */
+  async retireDevice(
+    deviceId: string,
+    reason?: string
+  ): Promise<{ success: boolean; error: Error | null }> {
+    try {
+      const nowIso = new Date().toISOString();
+
+      // 1. Terminate any active assignment
+      await supabase
+        .from('device_assignments')
+        .update({
+          is_current: false,
+          returned_at: nowIso,
+          handover_reason: reason || 'Device retired/decommissioned by HQ Admin',
+        })
+        .eq('device_id', deviceId)
+        .eq('is_current', true);
+
+      // 2. Update device status to retired
+      const { error } = await supabase
+        .from('devices')
+        .update({
+          inventory_status: 'retired',
+          notes: reason ? `[Retired: ${reason}]` : '[Retired by HQ Admin]',
+          updated_at: nowIso,
+        })
+        .eq('id', deviceId);
+
+      if (error) {
+        return { success: false, error: new Error(error.message) };
+      }
+
+      // Record in approval_audit
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const actorId = sessionData?.session?.user?.id;
+        if (actorId) {
+          await supabase.from('approval_audit').insert({
+            entity_type: 'devices',
+            entity_id: deviceId,
+            action: 'device_retired',
+            actor_id: actorId,
+            mandatory_reason: `Device retired from service. Reason: ${reason || 'HQ Decommissioning'}.`,
+            new_state: 'retired',
+            previous_state: 'active',
+          });
+        }
+      } catch {
+        // non-blocking
+      }
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Bulk deletes multiple company devices.
+   * Tracks which devices were successfully deleted and which were blocked by foreign key operational history constraints.
+   */
+  async bulkDeleteDevices(
+    deviceIds: string[]
+  ): Promise<{
+    deletedIds: string[];
+    blockedIds: string[];
+    errors: string[];
+  }> {
+    const deletedIds: string[] = [];
+    const blockedIds: string[] = [];
+    const errors: string[] = [];
+
+    for (const id of deviceIds) {
+      const res = await this.deleteDevice(id);
+      if (res.success) {
+        deletedIds.push(id);
+      } else if (res.hasHistory) {
+        blockedIds.push(id);
+      } else {
+        errors.push(res.error?.message || `Failed to delete device ${id}`);
+      }
+    }
+
+    return { deletedIds, blockedIds, errors };
+  },
+
+  /**
+   * Bulk retires multiple company devices (e.g. when operational history prevents hard deletion).
+   */
+  async bulkRetireDevices(
+    deviceIds: string[],
+    reason?: string
+  ): Promise<{ retiredIds: string[]; errors: string[] }> {
+    const retiredIds: string[] = [];
+    const errors: string[] = [];
+
+    for (const id of deviceIds) {
+      const res = await this.retireDevice(id, reason || 'Bulk retired by HQ Admin');
+      if (res.success) {
+        retiredIds.push(id);
+      } else {
+        errors.push(res.error?.message || `Failed to retire device ${id}`);
+      }
+    }
+
+    return { retiredIds, errors };
   },
 
   /**

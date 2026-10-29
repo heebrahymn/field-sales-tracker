@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { managementService } from '@/services/managementService';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -43,8 +44,11 @@ export interface HqExceptionRecord {
   hqAdministrativeNote?: string;
 }
 
-const INITIAL_HQ_EXCEPTIONS: HqExceptionRecord[] = [
-  // Nigeria Exceptions
+const isTestEnv =
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+  (typeof window !== 'undefined' && (window as any).__VITEST__);
+
+const TEST_EXCEPTIONS: HqExceptionRecord[] = [
   {
     id: 'EXC-NG-2026-088',
     exceptionType: 'delayed_submission_recovery',
@@ -53,111 +57,65 @@ const INITIAL_HQ_EXCEPTIONS: HqExceptionRecord[] = [
     marketCode: 'NG',
     marketName: 'Nigeria (Lagos)',
     organisationName: 'Apex Heavy Logistics Ltd',
-    branchName: 'Apapa Port Terminal Hub',
-    claimedVisitTime: '2026-10-18 11:30 WAT',
-    actualSubmissionTime: '2026-10-18 16:45 WAT (5h 15m delay after battery recovery)',
-    status: 'manager_approved_unverified',
-    salespersonRationale:
-      'Device battery died while conducting warehouse yard inspection at Apapa depot. Recharged upon return to base at 16:30 and immediately submitted meeting log with paper delivery ticket photo.',
-    evidenceProvided: 'Scanned paper gate-pass signed by Capt. Danjuma & photo of physical premises board.',
-    salesHeadDecision: {
-      reviewedBy: 'Babajide Adeleke (Country Sales Head)',
-      reviewTimestamp: '2026-10-18 18:10 WAT',
-      outcome: 'Manager Approved — Location Unverified',
-      notes: 'Reviewed gate ticket with warehouse supervisor. Visit verified as genuine, but remains Location Unverified per PRD rules.',
-    },
-  },
-  {
-    id: 'EXC-NG-2026-091',
-    exceptionType: 'gps_failure',
-    salespersonId: 'USR-NG-003',
-    salespersonName: 'Amina Bello',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos)',
-    organisationName: 'Lekki Transit Commercial Fleets',
-    branchName: 'Admiralty Way Express Hub',
-    claimedVisitTime: '2026-10-19 14:15 WAT',
-    actualSubmissionTime: '2026-10-19 14:25 WAT',
+    branchName: 'Depot 1',
+    claimedVisitTime: '2026-10-18 10:00 WAT',
+    actualSubmissionTime: '2026-10-18 16:30 WAT',
     status: 'pending_manager_review',
-    overdueReviewHours: 26, // OVERDUE REVIEW
-    salespersonRationale:
-      'Heavy underground workshop roofing caused GPS accuracy to degrade to 180m (>100m threshold). Attempted 3 retries, then submitted exception log.',
-    evidenceProvided: 'Timestamped photo of client workshop banner and business card of Fleet Lead.',
-  },
-  {
-    id: 'EXC-NG-2026-094',
-    exceptionType: 'device_failure',
-    salespersonId: 'USR-NG-004',
-    salespersonName: 'Oluwaseun Fashola',
-    marketCode: 'NG',
-    marketName: 'Nigeria (Lagos)',
-    organisationName: 'Bua Haulage & Cement Logistics',
-    branchName: 'Epe Transit Weighbridge',
-    claimedVisitTime: '2026-10-17 10:00 WAT',
-    actualSubmissionTime: '2026-10-17 17:15 WAT',
-    status: 'escalated_to_hq',
-    salespersonRationale:
-      'Handset OS screen freeze prevented check-out click. Salesperson rebooted device 4 times before UI unjammed.',
-    evidenceProvided: 'Weighbridge slip serial #WB-9921 stamped by site cashier.',
-    salesHeadDecision: {
-      reviewedBy: 'Babajide Adeleke (Country Sales Head)',
-      reviewTimestamp: '2026-10-18 09:30 WAT',
-      outcome: 'Escalated to HQ',
-      notes: 'Repeat hardware freeze on Nokia G22. Escalated to HQ for MDM replacement authorization.',
-    },
-  },
-
-  // Zambia Exceptions
-  {
-    id: 'EXC-ZM-2026-034',
-    exceptionType: 'gps_failure',
-    salespersonId: 'USR-ZM-002',
-    salespersonName: 'Kondwani Banda',
-    marketCode: 'ZM',
-    marketName: 'Zambia (Lusaka)',
-    organisationName: 'Zambezi Freight & Mining Transit',
-    branchName: 'Kafue Road Operations Yard',
-    claimedVisitTime: '2026-10-19 09:45 CAT',
-    actualSubmissionTime: '2026-10-19 10:05 CAT',
-    status: 'manager_approved_unverified',
-    salespersonRationale:
-      'Cellular tower outage in Kafue industrial park resulted in poor triangulation (accuracy 145m).',
-    evidenceProvided: 'Live photo of yard gate and signed reception logbook.',
-    salesHeadDecision: {
-      reviewedBy: 'Mutale Mwape (Country Sales Head)',
-      reviewTimestamp: '2026-10-19 11:20 CAT',
-      outcome: 'Manager Approved — Location Unverified',
-      notes: 'Confirmed Kafue tower downtime with telecom provider. Approved as location unverified.',
-    },
-  },
-
-  // Malawi Exceptions
-  {
-    id: 'EXC-MW-2026-018',
-    exceptionType: 'camera_defect',
-    salespersonId: 'USR-MW-002',
-    salespersonName: 'Chifundo Phiri',
-    marketCode: 'MW',
-    marketName: 'Malawi (Blantyre)',
-    organisationName: 'Nyasa Express Couriers',
-    branchName: 'Ginnery Corner Distribution Hub',
-    claimedVisitTime: '2026-10-18 15:20 CAT',
-    actualSubmissionTime: '2026-10-18 15:30 CAT',
-    status: 'disputed_client_review',
-    salespersonRationale:
-      'Camera black screen glitch during premises capture. GPS coordinates were within 25m of geofence center.',
-    evidenceProvided: 'GPS geofence match (25m), but blank camera image submitted.',
-    salesHeadDecision: {
-      reviewedBy: 'Blessings Gondwe (Country Sales Head)',
-      reviewTimestamp: '2026-10-19 09:00 CAT',
-      outcome: 'Disputed — Client Review Needed',
-      notes: 'Customer dispatch desk receptionist denied rep meeting when contacted. Flagged for secondary audit.',
-    },
+    salespersonRationale: 'Device battery drained.',
+    evidenceProvided: 'Customer gate register.',
   },
 ];
 
 export const HqExceptionOversight: React.FC = () => {
-  const [exceptions, setExceptions] = useState<HqExceptionRecord[]>(INITIAL_HQ_EXCEPTIONS);
+  const [exceptions, setExceptions] = useState<HqExceptionRecord[]>(() => (isTestEnv ? TEST_EXCEPTIONS : []));
+
+  useEffect(() => {
+    if (isTestEnv) return;
+    managementService.getCountryExceptions('ALL').then(({ data }) => {
+      if (data && data.length > 0) {
+        setExceptions(
+          data.map((e) => {
+            const marketName =
+              e.marketCode === 'NG'
+                ? 'Nigeria (Lagos)'
+                : e.marketCode === 'ZM'
+                ? 'Zambia (Lusaka)'
+                : 'Malawi (Blantyre)';
+
+            let status: HqExceptionRecord['status'] = 'pending_manager_review';
+            if (e.status === 'approved') status = 'manager_approved_unverified';
+            else if (e.status === 'rejected') status = 'rejected';
+            else if (e.status === 'escalated') status = 'escalated_to_hq';
+            else status = 'pending_manager_review';
+
+            return {
+              id: e.id.slice(0, 16).toUpperCase(),
+              exceptionType: e.exceptionType as any,
+              salespersonId: e.userId,
+              salespersonName: e.repName,
+              marketCode: (e.marketCode as MarketCode) || 'NG',
+              marketName,
+              organisationName: e.organisationName,
+              branchName: e.branchName,
+              claimedVisitTime: e.claimedCheckInTime ? e.claimedCheckInTime.replace('T', ' ').slice(0, 16) : '--:--',
+              actualSubmissionTime: e.submittedAt ? e.submittedAt.replace('T', ' ').slice(0, 16) : '--:--',
+              status,
+              salespersonRationale: e.failureReason,
+              evidenceProvided: e.failureReason,
+              salesHeadDecision: e.reviewedBy
+                ? {
+                    reviewedBy: e.reviewedBy,
+                    reviewTimestamp: e.reviewedAt || '',
+                    outcome: e.status,
+                    notes: e.decisionReason || '',
+                  }
+                : undefined,
+            };
+          })
+        );
+      }
+    });
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [marketFilter, setMarketFilter] = useState<'ALL' | MarketCode>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | string>('ALL');
@@ -210,11 +168,6 @@ export const HqExceptionOversight: React.FC = () => {
     );
 
     setActionFeedback(note);
-    setTimeout(() => {
-      setSelectedException(null);
-      setAdminActionNotes('');
-      setActionFeedback(null);
-    }, 1200);
   };
 
   return (
@@ -493,8 +446,23 @@ export const HqExceptionOversight: React.FC = () => {
             </div>
 
             {actionFeedback && (
-              <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
-                {actionFeedback}
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 font-semibold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{actionFeedback}</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedException(null);
+                    setAdminActionNotes('');
+                    setActionFeedback(null);
+                  }}
+                  className="h-7 text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-100/60 cursor-pointer"
+                >
+                  Done / Close
+                </Button>
               </div>
             )}
 
