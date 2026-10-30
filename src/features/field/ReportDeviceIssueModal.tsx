@@ -21,7 +21,7 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
   onSuccess,
 }) => {
   const { currentUser } = useAuth();
-  const { submitReplacementRequest } = useDeviceReplacement();
+  const { submitReplacementRequest, refreshRequests } = useDeviceReplacement();
 
   const [issueCategory, setIssueCategory] = useState<DeviceIssueCategory>('camera_defect');
   const [description, setDescription] = useState('');
@@ -31,34 +31,41 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
 
   if (!isOpen) return null;
 
-  const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'CC-DEV-LAG-019';
+  const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'CC-DEV-LOS-001';
   const assignedDeviceModel = currentUser.assignedDevice?.model || 'Samsung Galaxy A15 Enterprise';
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) return;
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      submitReplacementRequest({
-        salespersonId: currentUser.employeeId,
+    try {
+      await submitReplacementRequest({
+        salespersonId: currentUser.id || currentUser.employeeId,
         salespersonName: currentUser.name,
         marketCode: currentUser.marketCode,
         marketName: currentUser.marketName,
-        companyDeviceAssetId: assignedDeviceTag,
+        companyDeviceAssetId:
+          currentUser.assignedDevice?.deviceId ||
+          currentUser.assignedDevice?.assetTag ||
+          assignedDeviceTag,
         deviceModel: assignedDeviceModel,
         issueCategory,
         issueDescription: description.trim(),
         supportingEvidence: supportingEvidence.trim() || undefined,
       });
 
-      setIsSubmitting(false);
+      await refreshRequests?.();
       setFeedbackMessage('Request submitted directly to HQ Admin. Track status under My Device.');
       setDescription('');
       setSupportingEvidence('');
       onSuccess?.();
-    }, 600);
+    } catch (err: any) {
+      console.error('Failed to submit replacement request:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

@@ -106,6 +106,7 @@ interface AuthContextType {
   setAttendanceStatus: (status: 'started' | 'ended' | 'scheduled') => void;
   gpsAccuracyMeters: number;
   syncQueueCount: number;
+  refreshProfile?: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -128,6 +129,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
 
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+
+
   const [profile, setProfile] = useState<UserProfile | null>(initialProfile || (shouldAutoMock ? DEMO_PROFILES.salesperson : null));
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(!shouldAutoMock && initialProfile === undefined);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -288,6 +291,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       return null;
     }
   }, []);
+
+  const refreshProfile = useCallback(async () => {
+    if (isTestEnv && shouldAutoMock) return;
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (currentSession?.user) {
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.removeItem('carbon_cached_profile_' + currentSession.user.id);
+          } catch {}
+        }
+        const loaded = await loadProfileAndDevice(currentSession.user.id);
+        if (loaded && loaded.isActive) {
+          setProfile(loaded);
+        }
+      }
+    } catch (err) {
+      console.warn('[AuthContext] refreshProfile error:', err);
+    }
+  }, [loadProfileAndDevice, isTestEnv, shouldAutoMock]);
 
   // Initialize session on mount
   useEffect(() => {
@@ -526,6 +549,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         setAttendanceStatus,
         gpsAccuracyMeters,
         syncQueueCount,
+        refreshProfile,
       }}
     >
       {children}

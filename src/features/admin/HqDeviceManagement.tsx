@@ -37,6 +37,7 @@ import {
   DeviceIssueCategory,
 } from '@/context/DeviceReplacementContext';
 import { adminService } from '@/services/adminService';
+import { supabase } from '@/lib/supabase';
 
 // Salesperson Option loaded from Supabase Profiles (SSoT)
 const isTestEnv =
@@ -63,6 +64,7 @@ export const HqDeviceManagement: React.FC = () => {
     reassignDevice,
     updateDeviceLifecycleStatus,
     replacementRequests,
+    refreshRequests,
     approveRequest,
     rejectRequest,
     assignSpareDevice,
@@ -122,6 +124,7 @@ export const HqDeviceManagement: React.FC = () => {
   const [assigneeId, setAssigneeId] = useState('');
   const [assignmentReason, setAssignmentReason] = useState('');
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [supersedeExistingHandset, setSupersedeExistingHandset] = useState(true);
 
   // Device Reassign Modal State (for currently Assigned devices)
   const [deviceToReassign, setDeviceToReassign] = useState<CompanyDevice | null>(null);
@@ -546,7 +549,7 @@ export const HqDeviceManagement: React.FC = () => {
     }
   };
 
-  // 2. Submit Device Assignment
+  // 2. Submit Device Assignment / Reassignment
   const handleAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deviceToAssign || !assigneeId) return;
@@ -558,9 +561,17 @@ export const HqDeviceManagement: React.FC = () => {
       return;
     }
 
+    const existingActiveDevice = devices.find(
+      (d) =>
+        d.assetId !== deviceToAssign.assetId &&
+        d.assignedSalespersonId === person.id &&
+        (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
+    );
+
     setIsAssigning(true);
     try {
-      const res = assignDevice(deviceToAssign.assetId, person.id, person.name, assignmentReason);
+      const shouldSupersede = Boolean(existingActiveDevice) && supersedeExistingHandset;
+      const res = assignDevice(deviceToAssign.assetId, person.id, person.name, assignmentReason, shouldSupersede);
       if (!res.success) {
         setAssignError(res.error || 'Failed to assign device.');
         setIsAssigning(false);
@@ -579,16 +590,34 @@ export const HqDeviceManagement: React.FC = () => {
               d.serialNumber === deviceToAssign.serialNumber
           );
           if (matchedDev) {
-            await adminService.assignDevice(matchedDev.id, person.id, assignmentReason);
+            if (existingActiveDevice && supersedeExistingHandset) {
+              await adminService.reassignDevice(
+                matchedDev.id,
+                person.id,
+                assignmentReason || `Reassigned from ${existingActiveDevice.assetId} by HQ Admin`
+              );
+            } else {
+              await adminService.assignDevice(matchedDev.id, person.id, assignmentReason);
+            }
           }
         } catch (dbErr) {
           console.warn('[HqDeviceManagement] Supabase device assignment sync note:', dbErr);
         }
       }
 
+      // Invalidate cached profile for custodian so they immediately see the new handset
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.removeItem('carbon_cached_profile_' + person.id);
+        } catch {}
+      }
+
       setDeviceToAssign(null);
       setAssigneeId('');
       setAssignmentReason('');
+      setSupersedeExistingHandset(true);
+      await refreshDevices();
+      await refreshRequests();
       await loadLiveSalespeople();
     } finally {
       setIsAssigning(false);
@@ -649,8 +678,8 @@ export const HqDeviceManagement: React.FC = () => {
     }
   };
 
-  // 4. Submit Lifecycle Status Update
-  const handleStatusUpdateSubmit = (e: React.FormEvent) => {
+  // 4. Submit Lifecycle Status Update (Persisted to Supabase)
+  const handleStatusUpdateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deviceForStatusUpdate) return;
     setStatusUpdateError(null);
@@ -664,6 +693,30 @@ export const HqDeviceManagement: React.FC = () => {
     if (!res.success) {
       setStatusUpdateError(res.error || 'Failed to update status.');
       return;
+    }
+
+    const devId = deviceForStatusUpdate.id;
+    if (devId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(devId)) {
+      try {
+        let dbStatus: any = 'available';
+        if (targetLifecycleStatus === 'Assigned') dbStatus = 'assigned';
+        else if (targetLifecycleStatus === 'Active') dbStatus = 'active';
+        else if (targetLifecycleStatus === 'Pending Inspection') dbStatus = 'pending_inspection';
+        else if (targetLifecycleStatus === 'Under Maintenance') dbStatus = 'under_maintenance';
+        else if (targetLifecycleStatus === 'Lost/Stolen') dbStatus = 'lost_stolen';
+        else if (targetLifecycleStatus === 'Returned') dbStatus = 'returned';
+        else if (targetLifecycleStatus === 'Revoked') dbStatus = 'revoked';
+        else if (targetLifecycleStatus === 'Retired') dbStatus = 'retired';
+
+        await adminService.updateDevice(devId, { inventoryStatus: dbStatus, notes: statusChangeReason.trim() });
+        if (dbStatus === 'returned' || dbStatus === 'retired' || dbStatus === 'lost_stolen') {
+          await supabase.from('device_assignments').update({ is_current: false, returned_at: new Date().toISOString() }).eq('device_id', devId).eq('is_current', true);
+        }
+        await refreshDevices();
+        await refreshRequests();
+      } catch (err: any) {
+        console.warn('[HqDeviceManagement] Status update error:', err);
+      }
     }
 
     setDeviceForStatusUpdate(null);
@@ -1884,75 +1937,124 @@ export const HqDeviceManagement: React.FC = () => {
                 </p>
               </div>
 
-              <div>
-                <label
-                  className="block font-bold text-slate-700 mb-1"
-                  htmlFor="salespersonCustodianSelect"
-                >
-                  Select Salesperson Custodian *
-                </label>
-                <select
-                  id="salespersonCustodianSelect"
-                  data-testid="salesperson-custodian-select"
-                  required
-                  value={assigneeId}
-                  onChange={(e) => setAssigneeId(e.target.value)}
-                  className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
-                >
-                  <option value="">
-                    {isLoadingSalespeople ? 'Loading representatives from Supabase...' : '-- Choose Sales Representative --'}
-                  </option>
-                  {combinedSalespeople
-                    .filter((p) => p.marketCode === deviceToAssign.marketCode)
-                    .map((rep) => {
-                      const alreadyHasDevice =
-                        Boolean(rep.hasActiveHandset) ||
-                        devices.some(
-                          (d) =>
-                            d.assignedSalespersonId === rep.id &&
-                            (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
-                        );
-                      const displayTag = rep.email || rep.id;
-                      return (
-                        <option key={rep.id} value={rep.id}>
-                          {rep.name} ({displayTag}) {alreadyHasDevice ? '⚠️ Currently has active handset' : '✓ Unassigned'}
+              {(() => {
+                const selectedRepForAssign = combinedSalespeople.find((p) => p.id === assigneeId);
+                const existingActiveDeviceForAssign = selectedRepForAssign
+                  ? devices.find(
+                      (d) =>
+                        d.assetId !== deviceToAssign.assetId &&
+                        d.assignedSalespersonId === selectedRepForAssign.id &&
+                        (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
+                    )
+                  : null;
+
+                return (
+                  <>
+                    <div>
+                      <label
+                        className="block font-bold text-slate-700 mb-1"
+                        htmlFor="salespersonCustodianSelect"
+                      >
+                        Select Salesperson Custodian *
+                      </label>
+                      <select
+                        id="salespersonCustodianSelect"
+                        data-testid="salesperson-custodian-select"
+                        required
+                        value={assigneeId}
+                        onChange={(e) => setAssigneeId(e.target.value)}
+                        className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
+                      >
+                        <option value="">
+                          {isLoadingSalespeople ? 'Loading representatives from Supabase...' : '-- Choose Sales Representative --'}
                         </option>
-                      );
-                    })}
-                </select>
-                <span className="text-[10px] text-slate-400">Rule: A salesperson cannot hold multiple active handsets simultaneously.</span>
-              </div>
+                        {combinedSalespeople
+                          .filter((p) => p.marketCode === deviceToAssign.marketCode)
+                          .map((rep) => {
+                            const alreadyHasDevice =
+                              Boolean(rep.hasActiveHandset) ||
+                              devices.some(
+                                (d) =>
+                                  d.assignedSalespersonId === rep.id &&
+                                  (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
+                              );
+                            const displayTag = rep.email || rep.id;
+                            return (
+                              <option key={rep.id} value={rep.id}>
+                                {rep.name} ({displayTag}) {alreadyHasDevice ? '⚠️ Currently has active handset' : '✓ Unassigned'}
+                              </option>
+                            );
+                          })}
+                      </select>
+                      <span className="text-[10px] text-slate-400">Rule: A salesperson cannot hold multiple active handsets simultaneously.</span>
+                    </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Assignment Rationale / Notes</label>
-                <textarea
-                  rows={2}
-                  placeholder="Optional notes regarding territory deployment..."
-                  value={assignmentReason}
-                  onChange={(e) => setAssignmentReason(e.target.value)}
-                  className="w-full p-2 border border-slate-200 rounded-lg text-xs focus:border-brand-blue"
-                />
-              </div>
+                    {existingActiveDeviceForAssign && (
+                      <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1.5">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Custody Reassignment Notice</span>
+                        </div>
+                        <p className="text-[11px] text-amber-800 leading-relaxed">
+                          <strong>{selectedRepForAssign?.name}</strong> is currently assigned to active company handset{' '}
+                          <strong className="font-mono text-slate-900">{existingActiveDeviceForAssign.assetId}</strong>.
+                        </p>
+                        <p className="text-[11px] text-amber-800 leading-relaxed">
+                          Company policy enforces 1:1 hardware custody. Confirming handover will automatically reassign custody, return{' '}
+                          <strong className="font-mono text-slate-900">{existingActiveDeviceForAssign.assetId}</strong> to the central depot, and activate{' '}
+                          <strong className="font-mono text-slate-900">{deviceToAssign.assetId}</strong> for {selectedRepForAssign?.name}.
+                        </p>
+                        <label className="flex items-center gap-2 cursor-pointer pt-1">
+                          <input
+                            type="checkbox"
+                            checked={supersedeExistingHandset}
+                            onChange={(e) => setSupersedeExistingHandset(e.target.checked)}
+                            className="rounded border-amber-400 text-brand-blue focus:ring-brand-blue"
+                          />
+                          <span className="text-[11px] font-semibold text-amber-950">
+                            Return {existingActiveDeviceForAssign.assetId} to depot & reassign handset
+                          </span>
+                        </label>
+                      </div>
+                    )}
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setDeviceToAssign(null)}
-                  className="text-xs"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  id="btn-confirm-handover"
-                  type="submit"
-                  disabled={!assigneeId || isAssigning}
-                  className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5"
-                >
-                  {isAssigning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  {isAssigning ? 'Assigning...' : 'Confirm Handover'}
-                </Button>
-              </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">Assignment Rationale / Notes</label>
+                      <textarea
+                        rows={2}
+                        placeholder="Optional notes regarding territory deployment..."
+                        value={assignmentReason}
+                        onChange={(e) => setAssignmentReason(e.target.value)}
+                        className="w-full p-2 border border-slate-200 rounded-lg text-xs focus:border-brand-blue"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setDeviceToAssign(null)}
+                        className="text-xs"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        id="btn-confirm-handover"
+                        type="submit"
+                        disabled={!assigneeId || isAssigning || (Boolean(existingActiveDeviceForAssign) && !supersedeExistingHandset)}
+                        className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5"
+                      >
+                        {isAssigning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                        {isAssigning
+                          ? 'Assigning...'
+                          : existingActiveDeviceForAssign
+                          ? 'Confirm Handover & Reassign'
+                          : 'Confirm Handover'}
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
             </form>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   useDeviceReplacement,
@@ -30,15 +30,20 @@ interface ProfileViewProps {
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
-  const { currentUser } = useAuth();
-  const { replacementRequests } = useDeviceReplacement();
+  const { currentUser, refreshProfile } = useAuth();
+  const { replacementRequests, refreshRequests } = useDeviceReplacement();
+
+  useEffect(() => {
+    refreshRequests?.();
+    refreshProfile?.();
+  }, [refreshRequests, refreshProfile]);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [selectedRequestForHistory, setSelectedRequestForHistory] =
     useState<DeviceReplacementRequest | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'RESOLVED'>('ALL');
 
-  const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'CC-DEV-LAG-019';
+  const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'CC-DEV-LOS-001';
   const assignedDeviceModel =
     currentUser.assignedDevice?.model || 'Samsung Galaxy A15 Enterprise';
 

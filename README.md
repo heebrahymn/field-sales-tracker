@@ -77,6 +77,7 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] SSoT      — Supabase Development Single Source of Truth & Mock Elimination (ADR 0015)
 [✓] Admin/Cam — Device & User Governance, Pagination, Manual Dialogs & Mobile Camera Flip (ADR 0016)
 [✓] Review/Sync — Country Sales Head Reviews, Dedicated Non-Visit Screen, Bidirectional Real-Time Sync & Storage Bucket Alignment (ADR 0017)
+[✓] Reassign/Sync — HQ Admin Device Reassignment Supersession, Spare Allocation RPC Alignment & Central Inventory Governance (ADR 0018)
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
 ```

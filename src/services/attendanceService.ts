@@ -558,6 +558,33 @@ export const attendanceService = {
         }
       }
 
+      // Ensure each active field salesperson displays their latest assigned company handset
+      try {
+        const { data: currentAssignments } = await supabase
+          .from('device_assignments')
+          .select('salesperson_id, devices(id, asset_tag, asset_id, make, model)')
+          .eq('is_current', true);
+
+        if (currentAssignments && currentAssignments.length > 0) {
+          const assignMap = new Map<string, any>();
+          for (const a of currentAssignments as any[]) {
+            if (a.salesperson_id && a.devices) {
+              assignMap.set(a.salesperson_id, a.devices);
+            }
+          }
+
+          attendanceList.forEach((att) => {
+            if (att.status !== 'approved_leave' && att.status !== 'approved_non_visit') {
+              if (assignMap.has(att.user_id)) {
+                att.devices = assignMap.get(att.user_id);
+              }
+            }
+          });
+        }
+      } catch (devErr) {
+        console.warn('[AttendanceService] Note querying active assignments for attendance list:', devErr);
+      }
+
       return { data: attendanceList, error: null };
     } catch (err: any) {
       console.error('[AttendanceService] getMarketAttendance caught error:', err);

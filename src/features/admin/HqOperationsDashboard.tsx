@@ -71,9 +71,27 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
           openFlags: ngLive ? ngLive.openFlagsCount : 0,
           auditPending: ngLive ? ngLive.auditPendingCount : 0,
         },
-        weekly: { verified: 168, unverified: 12, branches: 94, offlineShare: '14.5%', compliance: '95%', openFlags: 4, auditPending: 2 },
-        quarterly: { verified: 482, unverified: 31, branches: 142, offlineShare: '15.8%', compliance: '93%', openFlags: 4, auditPending: 2 },
-        activeDevices: '10 / 10 Active',
+        weekly: {
+          verified: ngLive ? ngLive.verifiedVisitsWeekly : 0,
+          unverified: ngLive ? ngLive.unverifiedVisitsWeekly : 0,
+          branches: ngLive ? ngLive.uniqueBranchesVisitedWeekly : 0,
+          offlineShare: '14.5%',
+          compliance: '95%',
+          openFlags: ngLive ? ngLive.openFlagsCount : 0,
+          auditPending: ngLive ? ngLive.auditPendingCount : 0,
+        },
+        quarterly: {
+          verified: ngLive ? ngLive.verifiedVisitsQuarterly : 0,
+          unverified: ngLive ? ngLive.unverifiedVisitsQuarterly : 0,
+          branches: ngLive ? ngLive.uniqueBranchesVisitedQuarterly : 0,
+          offlineShare: '15.8%',
+          compliance: '93%',
+          openFlags: ngLive ? ngLive.openFlagsCount : 0,
+          auditPending: ngLive ? ngLive.auditPendingCount : 0,
+        },
+        totalDevices: ngLive ? ngLive.totalDevices : 0,
+        activeDevices: ngLive ? ngLive.activeDevices : 0,
+        availableDevices: ngLive ? ngLive.availableDevices : 0,
         pinApprovalsPending: ngLive ? ngLive.pendingPinApprovalsCount : 0,
       },
       ZM: {
@@ -96,9 +114,27 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
           openFlags: zmLive ? zmLive.openFlagsCount : 0,
           auditPending: zmLive ? zmLive.auditPendingCount : 0,
         },
-        weekly: { verified: 92, unverified: 6, branches: 48, offlineShare: '20%', compliance: '93%', openFlags: 2, auditPending: 1 },
-        quarterly: { verified: 275, unverified: 18, branches: 82, offlineShare: '21%', compliance: '91%', openFlags: 2, auditPending: 1 },
-        activeDevices: '6 / 6 Active',
+        weekly: {
+          verified: zmLive ? zmLive.verifiedVisitsWeekly : 0,
+          unverified: zmLive ? zmLive.unverifiedVisitsWeekly : 0,
+          branches: zmLive ? zmLive.uniqueBranchesVisitedWeekly : 0,
+          offlineShare: '20%',
+          compliance: '93%',
+          openFlags: zmLive ? zmLive.openFlagsCount : 0,
+          auditPending: zmLive ? zmLive.auditPendingCount : 0,
+        },
+        quarterly: {
+          verified: zmLive ? zmLive.verifiedVisitsQuarterly : 0,
+          unverified: zmLive ? zmLive.unverifiedVisitsQuarterly : 0,
+          branches: zmLive ? zmLive.uniqueBranchesVisitedQuarterly : 0,
+          offlineShare: '21%',
+          compliance: '91%',
+          openFlags: zmLive ? zmLive.openFlagsCount : 0,
+          auditPending: zmLive ? zmLive.auditPendingCount : 0,
+        },
+        totalDevices: zmLive ? zmLive.totalDevices : 0,
+        activeDevices: zmLive ? zmLive.activeDevices : 0,
+        availableDevices: zmLive ? zmLive.availableDevices : 0,
         pinApprovalsPending: zmLive ? zmLive.pendingPinApprovalsCount : 0,
       },
       MW: {
@@ -121,9 +157,27 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
           openFlags: mwLive ? mwLive.openFlagsCount : 0,
           auditPending: mwLive ? mwLive.auditPendingCount : 0,
         },
-        weekly: { verified: 58, unverified: 4, branches: 31, offlineShare: '25%', compliance: '91%', openFlags: 1, auditPending: 1 },
-        quarterly: { verified: 174, unverified: 12, branches: 54, offlineShare: '26%', compliance: '89%', openFlags: 1, auditPending: 1 },
-        activeDevices: '4 / 4 Active',
+        weekly: {
+          verified: mwLive ? mwLive.verifiedVisitsWeekly : 0,
+          unverified: mwLive ? mwLive.unverifiedVisitsWeekly : 0,
+          branches: mwLive ? mwLive.uniqueBranchesVisitedWeekly : 0,
+          offlineShare: '25%',
+          compliance: '91%',
+          openFlags: mwLive ? mwLive.openFlagsCount : 0,
+          auditPending: mwLive ? mwLive.auditPendingCount : 0,
+        },
+        quarterly: {
+          verified: mwLive ? mwLive.verifiedVisitsQuarterly : 0,
+          unverified: mwLive ? mwLive.unverifiedVisitsQuarterly : 0,
+          branches: mwLive ? mwLive.uniqueBranchesVisitedQuarterly : 0,
+          offlineShare: '26%',
+          compliance: '89%',
+          openFlags: mwLive ? mwLive.openFlagsCount : 0,
+          auditPending: mwLive ? mwLive.auditPendingCount : 0,
+        },
+        totalDevices: mwLive ? mwLive.totalDevices : 0,
+        activeDevices: mwLive ? mwLive.activeDevices : 0,
+        availableDevices: mwLive ? mwLive.availableDevices : 0,
         pinApprovalsPending: mwLive ? mwLive.pendingPinApprovalsCount : 0,
       },
     };
@@ -132,6 +186,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
   // Consolidated Aggregates
   const consolidated = useMemo(() => {
     const totalReps = countryMetrics.NG.salespeople.total + countryMetrics.ZM.salespeople.total + countryMetrics.MW.salespeople.total;
+    const totalPersonnel = (liveOverview || []).reduce((acc, m) => acc + (m.totalPersonnel || 0), 0) || totalReps;
     const activeReps = countryMetrics.NG.salespeople.active + countryMetrics.ZM.salespeople.active + countryMetrics.MW.salespeople.active;
     const onLeaveReps = countryMetrics.NG.salespeople.onLeave + countryMetrics.ZM.salespeople.onLeave + countryMetrics.MW.salespeople.onLeave;
     const nonVisitReps = countryMetrics.NG.salespeople.nonVisit + countryMetrics.ZM.salespeople.nonVisit + countryMetrics.MW.salespeople.nonVisit;
@@ -140,11 +195,19 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
     const tfZM = countryMetrics.ZM[timeframe];
     const tfMW = countryMetrics.MW[timeframe];
 
+    const totalDevices = countryMetrics.NG.totalDevices + countryMetrics.ZM.totalDevices + countryMetrics.MW.totalDevices;
+    const activeDevices = countryMetrics.NG.activeDevices + countryMetrics.ZM.activeDevices + countryMetrics.MW.activeDevices;
+    const availableDevices = countryMetrics.NG.availableDevices + countryMetrics.ZM.availableDevices + countryMetrics.MW.availableDevices;
+
     return {
       totalReps,
+      totalPersonnel,
       activeReps,
       onLeaveReps,
       nonVisitReps,
+      totalDevices,
+      activeDevices,
+      availableDevices,
       verified: tfNG.verified + tfZM.verified + tfMW.verified,
       unverified: tfNG.unverified + tfZM.unverified + tfMW.unverified,
       uniqueBranches: tfNG.branches + tfZM.branches + tfMW.branches,
@@ -154,7 +217,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
       offlineShareAverage: '21.5%',
       logComplianceAverage: '93%',
     };
-  }, [countryMetrics, timeframe]);
+  }, [countryMetrics, timeframe, liveOverview]);
 
   // Display Metrics based on selected market filter
   const activeMetrics = useMemo(() => {
@@ -165,9 +228,13 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
     const tf = cm[timeframe];
     return {
       totalReps: cm.salespeople.total,
+      totalPersonnel: cm.salespeople.total,
       activeReps: cm.salespeople.active,
       onLeaveReps: cm.salespeople.onLeave,
       nonVisitReps: cm.salespeople.nonVisit,
+      totalDevices: cm.totalDevices,
+      activeDevices: cm.activeDevices,
+      availableDevices: cm.availableDevices,
       verified: tf.verified,
       unverified: tf.unverified,
       uniqueBranches: tf.branches,
@@ -328,13 +395,18 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
             </div>
             <div className="mt-1">
               <span className="inline-block text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
-                {Math.round((activeMetrics.activeReps / activeMetrics.totalReps) * 100)}% Attendance
+                {activeMetrics.totalReps > 0
+                  ? `${Math.round((activeMetrics.activeReps / activeMetrics.totalReps) * 100)}% Attendance`
+                  : '0% Attendance'}
               </span>
             </div>
           </div>
           <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-            <span>{activeMetrics.onLeaveReps} on leave • {activeMetrics.nonVisitReps} non-visit</span>
+            <span>
+              {activeMetrics.onLeaveReps} on leave • {activeMetrics.nonVisitReps} non-visit
+              {selectedMarket === 'ALL' && ` • ${consolidated.totalPersonnel} registered staff`}
+            </span>
           </div>
         </div>
 
@@ -567,7 +639,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     <span className="inline-block text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      10/10 Handsets Active
+                      {countryMetrics.NG.activeDevices} / {countryMetrics.NG.totalDevices} Active
                     </span>
                   </td>
                 </tr>
@@ -604,7 +676,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     <span className="inline-block text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      6/6 Handsets Active
+                      {countryMetrics.ZM.activeDevices} / {countryMetrics.ZM.totalDevices} Active
                     </span>
                   </td>
                 </tr>
@@ -641,7 +713,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     <span className="inline-block text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      4/4 Handsets Active
+                      {countryMetrics.MW.activeDevices} / {countryMetrics.MW.totalDevices} Active
                     </span>
                   </td>
                 </tr>
@@ -665,7 +737,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
             Create accounts, assign market access, and review login security audit logs.
           </p>
           <div className="text-xs font-bold text-brand-blue flex items-center gap-1 pt-1">
-            Manage 23 Users <ArrowRight className="w-3.5 h-3.5" />
+            Manage {consolidated.totalPersonnel} Users <ArrowRight className="w-3.5 h-3.5" />
           </div>
         </div>
 
@@ -681,7 +753,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
             Assign company handsets, process replacements, and monitor fleet battery health.
           </p>
           <div className="text-xs font-bold text-emerald-700 flex items-center gap-1 pt-1">
-            20 Handsets Tracked <ArrowRight className="w-3.5 h-3.5" />
+            {consolidated.totalDevices} Handsets in Fleet ({consolidated.activeDevices} Active) <ArrowRight className="w-3.5 h-3.5" />
           </div>
         </div>
 

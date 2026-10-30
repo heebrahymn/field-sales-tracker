@@ -291,7 +291,7 @@ interface DeviceReplacementContextType {
   devices: CompanyDevice[];
   refreshDevices: () => Promise<void>;
   registerDevice: (data: RegisterDeviceInput) => { success: boolean; error?: string; device?: CompanyDevice };
-  assignDevice: (assetId: string, salespersonId: string, salespersonName: string, reason?: string) => { success: boolean; error?: string };
+  assignDevice: (assetId: string, salespersonId: string, salespersonName: string, reason?: string, supersedeExisting?: boolean) => { success: boolean; error?: string };
   reassignDevice: (assetId: string, newSalespersonId: string, newSalespersonName: string, reason: string) => { success: boolean; error?: string };
   updateDeviceLifecycleStatus: (assetId: string, newStatus: DeviceInventoryStatus, reason: string) => { success: boolean; error?: string };
 
@@ -474,7 +474,8 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
     assetId: string,
     salespersonId: string,
     salespersonName: string,
-    reason?: string
+    reason?: string,
+    supersedeExisting?: boolean
   ): { success: boolean; error?: string } => {
     const targetDevice = devices.find((d) => d.assetId === assetId);
     if (!targetDevice) {
@@ -495,7 +496,7 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
         d.assignedSalespersonId === salespersonId &&
         (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
     );
-    if (existingActiveDevice) {
+    if (existingActiveDevice && !supersedeExisting) {
       return {
         success: false,
         error: `Salesperson ${salespersonName} is already assigned to active device ${existingActiveDevice.assetId}. Please reassign or return the existing device first.`,
@@ -506,6 +507,28 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
 
     setDevices((prev) =>
       prev.map((d) => {
+        // If superseding existing active device, return it to depot
+        if (existingActiveDevice && d.assetId === existingActiveDevice.assetId) {
+          return {
+            ...d,
+            inventoryStatus: 'Returned',
+            assignedSalespersonId: undefined,
+            assignedSalespersonName: undefined,
+            history: [
+              ...d.history,
+              {
+                id: `hist-${Date.now()}-superseded`,
+                timestamp,
+                action: 'Handset Custody Superseded & Returned to Depot',
+                actorName: 'HQ Administrator',
+                actorRole: 'HQ Administrator',
+                previousStatus: d.inventoryStatus,
+                newStatus: 'Returned',
+                reason: `Custody superseded by assignment of company handset ${assetId} to ${salespersonName}.`,
+              },
+            ],
+          };
+        }
         if (d.assetId === assetId) {
           return {
             ...d,
@@ -519,14 +542,16 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
               {
                 id: `hist-${Date.now()}-assign`,
                 timestamp,
-                action: 'Handset Assigned to Salesperson',
+                action: existingActiveDevice ? 'Handset Reassigned to Salesperson' : 'Handset Assigned to Salesperson',
                 actorName: 'HQ Administrator',
                 actorRole: 'HQ Administrator',
                 previousStatus: d.inventoryStatus,
                 newStatus: 'Active',
                 assigneeId: salespersonId,
                 assigneeName: salespersonName,
-                reason: reason || `Assigned to ${salespersonName} (${salespersonId}) for field operations.`,
+                reason: reason || (existingActiveDevice
+                  ? `Reassigned to ${salespersonName} (${salespersonId}), superseding ${existingActiveDevice.assetId}.`
+                  : `Assigned to ${salespersonName} (${salespersonId}) for field operations.`),
               },
             ],
           };

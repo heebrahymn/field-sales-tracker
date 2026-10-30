@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Post-Stage 3F Milestone] - HQ Admin Handset Custody Reassignment Supersession, Spare Allocation RPC Alignment & Central Inventory Governance (2026-10-30)
+
+### Handset Reassignment, Spare Allocation & Central Inventory (ADR 0018)
+- **Depot Spare Allocation Persistence & RPC Alignment:**
+  - Implemented `adminService.allocateSpareDevice({ replacementId, spareDeviceId })` resolving asset tags to UUIDs and invoking RPC `hq_allocate_spare_device` with direct PostgreSQL table fallback.
+  - Linked `HqDeviceManagement.tsx` spare allocation modal to database persistence, eliminating UI reversion on 10s background sync.
+  - Updated `dispatchReplacementDevice` and `confirmReplacementActivation` to record tracking, activate replacement handsets, link today's `attendance_days.device_id`, and record old device disposition in `public.device_replacement_history`.
+- **Handset Custody Reassignment Supersession (Zero-Blocker Reassignment):**
+  - Enhanced `adminService.reassignDevice()` and `DeviceReplacementContext.assignDevice()` with custody supersession logic: assigning a new device to a representative who holds an active handset automatically marks the old device as `returned` (`is_current = false, returned_at = now()`), activates the target device, and updates attendance records.
+  - Updated the "Assign Handset to Salesperson" modal in `HqDeviceManagement.tsx` to dynamically detect existing active custody, display an informative **Custody Reassignment Notice**, provide a pre-checked supersession option, and enable **"Confirm Handover & Reassign"** without requiring manual multi-step workarounds.
+- **Central Inventory Lifecycle Status Supabase Persistence:**
+  - Updated `handleStatusUpdateSubmit` in `HqDeviceManagement.tsx` to persist status transitions to Supabase `public.devices` via `adminService.updateDevice()`.
+  - Automatically terminates active custody in `public.device_assignments` when devices transition to `returned`, `retired`, or `lost_stolen`.
+- **Real-Time Hardware Profile Refresh & Team Attendance Linkage:**
+  - Exposed `refreshProfile()` on `AuthContext.tsx` to bust `localStorage` caching and reload profile and device bindings from Supabase.
+  - Connected `ProfileView.tsx` to `refreshProfile()` on mount and after replacement ticket lifecycle updates.
+  - Enriched `attendanceService.getMarketAttendance()` with `device_assignments` active device lookups (`is_current = true`), ensuring Country Sales Head Team Attendance reflects the representative's latest assigned handset in real time.
+
+### Verified
+- **TypeScript:** `npx tsc --noEmit` passed with 0 errors.
+- **Vitest Suite:** 199 / 199 tests passing across all 14 test suites.
+- **Multi-Role Browser E2E:** 100% pass across HQ Admin spare allocation, salesperson profile sync, dispatch & activation, Country Sales Head team table linkage, and direct zero-blocker handset custody reassignment.
+
+---
+
 ## [Post-Stage 3F Milestone] - Country Sales Head Reviews, Dedicated Non-Visit Screen, Bidirectional Real-Time Sync & Storage Bucket Alignment (2026-10-30)
 
 ### Manager Review Queues, Dedicated Screens & Storage Alignment (ADR 0017)

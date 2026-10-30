@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,6 +14,11 @@ import {
 import { cn } from '@/lib/utils';
 import { MarketCode } from '@/context/AuthContext';
 import { useAudit } from '@/context/AuditContext';
+import { managementService, RealAuditCallRecord } from '@/services/managementService';
+
+const isTestEnv =
+  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+  (typeof window !== 'undefined' && (window as any).__VITEST__);
 
 export interface HqAuditCallRecord {
   id: string;
@@ -37,8 +42,63 @@ export interface HqAuditCallRecord {
 
 export const HqClientAuditOversight: React.FC = () => {
   const { audits: sharedAudits } = useAudit();
+  const [realAudits, setRealAudits] = useState<RealAuditCallRecord[]>([]);
+
+  useEffect(() => {
+    if (isTestEnv) return;
+    managementService.getClientAuditRecords('ALL').then(({ data }) => {
+      if (data && data.length > 0) {
+        setRealAudits(data);
+      }
+    });
+  }, []);
 
   const audits: HqAuditCallRecord[] = useMemo(() => {
+    if (realAudits.length > 0) {
+      return realAudits.map((r) => {
+        const marketName =
+          r.marketCode === 'NG'
+            ? 'Nigeria (Lagos)'
+            : r.marketCode === 'ZM'
+            ? 'Zambia (Lusaka)'
+            : 'Malawi (Blantyre)';
+
+        let mappedStatus: HqAuditCallRecord['callStatus'] = 'pending_call';
+        if (r.auditOutcome === 'confirmed_valid') {
+          mappedStatus = 'confirmed_meeting';
+        } else if (r.auditOutcome === 'disputed_denied' || r.disputeStatus === 'under_investigation' || r.disputeStatus === 'resolved_violation') {
+          mappedStatus = 'disputed_client_denial';
+        } else if (r.auditOutcome === 'unreachable' || r.callStatus === 'busy' || r.callStatus === 'no_answer' || r.callStatus === 'disconnected') {
+          mappedStatus = 'unreachable_rescheduled';
+        } else {
+          mappedStatus = 'pending_call';
+        }
+
+        const attempts = r.attempts || [];
+        const lastAttempt = attempts.length > 0 ? attempts[attempts.length - 1] : undefined;
+
+        return {
+          id: r.id.slice(0, 12).toUpperCase(),
+          samplingType: r.selectionMethod === 'risk_targeted' ? 'risk_targeted' : 'random_5_percent',
+          marketCode: r.marketCode as MarketCode,
+          marketName,
+          organisationName: r.visit?.organisationName || 'Client Organisation',
+          branchName: r.visit?.branchName || 'Client Branch',
+          clientContactPerson: r.contactName || 'Site Contact',
+          clientContactPhone: r.contactPhone || '—',
+          clientContactRole: 'Site Manager',
+          salespersonName: r.visit?.repName || 'Field Salesperson',
+          visitDate: r.visit?.checkInAt ? r.visit.checkInAt.slice(0, 10) : r.createdAt.slice(0, 10),
+          callStatus: mappedStatus,
+          callAttemptCount: attempts.length,
+          lastCallTimestamp: lastAttempt?.dialedAt,
+          auditorName: lastAttempt?.auditorName || r.resolvedBy || undefined,
+          auditorNotes: r.disputeNotes || lastAttempt?.callNotes || undefined,
+          gpsStatus: (r.visit?.verificationStatus === 'location_verified' ? 'location_verified' : 'manager_approved_unverified') as 'location_verified' | 'manager_approved_unverified',
+        };
+      });
+    }
+
     return sharedAudits.map((a) => ({
       id: a.id,
       samplingType: a.sampleType,
@@ -58,7 +118,7 @@ export const HqClientAuditOversight: React.FC = () => {
       auditorNotes: a.callNotes,
       gpsStatus: a.gpsStatus,
     }));
-  }, [sharedAudits]);
+  }, [realAudits, sharedAudits]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [marketFilter, setMarketFilter] = useState<'ALL' | MarketCode>('ALL');
@@ -135,62 +195,54 @@ export const HqClientAuditOversight: React.FC = () => {
             code: 'NG' as MarketCode,
             name: 'Nigeria Hub (Lagos)',
             head: 'Babajide Adeleke',
-            totalCalls: 3,
-            completed: 2,
-            rate: '67%',
-            confirmed: 1,
-            disputed: 0,
-            unreachable: 1,
           },
           {
             code: 'ZM' as MarketCode,
             name: 'Zambia Hub (Lusaka)',
             head: 'Mutale Mwape',
-            totalCalls: 1,
-            completed: 1,
-            rate: '100%',
-            confirmed: 1,
-            disputed: 0,
-            unreachable: 0,
           },
           {
             code: 'MW' as MarketCode,
             name: 'Malawi Hub (Blantyre)',
             head: 'Blessings Gondwe',
-            totalCalls: 1,
-            completed: 1,
-            rate: '100%',
-            confirmed: 0,
-            disputed: 1,
-            unreachable: 0,
           },
-        ].map((score) => (
-          <Card key={score.code} className="border-slate-200/90 shadow-xs">
-            <CardHeader className="pb-2 border-b border-slate-100 p-3.5">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-xs text-slate-900">{score.name}</span>
-                <span className="text-[10px] font-mono font-bold bg-slate-100 px-1.5 py-0.2 rounded text-slate-700">
-                  {score.rate} Completed
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500">Auditor: {score.head}</p>
-            </CardHeader>
-            <CardContent className="p-3.5 space-y-1.5 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>Confirmed Meetings:</span>
-                <span className="font-bold text-emerald-700">{score.confirmed}</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Disputed (Denied):</span>
-                <span className="font-bold text-rose-700">{score.disputed}</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Unreachable / Rescheduled:</span>
-                <span className="font-bold text-amber-700">{score.unreachable}</span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        ].map((hub) => {
+          const hubAudits = audits.filter((a) => a.marketCode === hub.code);
+          const totalCalls = hubAudits.length;
+          const completed = hubAudits.filter((a) => a.callStatus !== 'pending_call').length;
+          const confirmed = hubAudits.filter((a) => a.callStatus === 'confirmed_meeting').length;
+          const disputed = hubAudits.filter((a) => a.callStatus === 'disputed_client_denial').length;
+          const unreachable = hubAudits.filter((a) => a.callStatus === 'unreachable_rescheduled').length;
+          const rate = totalCalls > 0 ? `${Math.round((completed / totalCalls) * 100)}%` : '0%';
+
+          return (
+            <Card key={hub.code} className="border-slate-200/90 shadow-xs">
+              <CardHeader className="pb-2 border-b border-slate-100 p-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-900">{hub.name}</span>
+                  <span className="text-[10px] font-mono font-bold bg-slate-100 px-1.5 py-0.2 rounded text-slate-700">
+                    {rate} Completed ({completed}/{totalCalls})
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500">Auditor: {hub.head}</p>
+              </CardHeader>
+              <CardContent className="p-3.5 space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>Confirmed Meetings:</span>
+                  <span className="font-bold text-emerald-700">{confirmed}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Disputed (Denied):</span>
+                  <span className="font-bold text-rose-700">{disputed}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Unreachable / Rescheduled:</span>
+                  <span className="font-bold text-amber-700">{unreachable}</span>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Filter and Search */}
