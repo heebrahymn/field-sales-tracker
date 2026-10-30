@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { X, CheckCircle2, AlertTriangle, Camera } from 'lucide-react';
+import { managementService } from '@/services/managementService';
 
 export interface ApprovalItem {
   id: string;
@@ -12,6 +13,7 @@ export interface ApprovalItem {
   accuracy: string;
   evidenceNote: string;
   sharedPhoneWarning?: boolean;
+  premisesPhotoUrl?: string;
 }
 
 interface ApprovalDecisionModalProps {
@@ -29,6 +31,26 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
 }) => {
   const [decisionReason, setDecisionReason] = useState('');
   const [validationError, setValidationError] = useState('');
+  const [modalPhotoUrl, setModalPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (item?.premisesPhotoUrl) {
+      const p = item.premisesPhotoUrl;
+      if (p.startsWith('http') || p.startsWith('blob:') || p.startsWith('data:') || p.startsWith('/')) {
+        setModalPhotoUrl(p);
+      } else {
+        managementService.getPremisesPhotoSignedUrl(p).then((url) => {
+          if (active && url) setModalPhotoUrl(url);
+        });
+      }
+    } else {
+      setModalPhotoUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [item]);
 
   if (!isOpen || !item) return null;
 
@@ -99,15 +121,21 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
             </h5>
             <div className="p-3 bg-white border border-slate-300 rounded-xl space-y-2.5">
               <div className="flex items-center gap-3">
-                <div className="w-14 h-14 rounded-lg bg-slate-100 border border-slate-300 flex flex-col items-center justify-center font-bold text-[9px] text-slate-600 shrink-0">
-                  <Camera className="w-4 h-4 mb-0.5 text-slate-400" />
-                  <span>[DEMO]</span>
+                <div className="w-16 h-16 rounded-lg bg-slate-900 border border-slate-300 flex flex-col items-center justify-center font-bold text-[9px] text-white shrink-0 overflow-hidden shadow-xs">
+                  {modalPhotoUrl ? (
+                    <img src={modalPhotoUrl} alt="Premises" className="w-full h-full object-cover" />
+                  ) : (
+                    <>
+                      <Camera className="w-4 h-4 mb-0.5 text-slate-400" />
+                      <span className="text-[8px] text-slate-400">NO PHOTO</span>
+                    </>
+                  )}
                 </div>
                 <div className="space-y-0.5">
-                  <p className="font-bold text-slate-900 text-[11px]">Live Premises Photograph</p>
+                  <p className="font-bold text-slate-900 text-xs">Live Premises Photograph</p>
                   <p className="text-[10px] text-slate-600">Captured at timestamp: {item.claimedTime}</p>
-                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-                    <CheckCircle2 className="w-3 h-3" /> Camera Stream Validated
+                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Camera Stream &amp; Location Validated
                   </span>
                 </div>
               </div>

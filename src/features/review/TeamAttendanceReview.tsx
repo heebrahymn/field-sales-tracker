@@ -174,14 +174,15 @@ export const TeamAttendanceReview: React.FC = () => {
   const [demoReps, setDemoReps] = useState<SalesRepAttendance[]>(() => (isTestEnv ? TEST_DEMO_REPS : []));
 
   // Load live attendance and non-visit requests from Supabase
-  const loadSupabaseData = useCallback(async () => {
+  const loadSupabaseData = useCallback(async (dateOverride?: string) => {
     if (isTestEnv) return;
     setIsLoadingData(true);
     const targetMarket = currentUser?.role === 'hq_admin' ? 'ALL' : currentUser?.marketCode || 'NG';
+    const dateToQuery = dateOverride || selectedDate;
 
     try {
       const [attRes, absRes] = await Promise.all([
-        attendanceService.getMarketAttendance(targetMarket, selectedDate),
+        attendanceService.getMarketAttendance(targetMarket, dateToQuery),
         attendanceService.getPendingNonVisitRequests(targetMarket),
       ]);
 
@@ -231,7 +232,7 @@ export const TeamAttendanceReview: React.FC = () => {
           accuracy: Math.round(rec.start_accuracy_m || 15),
         },
         selfieUrl: rec.start_selfie_url,
-        visitsCompletedToday: 0,
+        visitsCompletedToday: (rec as any).visits?.length || 0,
         isRealRecord: true,
       };
     }),
@@ -283,6 +284,7 @@ export const TeamAttendanceReview: React.FC = () => {
   // Review non-visit request (Approve / Reject)
   const handleReviewNonVisit = async (requestId: string, decision: 'approved' | 'rejected', reason: string) => {
     try {
+      const targetReq = pendingAbsenceRequests.find((r) => r.id === requestId);
       const result = await attendanceService.reviewNonVisitRequest({
         requestId,
         decision,
@@ -300,8 +302,14 @@ export const TeamAttendanceReview: React.FC = () => {
           : `Non-visit workday request REJECTED.`
       );
 
-      // Refresh real Supabase requests & attendance
-      loadSupabaseData();
+      // If approved for a date different from currently viewed date, switch date to view the record
+      if (decision === 'approved' && targetReq?.absence_date && targetReq.absence_date !== selectedDate) {
+        setSelectedDate(targetReq.absence_date);
+        await loadSupabaseData(targetReq.absence_date);
+      } else {
+        // Refresh real Supabase requests & attendance
+        await loadSupabaseData();
+      }
     } catch (err: any) {
       setToastMessage(`Review error: ${err.message}`);
     }
@@ -436,7 +444,7 @@ export const TeamAttendanceReview: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={loadSupabaseData}
+            onClick={() => loadSupabaseData()}
             disabled={isLoadingData}
             className="text-xs font-semibold border-slate-300 bg-white"
             title="Refresh from Supabase"

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, Clock } from 'lucide-react';
+import { X, Clock, Camera, CheckCircle2 } from 'lucide-react';
 import { VisitPurpose } from '@/services/visitService';
 
 export interface MeetingLogSubmissionData {
@@ -54,6 +54,31 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
   const [selectedProducts, setSelectedProducts] = useState<string[]>(['Batteries', 'Lubricants']);
   const [deferLog, setDeferLog] = useState(false);
   const [businessCardAttached, setBusinessCardAttached] = useState<boolean>(false);
+  const [businessCardBlob, setBusinessCardBlob] = useState<Blob | null>(null);
+  const [businessCardPreviewUrl, setBusinessCardPreviewUrl] = useState<string | null>(null);
+  const [businessCardFileName, setBusinessCardFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCardFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setBusinessCardBlob(file);
+      setBusinessCardFileName(file.name);
+      setBusinessCardAttached(true);
+      const url = URL.createObjectURL(file);
+      setBusinessCardPreviewUrl(url);
+    }
+  };
+
+  const handleRemoveCard = () => {
+    setBusinessCardBlob(null);
+    setBusinessCardPreviewUrl(null);
+    setBusinessCardFileName(null);
+    setBusinessCardAttached(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   useEffect(() => {
     if (defaultContactName) setContactName(defaultContactName);
@@ -69,14 +94,14 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
   };
 
   const handleComplete = () => {
-    let businessCardBlob: Blob | undefined = undefined;
-    if (businessCardAttached) {
+    let finalCardBlob: Blob | undefined = businessCardBlob || undefined;
+    if (!finalCardBlob && businessCardAttached) {
       // Create a compact valid JPEG binary payload representing the captured business card image
       const jpegHeaderBytes = new Uint8Array([
         0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48,
         0x00, 0x48, 0x00, 0x00, 0xff, 0xd9,
       ]);
-      businessCardBlob = new Blob([jpegHeaderBytes], { type: 'image/jpeg' });
+      finalCardBlob = new Blob([jpegHeaderBytes], { type: 'image/jpeg' });
     }
 
     const logData: MeetingLogSubmissionData = {
@@ -88,7 +113,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
       outcomeNarrative: outcome.trim(),
       nextStepText: nextStep.trim(),
       fleetSizeVolume: fleetSize ? parseInt(fleetSize, 10) : null,
-      businessCardBlob,
+      businessCardBlob: finalCardBlob,
     };
 
     onSubmitted(!deferLog, logData);
@@ -249,36 +274,86 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
           {/* Optional Business Card Photograph Capture (PRD §7.3) */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-800 text-[11px]">
+              <span className="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5 text-brand-blue" />
                 Business Card Photograph (Optional)
               </span>
               <span className="text-[10px] text-slate-500 font-medium">PRD §7.3 Supporting Asset</span>
             </div>
 
-            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
-              <div className="flex items-center gap-2">
-                <div className="w-9 h-7 rounded bg-slate-100 border border-slate-300 flex items-center justify-center font-mono text-[8px] text-slate-600">
-                  CARD
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              capture="environment"
+              onChange={handleCardFileChange}
+              className="hidden"
+              id="business-card-upload-input"
+            />
+
+            {businessCardAttached && businessCardPreviewUrl ? (
+              <div className="bg-white p-3 rounded-lg border border-emerald-300 bg-emerald-50/20 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-emerald-400 bg-slate-100 shrink-0">
+                    <img src={businessCardPreviewUrl} alt="Business Card" className="w-full h-full object-cover" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-900 text-xs flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      Card Photo Attached
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-mono truncate max-w-[170px]">
+                      {businessCardFileName || 'card_photo.jpg'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-bold text-slate-800 text-[10px]">Client Contact Card</p>
-                  <p className="text-[9px] text-slate-500">
-                    {businessCardAttached ? 'Card photo attached to meeting log' : 'Attach client business card'}
-                  </p>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-[10px] h-7 px-2 font-semibold text-slate-700 bg-white"
+                  >
+                    Change
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveCard}
+                    className="text-[10px] h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    Remove
+                  </Button>
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setBusinessCardAttached(!businessCardAttached)}
-                className={`text-[10px] h-7 px-2.5 font-bold ${
-                  businessCardAttached ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : ''
-                }`}
-              >
-                {businessCardAttached ? 'Attached ✓' : '+ Attach Card'}
-              </Button>
-            </div>
+            ) : (
+              <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-7 rounded bg-slate-100 border border-slate-300 flex items-center justify-center font-mono text-[8px] text-slate-600">
+                    CARD
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-800 text-[10px]">Client Contact Card</p>
+                    <p className="text-[9px] text-slate-500">
+                      Snap photo with camera or choose image file
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  id="btn-upload-business-card"
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-[10px] h-7 px-2.5 font-bold border-brand-blue text-brand-blue hover:bg-blue-50 flex items-center gap-1 cursor-pointer"
+                >
+                  <Camera className="w-3 h-3" />
+                  <span>Upload Card</span>
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Defer Submission Checkbox (Simulate 2h grace window) */}

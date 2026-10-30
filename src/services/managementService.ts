@@ -103,7 +103,7 @@ export interface RealBranchPinProposal {
   proposedByName: string;
   proposedByEmail: string;
   proposedAt: string;
-  status: 'pending_approval' | 'approved' | 'rejected' | 'superseded';
+  status: 'pending_approval' | 'pending_review' | 'approved' | 'rejected' | 'superseded';
   reviewedBy?: string | null;
   reviewedAt?: string | null;
   decisionReason?: string | null;
@@ -382,7 +382,7 @@ export const managementService = {
             street_address,
             market_code,
             category,
-            organisations:organisation_id (name, category)
+            organisations:organisation_id (id, name)
           ),
           branch_location_pins:branch_pin_id (
             id,
@@ -393,15 +393,19 @@ export const managementService = {
           ),
           meeting_logs (
             id,
-            contact_name,
-            contact_role,
-            visit_purpose,
+            purpose,
             products_discussed,
-            fleet_size_or_volume,
+            fleet_size_volume,
             outcome_narrative,
             next_step_text,
             business_card_photo_url,
-            submitted_at
+            submitted_at,
+            client_contacts:contact_id (
+              id,
+              full_name,
+              phone_number,
+              designation
+            )
           ),
           client_audit_records (
             id,
@@ -457,6 +461,7 @@ export const managementService = {
         }
 
         const log = Array.isArray(row.meeting_logs) ? row.meeting_logs[0] : row.meeting_logs;
+        const contact = log?.client_contacts;
         const audit = Array.isArray(row.client_audit_records)
           ? row.client_audit_records[0]
           : row.client_audit_records;
@@ -468,7 +473,7 @@ export const managementService = {
           organisationName: row.branches?.organisations?.name || 'Client Organisation',
           branchName: row.branches?.branch_name || 'Client Branch',
           branchAddress: row.branches?.street_address || 'Branch Address',
-          category: row.branches?.organisations?.category || row.branches?.category || 'fleet_operator',
+          category: row.branches?.category || 'fleet_operator',
           marketCode: row.branches?.market_code || row.profiles?.market_code || marketCode,
           workDate: row.check_in_at ? row.check_in_at.slice(0, 10) : '',
           checkInAt: row.check_in_at,
@@ -490,11 +495,11 @@ export const managementService = {
           meetingLog: log
             ? {
                 id: log.id,
-                contactName: log.contact_name,
-                contactRole: log.contact_role,
-                visitPurpose: log.visit_purpose,
+                contactName: contact?.full_name || 'Client Contact',
+                contactRole: contact?.designation || 'Staff',
+                visitPurpose: log.purpose,
                 productsDiscussed: Array.isArray(log.products_discussed) ? log.products_discussed : [],
-                fleetSizeOrVolume: log.fleet_size_or_volume,
+                fleetSizeOrVolume: log.fleet_size_volume,
                 outcomeNarrative: log.outcome_narrative,
                 nextStepText: log.next_step_text,
                 businessCardPhotoPath: log.business_card_photo_url,
@@ -545,7 +550,7 @@ export const managementService = {
   },
 
   /**
-   * Generates a time-limited signed URL for business card photo in visit-business-cards bucket.
+   * Generates a time-limited signed URL for business card photo in 'business-cards' bucket.
    */
   async getBusinessCardSignedUrl(storagePath: string): Promise<string | null> {
     if (!storagePath) return null;
@@ -553,17 +558,24 @@ export const managementService = {
       return storagePath;
     }
     try {
-      const cleanPath = storagePath.startsWith('visit-business-cards/')
-        ? storagePath.replace('visit-business-cards/', '')
-        : storagePath;
+      let cleanPath = storagePath;
+      if (cleanPath.startsWith('business-cards/')) {
+        cleanPath = cleanPath.replace('business-cards/', '');
+      } else if (cleanPath.startsWith('visit-business-cards/')) {
+        cleanPath = cleanPath.replace('visit-business-cards/', '');
+      }
 
       const { data, error } = await supabase.storage
-        .from('visit-business-cards')
+        .from('business-cards')
         .createSignedUrl(cleanPath, 300);
 
-      if (error || !data?.signedUrl) return null;
+      if (error || !data?.signedUrl) {
+        console.warn('[managementService] Error creating signed URL for business-cards:', error?.message);
+        return null;
+      }
       return data.signedUrl;
-    } catch {
+    } catch (err) {
+      console.warn('[managementService] Exception creating signed URL for business-cards:', err);
       return null;
     }
   },
@@ -599,13 +611,17 @@ export const managementService = {
             street_address,
             market_code,
             category,
-            organisations:organisation_id (name, category)
+            organisations:organisation_id (name)
           ),
           profiles:proposed_by (full_name, email)
         `);
 
       if (statusFilter && statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
+        if (statusFilter === 'pending_approval') {
+          query = query.in('status', ['pending_approval', 'pending_review']);
+        } else {
+          query = query.eq('status', statusFilter);
+        }
       }
 
       const { data, error } = await query.order('proposed_at', { ascending: false });
@@ -624,7 +640,7 @@ export const managementService = {
         branchId: row.branch_id,
         branchName: row.branches?.branch_name || 'Client Branch',
         organisationName: row.branches?.organisations?.name || 'Organisation',
-        category: row.branches?.organisations?.category || row.branches?.category || 'fleet_operator',
+        category: row.branches?.category || 'fleet_operator',
         address: row.branches?.street_address || 'Site Address',
         marketCode: row.branches?.market_code || marketCode,
         latitude: row.latitude,

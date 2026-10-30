@@ -118,3 +118,4 @@ Following the completion of the Supabase Single Source of Truth (SSoT) migration
    - `hq_user_password_reset_verified.png`
    - `hq_user_delete_modal.png`
    - `hq_device_registered_manual_close.png`
+

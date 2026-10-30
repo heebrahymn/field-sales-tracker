@@ -3,8 +3,8 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
-**Last Updated:** October 28, 2026  
-**Current Milestone:** Stage 3F Completed, Supabase Development SSoT & Mock Data Elimination Completed (Controlled Field Pilot Prepared; Business Rollout Awaiting Authorization)  
+**Last Updated:** October 30, 2026  
+**Current Milestone:** Stage 3F Completed, Supabase SSoT, Admin Governance & Country Review/Sync Governance Completed (Controlled Field Pilot Prepared; Business Rollout Awaiting Authorization)  
 
 ---
 
@@ -30,13 +30,9 @@
 [✓] Stage 3F — End-to-End QA, Physical Device Protocols, Vercel Staging Deployment & Pilot Readiness (ADR 0014)
 [✓] SSoT     — Supabase Development Single Source of Truth & Mock Data Elimination (ADR 0015)
 [✓] Admin/Cam — Device & User Governance, Pagination, Manual Dialog Dismissals & Mobile Camera Switching (ADR 0016)
+[✓] Review/Sync — Country Sales Head Reviews, Dedicated Non-Visit Screen, Bidirectional Real-Time Sync & Storage Bucket Alignment (ADR 0017)
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
-```
-[✓] Post-3F  — P0 Critical Defect Resolved: HQ Admin User Provisioning via Supabase Auth Edge Function & Disambiguated Directory Loading
-[✓] Post-3F  — P1 Hotfixes Resolved: Available Fleet Device Assignment Dropdown & Salesperson Live Camera Preview
-[ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
-[ ] Operational Rollout — Business-Wide Production Rollout across Nigeria, Zambia, and Malawi
 ```
 
 ---

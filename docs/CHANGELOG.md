@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Post-Stage 3F Milestone] - Country Sales Head Reviews, Dedicated Non-Visit Screen, Bidirectional Real-Time Sync & Storage Bucket Alignment (2026-10-30)
+
+### Manager Review Queues, Dedicated Screens & Storage Alignment (ADR 0017)
+- **Storage Bucket Alignment for Business Card Signed URLs (P0 Fix):**
+  - Resolved private bucket name mismatch in `managementService.getBusinessCardSignedUrl()` by updating target from `'visit-business-cards'` to canonical `'business-cards'` (per Migration 00012).
+  - Implemented path prefix normalization and added explicit `isCardLoading`, `cardLoadError`, and user-facing `Retry` buttons in `ClientVisitVerification.tsx`.
+  - Verified signed URL resolution and clean rendering of uploaded business cards in the audit inspection modal.
+- **Dedicated Non-Visit Working Days Screen (`NonVisitDaysView.tsx`):**
+  - Built dedicated salesperson screen with status tabs (**All**, **Pending**, **Approved**, **Rejected**), live counter badges, submission history, and `+ New Request` modal trigger.
+  - Implemented `cancelAbsenceRequest` in `attendanceService.ts` and `cancelNonVisitDayRequest` in `FieldSessionContext.tsx`.
+  - Updated Salesperson Home banner: added dismissal `[✕]`, instant `Cancel Request` button for pending submissions, and direct navigation via Home Tile 5.
+- **Attendance Table Merging & Real Completed Visit Counts:**
+  - Enhanced `attendanceService.getMarketAttendance()` to merge records from `public.approved_absences` alongside `public.attendance_days`, accurately displaying approved non-visit days in the manager's team table.
+  - Derived the "Visits Logged" column in `TeamAttendanceReview.tsx` from real completed/started visits for each representative.
+  - Aligned `DesktopSidebar` live badges with dashboard metric cards by querying market-scoped endpoints.
+- **Exception Workbench Bidirectional Sync & Enhanced Filtering:**
+  - Added salesperson filtering, date filtering, and configurable pagination (5 default; 10, 20, 50 rows) to `ExceptionReviewWorkbench.tsx`.
+  - Corrected bottom nav badge count on the salesperson interface (`MobileBottomNav.tsx`).
+  - Exported `refreshExceptions()` in `FieldSessionContext.tsx` with automatic polling and post-decision reconciliation so salesperson sees manager approvals/rejections immediately.
+- **Client Registration Integrity, Live Viewfinder & Canonical Approvals Queue:**
+  - Added front/rear camera flip (`SwitchCamera`) and snapshot frame capture to `RegisterBranchModal.tsx`.
+  - Replaced the fallback in `visitService.ts` with market-scoped custodian organization provisioning, preventing new registrations from defaulting to existing organizations.
+  - Included `operating_status` in `visitService.getClientsAndBranches()`, rendering amber `"Pending Manager Approval"` badges and disabling visit check-ins until manager approval.
+  - Consolidated client location & GPS approvals into `BranchApprovalsQueue.tsx` with user/date filtering, timestamps, and live photo previews, deprecating the redundant screen.
+  - Added 6-second polling and window focus listeners in `ClientsDirectoryView.tsx` for real-time status updates upon manager decisions.
+
+### Verified
+- **TypeScript:** `npx tsc --noEmit` passed with 0 errors.
+- **Vitest Suite:** 199 / 199 tests passing across all 14 test suites.
+- **Browser Playwright E2E:** 100% pass across all user-reported approval walkthroughs (Non-visit dedicated screen, Exception sync, Client registration & pin approval, Business card inspection).
+- **Evidence:** Captured verified visual artifacts in artifacts directory and `docs/screenshots/stage3f/`.
+
+---
+
 ## [Post-Stage 3F Milestone] - Device & User Admin Governance, Pagination, Manual Dialog Dismissal & Mobile Camera Switching (2026-10-29)
 
 ### Architecture, Administration & Mobile Camera (ADR 0016)

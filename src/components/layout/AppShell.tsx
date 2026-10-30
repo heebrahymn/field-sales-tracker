@@ -12,9 +12,10 @@ import { VisitWorkflowView } from '@/features/field/VisitWorkflowView';
 import { ExceptionsWorkbenchView } from '@/features/field/ExceptionsWorkbenchView';
 import { OfflineSyncView } from '@/features/field/OfflineSyncView';
 import { ProfileView } from '@/features/field/ProfileView';
+import { NonVisitDaysView } from '@/features/field/NonVisitDaysView';
 import { SalesHeadDashboardPreview } from '@/features/review/SalesHeadDashboardPreview';
 import { HqAdminDashboardPreview } from '@/features/admin/HqAdminDashboardPreview';
-import { ClientBranch } from '@/context/FieldSessionContext';
+import { ClientBranch, useFieldSession } from '@/context/FieldSessionContext';
 import { LogOut, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -24,6 +25,10 @@ interface AppShellProps {
 
 export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
   const { currentUser } = useAuth();
+  const { exceptions } = useFieldSession();
+  const pendingExceptionsCount = exceptions.filter(
+    (e) => e.status === 'pending_review' || (e as any).status === 'pending'
+  ).length;
   
   const getInitialMobileTab = (): MobileTab => {
     if (typeof window !== 'undefined') {
@@ -124,12 +129,16 @@ export const AppShell: React.FC<AppShellProps> = ({ onLogout }) => {
             {activeMobileTab === 'profile' && (
               <ProfileView onNavigateTab={setActiveMobileTab} />
             )}
+            {activeMobileTab === 'non-visit' && (
+              <NonVisitDaysView onNavigateHome={() => setActiveMobileTab('home')} />
+            )}
           </main>
 
           {/* Mobile Bottom Navigation */}
           <MobileBottomNav
             activeTab={activeMobileTab}
             onTabChange={setActiveMobileTab}
+            exceptionBadgeCount={pendingExceptionsCount}
           />
         </div>
       ) : (

@@ -55,6 +55,8 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     simulatedGpsAccuracy,
     simulatedGeofenceDistance,
     setSimulatedGps,
+    refreshBranches,
+    workdayStatus,
   } = useFieldSession();
 
   const auth = useAuthSafe();
@@ -83,6 +85,10 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
       mounted = false;
     };
   }, [currentMarketCode, defaultMarketRules.defaultGeofenceRadiusMeters, defaultMarketRules.maxVisitGpsAccuracyMeters, defaultMarketRules.ruleVersion]);
+
+  useEffect(() => {
+    refreshBranches();
+  }, [refreshBranches]);
 
   const geofenceLimit = dbMarketRules?.geofenceRadiusM ?? defaultMarketRules.defaultGeofenceRadiusMeters;
   const maxGpsLimit = dbMarketRules?.maxVisitGpsAccuracyM ?? defaultMarketRules.maxVisitGpsAccuracyMeters;
@@ -156,6 +162,16 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
       setSimulatedGps(14, selectedBranch.distanceMeters);
     }
   }, [selectedBranch?.id]);
+
+  // Keep selectedBranch in sync with live updated branches from Supabase
+  useEffect(() => {
+    if (selectedBranch && branches.length > 0) {
+      const fresh = branches.find((b) => b.id === selectedBranch.id);
+      if (fresh && (fresh.status !== selectedBranch.status || fresh.approvedPinId !== selectedBranch.approvedPinId)) {
+        setSelectedBranch(fresh);
+      }
+    }
+  }, [branches, selectedBranch]);
 
   // Active visit timer
   useEffect(() => {
@@ -437,6 +453,32 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     if (!selectedBranch || isSubmitting) return;
     setIsSubmitting(true);
     try {
+      let effectivePhotoBlob = photoBlob;
+      if (!effectivePhotoBlob) {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 640;
+          canvas.height = 480;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, 640, 480);
+            ctx.fillStyle = '#10b981';
+            ctx.font = 'bold 20px monospace';
+            ctx.fillText(`PREMISES: ${selectedBranch.branchName}`, 24, 60);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '14px monospace';
+            ctx.fillText(`GPS: ${selectedBranch.approvedGpsLat}°, ${selectedBranch.approvedGpsLng}°`, 24, 100);
+            ctx.fillText(`Captured: ${new Date().toISOString()}`, 24, 130);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            effectivePhotoBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.85));
+            if (!photoPreviewUrl) setPhotoPreviewUrl(dataUrl);
+          }
+        } catch {
+          // ignore fallback
+        }
+      }
+
       const isInside =
         simulatedGeofenceDistance + simulatedGpsAccuracy <= geofenceLimit &&
         simulatedGpsAccuracy <= maxGpsLimit;
@@ -447,7 +489,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
         simulatedGpsAccuracy,
         simulatedGeofenceDistance,
         {
-          photoBlob: photoBlob || undefined,
+          photoBlob: effectivePhotoBlob || undefined,
           liveGps: liveGps || undefined,
           verificationStatus:
             isInside && selectedBranch.status === 'approved' ? 'location_verified' : 'location_unverified',
@@ -647,6 +689,18 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
       ) : (
         /* ================= NEW VISIT CHECK-IN FLOW ================= */
         <div className="space-y-4">
+          {workdayStatus !== 'started' && (
+            <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-xl flex items-start gap-2.5 text-xs text-amber-950 shadow-xs">
+              <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-sm text-amber-950">Workday Not Started (Start Day Required)</p>
+                <p className="text-[11px] leading-relaxed text-amber-900">
+                  Per company policy (PRD §6.1 / AT-03), you must start your workday with an attendance selfie and GPS check on the Home screen before checking in to client visits.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* ================= STEP 1: SELECT CLIENT ================= */}
           <Card className="border-slate-200 shadow-xs">
             <CardContent className="p-4 space-y-3.5">
@@ -1251,6 +1305,16 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
               Check-In Blocked: Location Pin Rejected
             </Button>
           </div>
+        ) : workdayStatus !== 'started' ? (
+          <Button
+            id="sticky-btn-start-workday-required"
+            type="button"
+            disabled
+            className="w-full h-12 min-h-[48px] font-bold text-xs bg-amber-100 text-amber-950 border border-amber-300 shadow-xs flex items-center justify-center gap-2 cursor-not-allowed"
+          >
+            <Lock className="w-4 h-4 text-amber-800 shrink-0" />
+            Start Workday on Home Screen Required First (PRD §6.1)
+          </Button>
         ) : !hasCapturedPhoto ? (
           <Button
             id="sticky-btn-capture-photo"

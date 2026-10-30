@@ -231,6 +231,7 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **3F** | End-to-End QA, Physical Device Testing Protocols, Live Vercel Staging Deployment (27/27 E2E Pass), and Field Pilot Readiness | **Completed** (ADR 0014, Deployed to `https://field-sales-tracker-b6l7.vercel.app/`; 187/187 Vitest, 9/9 Live Security Suites, 27/27 Staging E2E Tests, 19 Responsive Screenshots) |
 | **SSoT** | Supabase Development Single Source of Truth & Frontend Mock Data Elimination | **Completed** (ADR 0015; Multi-Market Seeding, Custodian Dynamic Pool, 197/197 Tests Passing) |
 | **Admin/Cam** | Administration Governance, Pagination, Device Lifecycle, Manual Dialog Dismissals & Mobile Camera Switching | **Completed** (ADR 0016; 199/199 Vitest, 0 TypeScript Errors, Full Mobile & Desktop Browser E2E Verified) |
+| **Review/Sync** | Country Sales Head Reviews, Dedicated Non-Visit Screen, Bidirectional Real-Time Sync & Storage Bucket Alignment | **Completed** (ADR 0017; 199/199 Vitest, 0 TypeScript Errors, Automated E2E Verified) |
 | **Field Pilot** | Real-device physical GPS/camera/offline QA on Samsung Galaxy A15 / Nokia G22, local IT commissioning, final field pilot reconciliation | Ready for Controlled Execution |
 | **Operational Rollout** | Business-wide multi-market operational go-live across Nigeria, Zambia, and Malawi | Awaiting Final Stakeholder Authorisation |
 

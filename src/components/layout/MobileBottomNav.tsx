@@ -2,7 +2,7 @@ import React from 'react';
 import { Home, Building2, MapPin, AlertCircle, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type MobileTab = 'home' | 'clients' | 'visit' | 'exceptions' | 'sync' | 'profile';
+export type MobileTab = 'home' | 'clients' | 'visit' | 'exceptions' | 'sync' | 'profile' | 'non-visit';
 
 interface MobileBottomNavProps {
   activeTab: MobileTab;
@@ -13,7 +13,7 @@ interface MobileBottomNavProps {
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   activeTab,
   onTabChange,
-  exceptionBadgeCount = 2,
+  exceptionBadgeCount = 0,
 }) => {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)] shadow-lg">

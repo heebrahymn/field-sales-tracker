@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
+  attendanceService,
+  getMarketWorkDate,
+} from '@/services/attendanceService';
+import {
   managementService,
   RealVisitVerificationRecord,
   RealBranchPinRecord,
@@ -19,7 +23,6 @@ import { ClientAuditWorkbench } from '@/features/review/ClientAuditWorkbench';
 import { TeamAttendanceReview } from '@/features/review/TeamAttendanceReview';
 import { CountryReportingView } from '@/features/review/CountryReportingView';
 import { CountryCsvExportModal } from '@/features/review/CountryCsvExportModal';
-import { ClientsLocationsDirectory } from '@/features/review/ClientsLocationsDirectory';
 import { DesktopNavSection } from '@/components/layout/DesktopSidebar';
 import {
   Users,
@@ -34,7 +37,6 @@ import {
   FileSpreadsheet,
   Download,
   ArrowRight,
-  Building2,
 } from 'lucide-react';
 
 interface SalesHeadDashboardPreviewProps {
@@ -67,26 +69,34 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
   const [livePins, setLivePins] = useState<RealBranchPinRecord[]>([]);
   const [liveExceptions, setLiveExceptions] = useState<RealExceptionItem[]>([]);
   const [liveFlags, setLiveFlags] = useState<RealVerificationFlag[]>([]);
+  const [pendingAbsencesCount, setPendingAbsencesCount] = useState<number>(0);
   const [activeRepsCount, setActiveRepsCount] = useState<number>(0);
   const [totalRepsCount, setTotalRepsCount] = useState<number>(0);
 
   const loadDashboardData = useCallback(async () => {
     try {
       const market = currentUser?.marketCode || 'NG';
-      const [vRes, pRes, eRes, fRes, repRes] = await Promise.all([
+      const todayStr = getMarketWorkDate(market);
+      const [vRes, pRes, eRes, fRes, repRes, attRes, absRes] = await Promise.all([
         managementService.getCountryVisits(market),
         managementService.getCountryPendingPins(market),
         managementService.getCountryExceptions(market, 'pending_review'),
         managementService.getCountryVerificationFlags(market, 'open'),
         managementService.getMarketSalespeople(market),
+        attendanceService.getMarketAttendance(market, todayStr),
+        attendanceService.getPendingNonVisitRequests(market),
       ]);
       setLiveVisits(vRes.data || []);
       setLivePins(Array.isArray(pRes) ? pRes : (pRes as any).data || []);
       setLiveExceptions(eRes.data || []);
       setLiveFlags(fRes.data || []);
+      setPendingAbsencesCount(absRes.data?.length ?? 0);
       if (Array.isArray(repRes)) {
         setTotalRepsCount(repRes.length);
-        setActiveRepsCount(repRes.length);
+      }
+      if (attRes.data) {
+        const activeToday = attRes.data.filter((a) => a.status === 'started' || a.status === 'ended');
+        setActiveRepsCount(activeToday.length);
       }
     } catch (err) {
       console.warn('[SalesHeadDashboard] Failed loading live metrics:', err);
@@ -95,7 +105,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
 
   useEffect(() => {
     loadDashboardData();
-  }, [loadDashboardData]);
+  }, [loadDashboardData, currentSection]);
 
   // Real items for overview dashboard
   const pendingPins: ApprovalItem[] = livePins.map((p) => ({
@@ -239,17 +249,11 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
         >
           <CalendarDays className="w-3.5 h-3.5" />
           <span>Team Attendance</span>
-        </button>
-        <button
-          onClick={() => handleSectionChange('clients')}
-          className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-colors flex items-center gap-1.5 ${
-            currentSection === 'clients'
-              ? 'bg-brand-blue text-white shadow-xs'
-              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          <Building2 className="w-3.5 h-3.5" />
-          <span>Clients &amp; Locations</span>
+          {pendingAbsencesCount > 0 && (
+            <span className="bg-purple-100 text-purple-900 px-1.5 py-0.2 rounded-full text-[10px]">
+              {pendingAbsencesCount}
+            </span>
+          )}
         </button>
         <button
           onClick={() => handleSectionChange('exports')}
@@ -272,7 +276,8 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
       {currentSection === 'audits' && <ClientAuditWorkbench />}
       {currentSection === 'attendance' && <TeamAttendanceReview />}
       {currentSection === 'exports' && <CountryReportingView marketName={currentUser.marketName} />}
-      {currentSection === 'clients' && <ClientsLocationsDirectory />}
+      {/* 'clients' consolidated into Client & GPS Approvals (redundant screen removed) */}
+      {currentSection === 'clients' && <BranchApprovalsQueue />}
 
       {/* DEFAULT: Master Operational Dashboard */}
       {currentSection === 'dashboard' && (

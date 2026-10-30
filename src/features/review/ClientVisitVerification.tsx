@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Loader2,
   Database as DatabaseIcon,
+  CreditCard,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -27,6 +28,7 @@ export interface VerifiedVisitRecord {
   clientName: string;
   branchName: string;
   category: string;
+  workDate?: string;
   checkInTime: string;
   checkOutTime: string;
   duration: string;
@@ -50,23 +52,34 @@ export interface VerifiedVisitRecord {
     narrativeOutcome: string;
     nextStepText: string;
     submittedAt?: string;
+    businessCardPhotoPath?: string | null;
   };
   clientAuditStatus?: 'not_sampled' | 'pending_call' | 'confirmed' | 'disputed';
   isRealRecord?: boolean;
 }
+
+const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
 
 export const ClientVisitVerification: React.FC = () => {
   const { currentUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLocationStatus, setFilterLocationStatus] = useState<'all' | 'verified' | 'unverified_approved'>('all');
   const [filterLogStatus, setFilterLogStatus] = useState<'all' | 'complete' | 'missing'>('all');
+  const [selectedUser, setSelectedUser] = useState<string>('all');
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [pageSize, setPageSize] = useState<number>(5);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [selectedVisitForModal, setSelectedVisitForModal] = useState<VerifiedVisitRecord | null>(null);
 
   const [realVisits, setRealVisits] = useState<RealVisitVerificationRecord[]>([]);
   const [isLoadingReal, setIsLoadingReal] = useState(false);
   const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
+  const [signedBusinessCardUrl, setSignedBusinessCardUrl] = useState<string | null>(null);
+  const [isCardLoading, setIsCardLoading] = useState(false);
+  const [cardLoadError, setCardLoadError] = useState<string | null>(null);
 
   const loadRealVisits = useCallback(async () => {
+    if (isTestEnv) return;
     setIsLoadingReal(true);
     try {
       const market = currentUser?.marketCode || 'NG';
@@ -107,6 +120,39 @@ export const ClientVisitVerification: React.FC = () => {
     };
   }, [selectedVisitForModal]);
 
+  // Resolve signed business card photo URL when inspecting a visit
+  useEffect(() => {
+    let active = true;
+    const cardPath = selectedVisitForModal?.meetingLog?.businessCardPhotoPath;
+    if (cardPath) {
+      if (cardPath.startsWith('http') || cardPath.startsWith('blob:') || cardPath.startsWith('data:')) {
+        setSignedBusinessCardUrl(cardPath);
+        setIsCardLoading(false);
+        setCardLoadError(null);
+      } else {
+        setIsCardLoading(true);
+        setCardLoadError(null);
+        managementService.getBusinessCardSignedUrl(cardPath).then((url) => {
+          if (active) {
+            setIsCardLoading(false);
+            if (url) {
+              setSignedBusinessCardUrl(url);
+            } else {
+              setCardLoadError('Unable to generate secure preview link for this business card.');
+            }
+          }
+        });
+      }
+    } else {
+      setSignedBusinessCardUrl(null);
+      setIsCardLoading(false);
+      setCardLoadError(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [selectedVisitForModal]);
+
   // Merge real Supabase visits with demonstration visits
   const visits: VerifiedVisitRecord[] = useMemo(() => {
     const realMapped: VerifiedVisitRecord[] = realVisits.map((v) => {
@@ -126,6 +172,7 @@ export const ClientVisitVerification: React.FC = () => {
         clientName: v.organisationName,
         branchName: v.branchName,
         category: v.category,
+        workDate: v.workDate,
         checkInTime: v.checkInAt ? new Date(v.checkInAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT' : '—',
         checkOutTime: v.checkOutAt ? new Date(v.checkOutAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT' : 'In Progress',
         duration: v.durationMinutes !== null ? `${v.durationMinutes} mins` : 'Active',
@@ -150,6 +197,7 @@ export const ClientVisitVerification: React.FC = () => {
               narrativeOutcome: v.meetingLog.outcomeNarrative,
               nextStepText: v.meetingLog.nextStepText,
               submittedAt: v.meetingLog.submittedAt ? new Date(v.meetingLog.submittedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT' : 'Logged',
+              businessCardPhotoPath: v.meetingLog.businessCardPhotoPath || null,
             }
           : {
               status: 'missing',
@@ -170,12 +218,18 @@ export const ClientVisitVerification: React.FC = () => {
     return realMapped;
   }, [realVisits]);
 
+  const distinctUsers = useMemo(() => {
+    return Array.from(new Set(visits.map((v) => v.repName).filter(Boolean))).sort();
+  }, [visits]);
+
   const filteredVisits = visits.filter((visit) => {
     if (filterLocationStatus === 'verified' && visit.locationStatus !== 'location_verified') return false;
     if (filterLocationStatus === 'unverified_approved' && visit.locationStatus !== 'manager_approved_unverified')
       return false;
     if (filterLogStatus === 'complete' && visit.meetingLog.status !== 'complete') return false;
     if (filterLogStatus === 'missing' && visit.meetingLog.status !== 'missing') return false;
+    if (selectedUser !== 'all' && visit.repName !== selectedUser) return false;
+    if (selectedDate && visit.workDate !== selectedDate) return false;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -188,6 +242,12 @@ export const ClientVisitVerification: React.FC = () => {
     }
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredVisits.length / pageSize));
+  const paginatedVisits = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredVisits.slice(start, start + pageSize);
+  }, [filteredVisits, currentPage, pageSize]);
 
   return (
     <div className="space-y-6">
@@ -282,7 +342,7 @@ export const ClientVisitVerification: React.FC = () => {
               <div className="flex items-center gap-1 text-xs border-l border-slate-200 pl-2">
                 <span className="font-semibold text-slate-500 mr-1">Meeting Log:</span>
                 <button
-                  onClick={() => setFilterLogStatus('all')}
+                  onClick={() => { setFilterLogStatus('all'); setCurrentPage(1); }}
                   className={`px-2.5 py-1 rounded-md font-bold text-xs ${
                     filterLogStatus === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'
                   }`}
@@ -290,7 +350,7 @@ export const ClientVisitVerification: React.FC = () => {
                   All
                 </button>
                 <button
-                  onClick={() => setFilterLogStatus('missing')}
+                  onClick={() => { setFilterLogStatus('missing'); setCurrentPage(1); }}
                   className={`px-2.5 py-1 rounded-md font-bold text-xs ${
                     filterLogStatus === 'missing'
                       ? 'bg-rose-700 text-white'
@@ -302,12 +362,72 @@ export const ClientVisitVerification: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Secondary Filter Row: Salesperson & Date Filter */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5 border-t border-slate-100 text-xs">
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Salesperson Filter */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-slate-500">Salesperson:</span>
+                <select
+                  value={selectedUser}
+                  onChange={(e) => {
+                    setSelectedUser(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-md font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-blue"
+                >
+                  <option value="all">All Salespeople ({distinctUsers.length})</option>
+                  {distinctUsers.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date Filter */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-slate-500">Date:</span>
+                <Input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => {
+                    setSelectedDate(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 w-36 bg-slate-50 border-slate-200 text-xs"
+                />
+                {selectedDate && (
+                  <button
+                    onClick={() => {
+                      setSelectedDate('');
+                      setCurrentPage(1);
+                    }}
+                    className="text-slate-400 hover:text-slate-600 font-bold px-1"
+                    title="Clear date filter"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="text-slate-500 font-medium">
+              Showing <strong className="text-slate-900">{filteredVisits.length}</strong> matching visit{filteredVisits.length === 1 ? '' : 's'}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       {/* Visits Table / Card List */}
       <div className="space-y-4">
-        {filteredVisits.map((visit) => {
+        {paginatedVisits.length === 0 ? (
+          <div className="bg-white rounded-xl border border-dashed border-slate-300 p-8 text-center text-slate-500 text-xs">
+            No client visits match your selected filter criteria.
+          </div>
+        ) : (
+          paginatedVisits.map((visit) => {
           const isVerified = visit.locationStatus === 'location_verified';
           const isApprovedUnverified = visit.locationStatus === 'manager_approved_unverified';
           const isLogComplete = visit.meetingLog.status === 'complete';
@@ -459,8 +579,14 @@ export const ClientVisitVerification: React.FC = () => {
                           <div>
                             <strong>Fleet Scale:</strong> {visit.meetingLog.fleetSize}
                           </div>
-                          <div className="text-slate-500 text-[10px] mt-1">
-                            Logged: {visit.meetingLog.submittedAt}
+                          <div className="text-slate-500 text-[10px] mt-1 flex items-center justify-between gap-2">
+                            <span>Logged: {visit.meetingLog.submittedAt}</span>
+                            {visit.meetingLog.businessCardPhotoPath && (
+                              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-brand-blue bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+                                <CreditCard className="w-2.5 h-2.5 text-brand-blue" />
+                                Card Attached
+                              </span>
+                            )}
                           </div>
                         </div>
                       )}
@@ -482,8 +608,69 @@ export const ClientVisitVerification: React.FC = () => {
               </CardContent>
             </Card>
           );
-        })}
+          })
+        )}
       </div>
+
+      {/* Pagination Controls */}
+      {filteredVisits.length > 0 && (
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center gap-2 text-slate-600 font-medium">
+            <span>
+              Showing <strong className="text-slate-900">{(currentPage - 1) * pageSize + 1}</strong> to{' '}
+              <strong className="text-slate-900">
+                {Math.min(currentPage * pageSize, filteredVisits.length)}
+              </strong>{' '}
+              of <strong className="text-slate-900">{filteredVisits.length}</strong> visits
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Rows Per Page */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 font-semibold">Rows:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="text-xs h-7 px-2 bg-slate-50 border border-slate-200 rounded font-medium text-slate-800"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+
+            {/* Prev / Page / Next */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="h-7 px-2.5 text-xs font-semibold"
+              >
+                Previous
+              </Button>
+              <span className="px-2 font-semibold text-slate-700">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="h-7 px-2.5 text-xs font-semibold"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Inspect Audit Record Modal */}
       {selectedVisitForModal && (
@@ -582,6 +769,78 @@ export const ClientVisitVerification: React.FC = () => {
                     {selectedVisitForModal.meetingLog.nextStepText || 'No next step recorded.'}
                   </span>
                 </div>
+              </div>
+
+              {/* Client Business Card Section */}
+              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5 text-brand-blue" />
+                    Client Business Card (Captured at Meeting Log / Checkout)
+                  </span>
+                  {selectedVisitForModal.meetingLog.businessCardPhotoPath && (
+                    <span className="text-[10px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                      Encrypted Cloud File
+                    </span>
+                  )}
+                </div>
+                {signedBusinessCardUrl ? (
+                  <div className="h-56 bg-slate-900 rounded-lg flex items-center justify-center border border-slate-300 relative overflow-hidden">
+                    <img
+                      src={signedBusinessCardUrl}
+                      alt="Client Business Card"
+                      className="w-full h-full object-contain bg-slate-950"
+                      onError={() => {
+                        setCardLoadError('Failed to display business card image.');
+                        setSignedBusinessCardUrl(null);
+                      }}
+                    />
+                  </div>
+                ) : isCardLoading ? (
+                  <div className="h-28 bg-slate-100 rounded-lg flex items-center justify-center text-slate-500 border border-slate-200 p-4 text-center">
+                    <div>
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1 text-brand-blue" />
+                      <span className="text-xs font-semibold">Generating secure temporary preview link...</span>
+                    </div>
+                  </div>
+                ) : cardLoadError ? (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{cardLoadError}</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[10px] px-2 font-bold bg-white text-rose-800 border-rose-300 shrink-0"
+                      onClick={() => {
+                        const path = selectedVisitForModal.meetingLog.businessCardPhotoPath;
+                        if (path) {
+                          setIsCardLoading(true);
+                          setCardLoadError(null);
+                          managementService.getBusinessCardSignedUrl(path).then((url) => {
+                            setIsCardLoading(false);
+                            if (url) setSignedBusinessCardUrl(url);
+                            else setCardLoadError('Unable to generate secure preview link for this business card.');
+                          });
+                        }
+                      }}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ) : selectedVisitForModal.meetingLog.businessCardPhotoPath ? (
+                  <div className="h-28 bg-slate-100 rounded-lg flex items-center justify-center text-slate-500 border border-slate-200 p-4 text-center">
+                    <div>
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1 text-brand-blue" />
+                      <span className="text-xs font-semibold">Generating secure temporary preview link...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg text-slate-500 text-xs italic">
+                    No business card photograph was attached for this meeting log submission.
+                  </div>
+                )}
               </div>
 
               {/* Client Audit Status Note */}

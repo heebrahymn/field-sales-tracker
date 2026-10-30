@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFieldSession, ClientBranch } from '@/context/FieldSessionContext';
 import { RegisterBranchModal } from '@/features/field/RegisterBranchModal';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
   Clock,
   Navigation,
   Lock,
+  RefreshCw,
 } from 'lucide-react';
 
 interface ClientsDirectoryViewProps {
@@ -21,11 +22,39 @@ interface ClientsDirectoryViewProps {
 }
 
 export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onStartVisitAtBranch }) => {
-  const { branches, activeVisit } = useFieldSession();
+  const { branches, activeVisit, refreshBranches } = useFieldSession();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'nearby' | 'depots' | 'pending'>('all');
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    refreshBranches();
+
+    const onFocus = () => {
+      refreshBranches();
+    };
+    window.addEventListener('focus', onFocus);
+
+    const interval = setInterval(() => {
+      refreshBranches();
+    }, 6000);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
+  }, [refreshBranches]);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshBranches();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Filtered branch directory
   const filteredBranches = branches.filter((b) => {
@@ -60,13 +89,42 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
           </p>
         </div>
 
-        <Button
-          onClick={() => setIsRegisterModalOpen(true)}
-          className="bg-brand-blue hover:bg-brand-blue-700 text-white font-bold text-xs h-10 px-3.5 gap-1.5 shadow-sm min-h-[44px]"
-        >
-          <Plus className="w-4 h-4" /> Add Client
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="h-10 px-3 text-xs font-semibold border-slate-300 text-slate-700 bg-white hover:bg-slate-50 min-h-[44px]"
+            title="Refresh branches from server"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
+
+          <Button
+            onClick={() => setIsRegisterModalOpen(true)}
+            className="bg-brand-blue hover:bg-brand-blue-700 text-white font-bold text-xs h-10 px-3.5 gap-1.5 shadow-sm min-h-[44px]"
+          >
+            <Plus className="w-4 h-4" /> Add Client
+          </Button>
+        </div>
       </div>
+
+      {/* Pending Registration Banner */}
+      {branches.some((b) => b.status === 'pending_approval') && (
+        <button
+          type="button"
+          onClick={() => setFilterMode('pending')}
+          className="w-full text-left p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between gap-2 text-xs"
+        >
+          <span className="flex items-center gap-2 text-amber-900 font-semibold">
+            <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+            {branches.filter((b) => b.status === 'pending_approval').length} client registration(s) awaiting Country Sales Head approval
+          </span>
+          <span className="text-[10px] font-bold text-amber-800 underline shrink-0">View</span>
+        </button>
+      )}
 
       {/* Search & Filter Bar */}
       <div className="space-y-2">
@@ -182,7 +240,7 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
 
                     {branch.status === 'pending_approval' && (
                       <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-300 flex items-center gap-0.5">
-                        <Clock className="w-3 h-3" /> Pin Review
+                        <Clock className="w-3 h-3" /> Pending Manager Approval
                       </span>
                     )}
 
@@ -280,6 +338,22 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
                       <Lock className="w-3.5 h-3.5 text-slate-400" />
                       Visit Blocked: Close active visit at {activeVisit.branchName.slice(0, 18)}... first (AT-04)
                     </div>
+                  ) : branch.status === 'pending_approval' ? (
+                    <Button
+                      disabled
+                      className="w-full font-bold text-xs h-11 bg-amber-50 text-amber-800 border border-amber-300 opacity-80 min-h-[48px] cursor-not-allowed"
+                    >
+                      <Clock className="w-3.5 h-3.5 mr-1 text-amber-700" />
+                      Awaiting Manager Pin Approval
+                    </Button>
+                  ) : branch.status === 'rejected' ? (
+                    <Button
+                      disabled
+                      className="w-full font-bold text-xs h-11 bg-rose-50 text-rose-800 border border-rose-300 opacity-80 min-h-[48px] cursor-not-allowed"
+                    >
+                      <Lock className="w-3.5 h-3.5 mr-1 text-rose-700" />
+                      Pin Rejected by Manager
+                    </Button>
                   ) : (
                     <Button
                       onClick={() => onStartVisitAtBranch?.(branch)}
@@ -298,7 +372,14 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
       {/* Register Branch Modal */}
       <RegisterBranchModal
         isOpen={isRegisterModalOpen}
-        onClose={() => setIsRegisterModalOpen(false)}
+        onClose={() => {
+          setIsRegisterModalOpen(false);
+          refreshBranches();
+        }}
+        onSuccess={() => {
+          refreshBranches();
+          setFilterMode('all');
+        }}
       />
     </div>
   );

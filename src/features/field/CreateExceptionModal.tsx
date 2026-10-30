@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useFieldSession, FieldExceptionRecord } from '@/context/FieldSessionContext';
+import { getMarketWorkDate } from '@/services/attendanceService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,8 +23,9 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({ isOp
   const { branches, submitException } = useFieldSession();
 
   const [type, setType] = useState<FieldExceptionRecord['type']>('gps_failure');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(branches[0]?.id || '');
   const [branchName, setBranchName] = useState<string>(branches[0]?.branchName || 'Apex Heavy Logistics Fleet Depot');
-  const [claimedDate, setClaimedDate] = useState<string>('2026-10-16');
+  const [claimedDate, setClaimedDate] = useState<string>(() => getMarketWorkDate(currentUser?.marketCode));
   const [claimedTime, setClaimedTime] = useState<string>('13:40 - 14:15 WAT');
   const [reason, setReason] = useState<string>(
     'Client facility workshop is located in an underground basement loading bay; severe concrete attenuation prevented satellite acquisition (GPS accuracy degraded beyond 140m).'
@@ -31,6 +33,15 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({ isOp
   const [evidenceNote, setEvidenceNote] = useState<string>(
     'Signage photographed at facility gate; stamped manual visitor log entry signed by Workshop Superintendent.'
   );
+
+  useEffect(() => {
+    if (branches && branches.length > 0) {
+      if (!selectedBranchId || !branches.some((b) => b.id === selectedBranchId)) {
+        setSelectedBranchId(branches[0].id);
+        setBranchName(branches[0].branchName);
+      }
+    }
+  }, [branches, selectedBranchId]);
 
   if (!isOpen) return null;
 
@@ -46,11 +57,12 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({ isOp
       type,
       title,
       branchName,
+      branchCode: selectedBranchId,
       claimedDate,
       claimedTime,
       reason,
       evidenceNote,
-    });
+    } as any);
 
     onClose();
   };
@@ -115,12 +127,17 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({ isOp
               Target Client Branch <span className="text-red-500">*</span>
             </label>
             <select
-              value={branchName}
-              onChange={(e) => setBranchName(e.target.value)}
+              value={selectedBranchId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setSelectedBranchId(id);
+                const b = branches.find((item) => item.id === id);
+                if (b) setBranchName(b.branchName);
+              }}
               className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-brand-blue focus:outline-none"
             >
               {branches.map((b) => (
-                <option key={b.id} value={b.branchName}>
+                <option key={b.id} value={b.id}>
                   {b.branchName} ({b.branchCode})
                 </option>
               ))}
@@ -206,6 +223,7 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({ isOp
               Cancel
             </Button>
             <Button
+              id="btn-submit-exception-claim"
               type="submit"
               className="text-xs h-11 px-5 font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center gap-1.5"
             >

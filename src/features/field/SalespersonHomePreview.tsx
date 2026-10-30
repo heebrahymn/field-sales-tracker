@@ -4,7 +4,7 @@ import { useFieldSession } from '@/context/FieldSessionContext';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { MeetingLogModal } from '@/features/field/MeetingLogModal';
+import { MeetingLogModal, MeetingLogSubmissionData } from '@/features/field/MeetingLogModal';
 import { StartDayModal } from '@/features/field/StartDayModal';
 import { EndDayModal } from '@/features/field/EndDayModal';
 import { NonVisitDayModal } from '@/features/field/NonVisitDayModal';
@@ -22,10 +22,11 @@ import {
   Lock,
   Smartphone,
   ChevronRight,
+  AlertCircle,
 } from 'lucide-react';
 
 interface SalespersonHomePreviewProps {
-  onNavigateTab?: (tab: 'home' | 'clients' | 'visit' | 'exceptions' | 'sync' | 'profile') => void;
+  onNavigateTab?: (tab: 'home' | 'clients' | 'visit' | 'exceptions' | 'sync' | 'profile' | 'non-visit') => void;
 }
 
 export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ onNavigateTab }) => {
@@ -36,6 +37,7 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
     isAttendanceProvisional,
     activeVisit,
     completedVisits,
+    pendingMeetingLogs,
     exceptions,
     isOnline,
     syncState,
@@ -43,9 +45,14 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
     sessionNotice,
     setSessionNotice,
     checkOutVisit,
+    submitMeetingLog,
+    latestNonVisitRequest,
+    cancelNonVisitDayRequest,
   } = useFieldSession();
 
-  // Modals state
+  // Modals & local state
+  const [isNonVisitBannerDismissed, setIsNonVisitBannerDismissed] = useState(false);
+  const [isCancellingNonVisit, setIsCancellingNonVisit] = useState(false);
   const [isStartDayModalOpen, setIsStartDayModalOpen] = useState(false);
   const [isEndDayModalOpen, setIsEndDayModalOpen] = useState(false);
   const [isNonVisitModalOpen, setIsNonVisitModalOpen] = useState(false);
@@ -71,8 +78,15 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
     }
   };
 
-  const handleMeetingLogSubmitted = (onTime: boolean) => {
-    checkOutVisit(false, onTime ? { completed: true } : undefined);
+  const handleMeetingLogSubmitted = async (onTime: boolean, logData?: MeetingLogSubmissionData) => {
+    if (activeVisit) {
+      checkOutVisit(false, onTime ? (logData || { completed: true }) : undefined);
+    } else if (pendingMeetingLogs.length > 0) {
+      const firstPending = pendingMeetingLogs[0];
+      if (firstPending) {
+        await submitMeetingLog(firstPending.id, logData || {});
+      }
+    }
     setIsMeetingLogOpen(false);
   };
 
@@ -150,6 +164,102 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
           <ChevronRight className="w-3 h-3" />
         </button>
       </div>
+
+      {/* Non-Visit Request Status Banner (PRD §2 & §6.2) */}
+      {latestNonVisitRequest && !isNonVisitBannerDismissed && (
+        <div
+          className={`p-3.5 rounded-xl border text-xs space-y-2 relative shadow-2xs ${
+            latestNonVisitRequest.status === 'approved'
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              : latestNonVisitRequest.status === 'rejected'
+              ? 'bg-rose-50 border-rose-300 text-rose-950'
+              : 'bg-amber-50 border-amber-300 text-amber-950'
+          }`}
+        >
+          <div className="flex items-center justify-between font-bold pr-6">
+            <span className="flex items-center gap-1.5">
+              {latestNonVisitRequest.status === 'approved' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+              {latestNonVisitRequest.status === 'rejected' && <AlertCircle className="w-4 h-4 text-rose-600" />}
+              {latestNonVisitRequest.status === 'pending' && <Clock className="w-4 h-4 text-amber-600" />}
+              <span>
+                {latestNonVisitRequest.status === 'approved'
+                  ? 'Authorised Non-Visit Workday Approved'
+                  : latestNonVisitRequest.status === 'rejected'
+                  ? 'Non-Visit Workday Request Rejected'
+                  : 'Non-Visit Workday Request Pending Approval'}
+              </span>
+            </span>
+            <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-white/80 border border-slate-200">
+              {latestNonVisitRequest.absence_date}
+            </span>
+          </div>
+
+          <button
+            onClick={() => setIsNonVisitBannerDismissed(true)}
+            className="absolute top-2.5 right-2.5 text-slate-400 hover:text-slate-700 p-1 rounded-md"
+            title="Dismiss notice"
+            aria-label="Dismiss notice"
+          >
+            ✕
+          </button>
+
+          <p className="text-[11px] leading-relaxed">
+            {latestNonVisitRequest.status === 'approved'
+              ? `Approved for ${latestNonVisitRequest.category.replace(/_/g, ' ')}. Attendance credit recorded; physical visit targets waived.`
+              : latestNonVisitRequest.status === 'rejected'
+              ? `Rejected by Manager. Reason: "${latestNonVisitRequest.rejection_reason || 'Field physical visits required'}". Regular field visit targets apply.`
+              : `Submitted for ${latestNonVisitRequest.category.replace(/_/g, ' ')}. Awaiting Country Sales Head sign-off.`}
+          </p>
+
+          <div className="flex items-center justify-between pt-1 border-t border-black/5">
+            <button
+              onClick={() => onNavigateTab?.('non-visit')}
+              className="text-[11px] font-bold text-brand-blue hover:underline flex items-center gap-1"
+            >
+              Manage Non-Visit Days
+              <ChevronRight className="w-3 h-3" />
+            </button>
+
+            {latestNonVisitRequest.status === 'pending' && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isCancellingNonVisit}
+                onClick={async () => {
+                  if (window.confirm('Cancel this pending non-visit workday request?')) {
+                    setIsCancellingNonVisit(true);
+                    try {
+                      await cancelNonVisitDayRequest(latestNonVisitRequest.id);
+                    } finally {
+                      setIsCancellingNonVisit(false);
+                    }
+                  }
+                }}
+                className="h-7 px-2.5 text-[11px] text-rose-700 border-rose-300 hover:bg-rose-100 hover:text-rose-800"
+              >
+                {isCancellingNonVisit ? 'Cancelling...' : 'Cancel Request'}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Pending Meeting Logs SLA Alert */}
+      {pendingMeetingLogs.length > 0 && !activeVisit && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 flex items-center justify-between gap-2 text-xs shadow-xs">
+          <div className="flex items-center gap-2 text-amber-900 font-semibold">
+            <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>{pendingMeetingLogs.length} visit(s) awaiting meeting log submission (SLA: 2h)</span>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setIsMeetingLogOpen(true)}
+            className="text-xs h-8 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold shrink-0"
+          >
+            Complete Log
+          </Button>
+        </div>
+      )}
 
       {/* ================= ACTIVE VISIT CARD ================= */}
       {activeVisit ? (
@@ -344,16 +454,16 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
             </span>
           </button>
 
-          {/* Tile 5: Request Non-Visit Day */}
+          {/* Tile 5: Request Non-Visit Day / Dedicated Screen */}
           <button
-            onClick={() => setIsNonVisitModalOpen(true)}
+            onClick={() => onNavigateTab ? onNavigateTab('non-visit') : setIsNonVisitModalOpen(true)}
             className="flex flex-col items-start p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-brand-blue active:scale-[0.98] transition-all text-left min-h-[104px]"
           >
             <div className="p-2.5 rounded-lg mb-2 bg-purple-50 text-purple-900 border border-purple-200">
               <CalendarCheck className="w-5 h-5" />
             </div>
-            <span className="font-bold text-slate-900 text-sm">Non-Visit Request</span>
-            <span className="text-[11px] text-slate-600 font-medium mt-0.5">Office proposal prep / training</span>
+            <span className="font-bold text-slate-900 text-sm">Non-Visit Days</span>
+            <span className="text-[11px] text-slate-600 font-medium mt-0.5">Authorizations &amp; requests</span>
           </button>
 
           {/* Tile 6: Sync Now */}
@@ -441,14 +551,12 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
         onClose={() => setIsRegisterBranchModalOpen(false)}
       />
 
-      {activeVisit && (
-        <MeetingLogModal
-          isOpen={isMeetingLogOpen}
-          onClose={() => setIsMeetingLogOpen(false)}
-          branchName={activeVisit.branchName}
-          onSubmitted={handleMeetingLogSubmitted}
-        />
-      )}
+      <MeetingLogModal
+        isOpen={isMeetingLogOpen}
+        onClose={() => setIsMeetingLogOpen(false)}
+        branchName={activeVisit?.branchName || 'Apapa Commercial Fleet Depot'}
+        onSubmitted={handleMeetingLogSubmitted}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFieldSession } from '@/context/FieldSessionContext';
 import { CreateExceptionModal } from '@/features/field/CreateExceptionModal';
 import { Button } from '@/components/ui/button';
@@ -12,11 +12,26 @@ import {
   AlertTriangle,
   UserCheck,
   AlertOctagon,
+  RefreshCw,
 } from 'lucide-react';
 
 export const ExceptionsWorkbenchView: React.FC = () => {
-  const { exceptions } = useFieldSession();
+  const { exceptions, refreshExceptions } = useFieldSession();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    refreshExceptions();
+  }, [refreshExceptions]);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshExceptions();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const pendingCount = exceptions.filter((e) => e.status === 'pending_review').length;
   const approvedCount = exceptions.filter((e) => e.status === 'approved_unverified').length;
@@ -38,12 +53,26 @@ export const ExceptionsWorkbenchView: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-10 px-3.5 gap-1.5 shadow-sm min-h-[44px]"
-        >
-          <Plus className="w-4 h-4" /> New Claim
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="h-10 px-3 text-xs font-semibold border-slate-300 text-slate-700 bg-white hover:bg-slate-50 min-h-[44px]"
+            title="Refresh exceptions status from server"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
+
+          <Button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-10 px-3.5 gap-1.5 shadow-sm min-h-[44px]"
+          >
+            <Plus className="w-4 h-4" /> New Claim
+          </Button>
+        </div>
       </div>
 
       {/* KPI Counters */}

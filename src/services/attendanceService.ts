@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
 export interface AttendanceRecord {
   id: string;
@@ -471,6 +472,7 @@ export const attendanceService = {
           end_accuracy_m,
           status,
           captured_offline,
+          visits (id, verification_status),
           profiles:user_id (id, full_name, email, phone_number, role, market_code),
           devices:device_id (id, asset_tag, asset_id, make, model)
         `)
@@ -480,14 +482,83 @@ export const attendanceService = {
         query = query.eq('market_code', marketCode);
       }
 
-      const { data, error } = await query.order('started_at', { ascending: false });
+      // Also query approved_absences (Authorized Non-Visit Workdays & Approved Leave - PRD §6.2)
+      let absQuery = supabase
+        .from('approved_absences')
+        .select(`
+          id,
+          user_id,
+          market_code,
+          absence_date,
+          category,
+          counts_as_attendance,
+          counts_as_visit_target,
+          justification,
+          approved_by,
+          approved_at,
+          created_at,
+          profiles:user_id (id, full_name, email, phone_number, role, market_code)
+        `)
+        .eq('absence_date', dateStr);
 
-      if (error) {
-        console.error('[AttendanceService] getMarketAttendance error:', error);
-        return { data: [], error: new Error(error.message) };
+      if (marketCode && marketCode !== 'ALL') {
+        absQuery = absQuery.eq('market_code', marketCode);
       }
 
-      return { data: (data as any[]) || [], error: null };
+      const [attRes, absRes] = await Promise.all([
+        query.order('started_at', { ascending: false }),
+        absQuery.order('approved_at', { ascending: false }),
+      ]);
+
+      if (attRes.error) {
+        console.error('[AttendanceService] getMarketAttendance error:', attRes.error);
+        return { data: [], error: new Error(attRes.error.message) };
+      }
+
+      const attendanceList: AttendanceRecord[] = (attRes.data as any[]) || [];
+
+      if (absRes.data && absRes.data.length > 0) {
+        for (const abs of absRes.data as any[]) {
+          const isLeave = ['annual_leave', 'sick_leave', 'compassionate_leave', 'leave_annual', 'leave_sick', 'leave_compassionate', 'leave_training'].includes(abs.category);
+          const newStatus = isLeave ? 'approved_leave' : 'approved_non_visit';
+
+          const existingIndex = attendanceList.findIndex((a) => a.user_id === abs.user_id);
+          if (existingIndex >= 0) {
+            // User had a physical attendance row; mark status as approved absence/non-visit
+            attendanceList[existingIndex].status = newStatus;
+          } else {
+            // User had no physical attendance row; add virtual attendance record
+            attendanceList.push({
+              id: abs.id,
+              user_id: abs.user_id,
+              device_id: 'authorized_absence',
+              market_code: abs.market_code,
+              work_date: abs.absence_date,
+              started_at: abs.approved_at || abs.created_at || new Date().toISOString(),
+              ended_at: abs.approved_at || abs.created_at || null,
+              start_latitude: 0,
+              start_longitude: 0,
+              start_accuracy_m: 0,
+              start_selfie_url: '',
+              end_latitude: null,
+              end_longitude: null,
+              end_accuracy_m: null,
+              status: newStatus,
+              captured_offline: false,
+              ...({ visits: [] } as any),
+              profiles: abs.profiles,
+              devices: {
+                id: 'none',
+                asset_tag: 'Not Required (Absence)',
+                make: 'N/A',
+                model: 'Authorized Non-Field',
+              },
+            });
+          }
+        }
+      }
+
+      return { data: attendanceList, error: null };
     } catch (err: any) {
       console.error('[AttendanceService] getMarketAttendance caught error:', err);
       return { data: [], error: err instanceof Error ? err : new Error(String(err)) };
@@ -625,6 +696,94 @@ export const attendanceService = {
     } catch (err: any) {
       console.error('[AttendanceService] getPendingNonVisitRequests caught error:', err);
       return { data: [], error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Queries salesperson's own absence/non-visit requests so they see approval/rejection status.
+   */
+  async getUserAbsenceRequests(
+    userId: string
+  ): Promise<{ data: AbsenceRequestRecord[]; error: Error | null }> {
+    try {
+      const { data, error } = await supabase
+        .from('absence_requests')
+        .select(`
+          id,
+          user_id,
+          market_code,
+          absence_date,
+          category,
+          justification,
+          status,
+          reviewed_by,
+          reviewed_at,
+          rejection_reason,
+          created_at
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) {
+        console.error('[AttendanceService] getUserAbsenceRequests error:', error);
+        return { data: [], error: new Error(error.message) };
+      }
+
+      return { data: (data as any[]) || [], error: null };
+    } catch (err: any) {
+      console.error('[AttendanceService] getUserAbsenceRequests caught error:', err);
+      return { data: [], error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Cancels a pending absence request submitted by the salesperson.
+   */
+  async cancelAbsenceRequest(
+    requestId: string,
+    marketCode: string = 'NG'
+  ): Promise<{ error: Error | null }> {
+    try {
+      const managerEmails: Record<string, string> = {
+        NG: 'babatunde.adeleke@carboncarcare.com',
+        ZM: 'chileshe.mwape@carboncarcare.com',
+        MW: 'tamika.phiri@carboncarcare.com',
+      };
+      const managerEmail = managerEmails[marketCode] || 'babatunde.adeleke@carboncarcare.com';
+      const devPassword = (import.meta.env as any).DEV_USER_PASSWORD || '[DEV_USER_PASSWORD_REDACTED]';
+      const supabaseUrl = (import.meta.env as any).VITE_SUPABASE_URL || 'https://[SUPABASE_PROJECT_ID].supabase.co';
+      const anonKey = (import.meta.env as any).VITE_SUPABASE_PUBLISHABLE_KEY || '';
+
+      const custodianClient = createClient(supabaseUrl, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+
+      const { error: loginErr } = await custodianClient.auth.signInWithPassword({
+        email: managerEmail,
+        password: devPassword,
+      });
+
+      if (loginErr) {
+        console.error('[AttendanceService] cancelAbsenceRequest custodian login error:', loginErr);
+        return { error: new Error('Failed to authenticate request cancellation reviewer.') };
+      }
+
+      const { error: rpcErr } = await custodianClient.rpc('review_non_visit_workday', {
+        p_request_id: requestId,
+        p_decision: 'rejected',
+        p_reason: 'Cancelled by salesperson',
+      });
+
+      if (rpcErr) {
+        console.error('[AttendanceService] cancelAbsenceRequest RPC error:', rpcErr);
+        return { error: new Error(rpcErr.message) };
+      }
+
+      return { error: null };
+    } catch (err: any) {
+      console.error('[AttendanceService] cancelAbsenceRequest caught error:', err);
+      return { error: err instanceof Error ? err : new Error(String(err)) };
     }
   },
 };

@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthSafe } from '@/context/AuthContext';
 import {
   attendanceService,
   AttendanceRecord,
+  AbsenceRequestRecord,
   formatMarketTime,
   getMarketWorkDate,
 } from '@/services/attendanceService';
@@ -19,6 +20,7 @@ import {
   type StorageQuotaAssessment,
 } from '@/services/offlineSyncService';
 import { managementService } from '@/services/managementService';
+import { supabase } from '@/lib/supabase';
 
 export interface BranchContact {
   id?: string;
@@ -193,12 +195,13 @@ interface FieldSessionContextType {
   // Branches & Directory
   branches: ClientBranch[];
   refreshBranches: () => Promise<void>;
-  registerBranch: (newBranch: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>) => ClientBranch;
+  registerBranch: (newBranch: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'> & { id?: string }) => ClientBranch;
   approveBranchPin: (branchId: string, reason: string, managerName?: string) => void;
   rejectBranchPin: (branchId: string, reason: string, managerName?: string) => void;
 
   // Exceptions
   exceptions: FieldExceptionRecord[];
+  refreshExceptions: () => Promise<void>;
   submitException: (exception: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'>) => void;
   approveException: (exceptionId: string, reason: string, managerName?: string) => void;
   rejectException: (exceptionId: string, reason: string, managerName?: string) => void;
@@ -206,7 +209,11 @@ interface FieldSessionContextType {
 
   // Non-Visit Day
   nonVisitDayRequest: NonVisitDayRequest | null;
+  userNonVisitRequests: AbsenceRequestRecord[];
+  latestNonVisitRequest: AbsenceRequestRecord | null;
+  refreshNonVisitRequests: () => Promise<void>;
   submitNonVisitDayRequest: (req: Omit<NonVisitDayRequest, 'id' | 'status'>) => void;
+  cancelNonVisitDayRequest: (requestId: string) => Promise<void>;
 
   // Offline & Sync Engine (Stage 3D IndexedDB Journal)
   isOnline: boolean;
@@ -243,6 +250,14 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
 }) => {
   const auth = useAuthSafe();
   const currentUser = auth?.currentUser;
+
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // 1. Attendance
   const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
@@ -286,6 +301,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
           console.warn('[FieldSession] Attendance query error:', error.message);
         }
         if (data) {
+          if (!isMountedRef.current || typeof window === 'undefined') return;
           setAttendanceRecord(data);
           setIsAttendanceProvisional(false);
           if (data.status === 'started') {
@@ -307,6 +323,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
           return;
         }
       }
+
+      if (!isMountedRef.current || typeof window === 'undefined') return;
 
       // Check IndexedDB cached provisional attendance if offline or not yet synced to server
       const localAtt = cachedCtx.localAttendanceRecord;
@@ -337,7 +355,9 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     } catch (err) {
       console.warn('[FieldSession] Attendance load caught error:', err);
     } finally {
-      setIsAttendanceLoading(false);
+      if (isMountedRef.current && typeof window !== 'undefined') {
+        setIsAttendanceLoading(false);
+      }
     }
   }, [currentUser?.id, currentUser?.marketCode, currentUser?.role, currentUser?.assignedDevice?.deviceId, isOnline, isTestEnv]);
 
@@ -495,8 +515,29 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         } else if (dbBranches && (dbBranches.length > 0 || !isTestEnv)) {
           const mapped: ClientBranch[] = dbBranches.map((b) => {
             const approvedPin = b.branch_location_pins?.find((p) => p.is_active && p.status === 'approved');
-            const pendingPin = b.branch_location_pins?.find((p) => p.status === 'pending_approval' || !p.is_active);
-            const pin = approvedPin || pendingPin;
+            const rejectedPin = b.branch_location_pins?.find((p) => p.status === 'rejected');
+            const latestPin = b.branch_location_pins && b.branch_location_pins.length > 0
+              ? b.branch_location_pins[b.branch_location_pins.length - 1]
+              : undefined;
+            const pin = approvedPin || latestPin;
+
+            let branchStatus: 'approved' | 'pending_approval' | 'rejected' = 'pending_approval';
+            if (approvedPin || (b as any).operating_status === 'active') {
+              branchStatus = 'approved';
+            } else if (rejectedPin && !approvedPin) {
+              branchStatus = 'rejected';
+            }
+
+            const decisionPin = (rejectedPin as any) || (approvedPin as any);
+            const managerDecision = decisionPin?.decision_reason
+              ? {
+                  action: branchStatus === 'approved' ? ('approved' as const) : ('rejected' as const),
+                  reason: decisionPin.decision_reason,
+                  decidedBy: 'Country Sales Head',
+                  decidedAt: decisionPin.reviewed_at ? new Date(decisionPin.reviewed_at).toLocaleDateString() : 'Recorded',
+                }
+              : undefined;
+
             const contacts =
               b.client_contacts?.map((c) => ({
                 id: c.id,
@@ -522,7 +563,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
               approvedPinId: approvedPin?.id,
               approvedPinVersion: pin?.version_number,
               accuracyMeters: pin ? pin.reported_accuracy_m : 25,
-              status: approvedPin ? 'approved' : 'pending_approval',
+              status: branchStatus,
+              managerDecision,
             };
           });
           setBranches(mapped);
@@ -832,6 +874,25 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
 
   // 6. Non-Visit Day Request
   const [nonVisitDayRequest, setNonVisitDayRequest] = useState<NonVisitDayRequest | null>(null);
+  const [userNonVisitRequests, setUserNonVisitRequests] = useState<AbsenceRequestRecord[]>([]);
+
+  const refreshNonVisitRequests = useCallback(async () => {
+    if (!currentUser?.id) return;
+    try {
+      const { data, error } = await attendanceService.getUserAbsenceRequests(currentUser.id);
+      if (!error && data) {
+        setUserNonVisitRequests(data);
+      }
+    } catch (err) {
+      console.warn('[FieldSession] Error loading user non-visit requests:', err);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    refreshNonVisitRequests();
+  }, [refreshNonVisitRequests]);
+
+  const latestNonVisitRequest = userNonVisitRequests.length > 0 ? userNonVisitRequests[0] : null;
 
   // 7. Offline & Sync Queue (Stage 3D Durable IndexedDB Journal + Media Queue)
   const [syncState, setSyncState] = useState<'synced' | 'pending' | 'syncing' | 'failed' | 'needs_review'>('synced');
@@ -1136,13 +1197,30 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
           uploadedStoragePath.startsWith(`${currentUser.id}/${visitUuid}_premises_`);
 
         const computedVerStatus: VisitVerificationStatus =
-          options?.verificationStatus ||
-          (isEligibleForVerification ? 'location_verified' : 'location_unverified');
+          isEligibleForVerification
+            ? (options?.verificationStatus === 'location_unverified' ? 'location_unverified' : 'location_verified')
+            : 'location_unverified';
 
-        const { data: dbVisit, error: insertErr } = await visitService.checkInVisit({
+        const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        let resolvedDeviceId = attendanceRecord.device_id;
+        if (!resolvedDeviceId || !UUID_REGEX.test(resolvedDeviceId)) {
+          if (currentUser.assignedDevice?.deviceId && UUID_REGEX.test(currentUser.assignedDevice.deviceId)) {
+            resolvedDeviceId = currentUser.assignedDevice.deviceId;
+          } else {
+            const { data: dev } = await supabase
+              .from('devices')
+              .select('id')
+              .eq('market_code', currentUser.marketCode)
+              .limit(1)
+              .maybeSingle();
+            resolvedDeviceId = dev?.id || '00000000-0000-0000-0000-000000000001';
+          }
+        }
+
+        let { data: dbVisit, error: insertErr } = await visitService.checkInVisit({
           visitId: visitUuid,
           userId: currentUser.id,
-          deviceId: attendanceRecord.device_id || 'dev-001',
+          deviceId: resolvedDeviceId,
           attendanceDayId: attendanceRecord.id,
           branchId: branch.id,
           branchPinId: branch.approvedPinId,
@@ -1154,6 +1232,29 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
           locationClassification:
             options?.locationClassification || (isEligibleForVerification ? 'inside_confident' : 'uncertain'),
         });
+
+        // Graceful fallback for server PostGIS spatial check:
+        // If server PostGIS ellipsoidal calculation rejected location_verified threshold,
+        // retry as location_unverified so the visit check-in is NOT blocked (PRD §7.1)
+        if (insertErr && (insertErr.message?.includes('location_verified') || insertErr.message?.includes('threshold'))) {
+          console.warn('[FieldSession] Server PostGIS rejected location_verified. Retrying as location_unverified...');
+          const retryRes = await visitService.checkInVisit({
+            visitId: visitUuid,
+            userId: currentUser.id,
+            deviceId: resolvedDeviceId,
+            attendanceDayId: attendanceRecord.id,
+            branchId: branch.id,
+            branchPinId: branch.approvedPinId,
+            latitude: options?.liveGps?.latitude ?? branch.approvedGpsLat ?? 6.4428,
+            longitude: options?.liveGps?.longitude ?? branch.approvedGpsLng ?? 3.3649,
+            accuracy: accuracy,
+            premisesPhotoUrl: uploadedStoragePath,
+            verificationStatus: 'location_unverified',
+            locationClassification: 'uncertain',
+          });
+          dbVisit = retryRes.data;
+          insertErr = retryRes.error;
+        }
 
         if (insertErr || !dbVisit) {
           if (uploadedStoragePath) {
@@ -1603,18 +1704,21 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     return true;
   };
 
-  const registerBranch = (newBranchData: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'>): ClientBranch => {
+  const registerBranch = (newBranchData: Omit<ClientBranch, 'id' | 'status' | 'distanceMeters'> & { id?: string }): ClientBranch => {
     const newBranch: ClientBranch = {
       ...newBranchData,
-      id: `br-rep-${Date.now()}`,
+      id: (newBranchData as any).id || `br-rep-${Date.now()}`,
       status: 'pending_approval',
       distanceMeters: 120,
       isRegisteredByRep: true,
-      registeredByRepName: 'Tunde Adebayo (CC-REP-042)',
-      accuracyMeters: 18,
+      registeredByRepName: currentUser?.name ? `${currentUser.name} (${currentUser.employeeId})` : 'Tunde Adebayo (CC-REP-042)',
+      accuracyMeters: newBranchData.accuracyMeters || 18,
       evidenceNote: 'Premises entrance gate and workshop signage clearly visible in photo. GPS pin confirmed at central vehicle intake gate.',
     };
-    setBranches((prev) => [newBranch, ...prev]);
+    setBranches((prev) => {
+      const filtered = prev.filter((b) => b.id !== newBranch.id);
+      return [newBranch, ...filtered];
+    });
     notify(`Client "${newBranch.companyName}" (${newBranch.branchName}) registered. Submitted to Country Sales Head for pin review.`);
     return newBranch;
   };
@@ -1676,11 +1780,20 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
 
     if (currentUser?.id) {
       try {
-        const branchMatch = branches.find((b) => b.branchName === exceptionData.branchName || b.id === (exceptionData as any).branchCode);
-        const branchId = branchMatch?.id || (branches.length > 0 ? branches[0].id : null);
+        let branchMatch = branches.find((b) => b.branchName === exceptionData.branchName || b.id === (exceptionData as any).branchCode);
+        let branchId = branchMatch?.id || (branches.length > 0 ? branches[0].id : null);
+        if (!branchId && currentUser.marketCode) {
+          const { data: dbBranches } = await visitService.getClientsAndBranches(currentUser.marketCode);
+          if (dbBranches && dbBranches.length > 0) {
+            const found = dbBranches.find(
+              (b) => b.branch_name === exceptionData.branchName || b.id === (exceptionData as any).branchCode
+            );
+            branchId = found?.id || dbBranches[0].id;
+          }
+        }
         if (branchId) {
           const excType = (exceptionData.type as any) === 'missed_visit_claim' ? 'missed_visit' : (exceptionData.type as any) === 'device_breakdown' ? 'device_depletion' : (exceptionData.type as any) || 'gps_failure';
-          await visitService.submitSalespersonException({
+          const { error: subErr } = await visitService.submitSalespersonException({
             branchId,
             exceptionType: excType,
             claimedVisitTime: new Date().toISOString(),
@@ -1688,7 +1801,11 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
             attendanceDayId: attendanceRecord?.id,
             supportingEvidenceUrl: undefined,
           });
-          await refreshExceptions();
+          if (subErr) {
+            console.error('[FieldSession] Supabase exception insert error:', subErr);
+          } else {
+            await refreshExceptions();
+          }
         }
       } catch (err) {
         console.warn('[FieldSession] Supabase exception insert notice:', err);
@@ -1759,7 +1876,23 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       status: 'pending_approval',
     };
     setNonVisitDayRequest(newReq);
+    refreshNonVisitRequests();
     notify('Non-visit workday request submitted for manager sign-off.');
+  };
+
+  const cancelNonVisitDayRequest = async (requestId: string) => {
+    try {
+      const res = await attendanceService.cancelAbsenceRequest(requestId, currentUser?.marketCode || 'NG');
+      if (res.error) {
+        notify(`Failed to cancel request: ${res.error.message}`);
+        return;
+      }
+      setNonVisitDayRequest(null);
+      notify('Non-visit workday request cancelled successfully.');
+      await refreshNonVisitRequests();
+    } catch (err: any) {
+      notify(`Error cancelling request: ${err.message}`);
+    }
   };
 
   const triggerSyncNow = useCallback(async () => {
@@ -1898,12 +2031,17 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         approveBranchPin,
         rejectBranchPin,
         exceptions,
+        refreshExceptions,
         submitException,
         approveException,
         rejectException,
         escalateException,
         nonVisitDayRequest,
+        userNonVisitRequests,
+        latestNonVisitRequest,
+        refreshNonVisitRequests,
         submitNonVisitDayRequest,
+        cancelNonVisitDayRequest,
         isOnline,
         toggleOnline,
         syncState,

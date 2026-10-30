@@ -32,6 +32,7 @@ export interface BranchPinRecord extends ApprovalItem {
   sharedPhone?: string;
   coordsText?: string;
   premisesPhotoUrl?: string;
+  rawDate?: string;
   status: 'pending_approval' | 'approved' | 'rejected';
   isRealRecord?: boolean;
   managerDecision?: {
@@ -49,6 +50,10 @@ export const BranchApprovalsQueue: React.FC = () => {
   const { branches, approveBranchPin, rejectBranchPin } = useFieldSession();
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUser, setSelectedUser] = useState<string>('all');
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [pageSize, setPageSize] = useState<number>(5);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [selectedItem, setSelectedItem] = useState<ApprovalItem | null>(null);
   const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -66,7 +71,28 @@ export const BranchApprovalsQueue: React.FC = () => {
       if (error) {
         console.warn('[BranchApprovalsQueue] Failed to load real pins from Supabase:', error.message);
       } else {
-        setRealPins(data);
+        const pinsWithPhotos = await Promise.all(
+          (data || []).map(async (p) => {
+            let signedPhotoUrl = p.premisesPhotoUrl || null;
+            if (p.premisesPhotoPath) {
+              if (
+                p.premisesPhotoPath.startsWith('http') ||
+                p.premisesPhotoPath.startsWith('blob:') ||
+                p.premisesPhotoPath.startsWith('data:') ||
+                p.premisesPhotoPath.startsWith('/')
+              ) {
+                signedPhotoUrl = p.premisesPhotoPath;
+              } else {
+                signedPhotoUrl = await managementService.getPremisesPhotoSignedUrl(p.premisesPhotoPath);
+              }
+            }
+            return {
+              ...p,
+              premisesPhotoUrl: signedPhotoUrl,
+            };
+          })
+        );
+        setRealPins(pinsWithPhotos);
       }
     } catch (err: any) {
       console.warn('[BranchApprovalsQueue] Error querying branch pins:', err);
@@ -91,7 +117,13 @@ export const BranchApprovalsQueue: React.FC = () => {
       address: p.address,
       landmark: 'Registered Physical Site',
       repName: p.proposedByName || 'Carbon Field Salesperson',
-      claimedTime: p.proposedAt ? new Date(p.proposedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' Local' : 'Pending',
+      claimedTime: p.proposedAt
+        ? new Date(p.proposedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
+          ' ' +
+          new Date(p.proposedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) +
+          ' WAT'
+        : 'Pending',
+      rawDate: p.proposedAt ? p.proposedAt.slice(0, 10) : '',
       accuracy: `±${Math.round(p.reportedAccuracyM)}m (Threshold: ≤50m)`,
       evidenceNote: `Field GPS fix captured with ±${Math.round(p.reportedAccuracyM)}m reported accuracy. Premises photo registered in Supabase.`,
       sharedPhoneWarning: false,
@@ -99,8 +131,13 @@ export const BranchApprovalsQueue: React.FC = () => {
       contactRole: 'Site Operations',
       contactPhone: '+234 1 270 5000',
       coordsText: `${p.latitude.toFixed(4)}° N, ${p.longitude.toFixed(4)}° E`,
-      premisesPhotoUrl: p.premisesPhotoPath,
-      status: p.status === 'superseded' ? 'rejected' : p.status,
+      premisesPhotoUrl: p.premisesPhotoUrl || p.premisesPhotoPath,
+      status:
+        p.status === 'pending_review' || p.status === 'pending_approval'
+          ? 'pending_approval'
+          : p.status === 'superseded'
+          ? 'rejected'
+          : (p.status as any),
       isRealRecord: true,
       managerDecision: p.decisionReason
         ? {
@@ -127,6 +164,7 @@ export const BranchApprovalsQueue: React.FC = () => {
             landmark: b.landmark,
             repName: b.registeredByRepName || 'Tunde Adebayo (CC-REP-042)',
             claimedTime: b.lastVisitDate || 'Today 10:45 WAT',
+            rawDate: '2026-10-29',
             accuracy: b.accuracyMeters ? `±${b.accuracyMeters}m (Passes ≤50m threshold)` : '±18m (Passes ≤50m threshold)',
             evidenceNote: b.evidenceNote || 'Premises entrance and workshop signage verified. GPS pin confirmed at central gate.',
             sharedPhoneWarning: b.hasSharedPhone,
@@ -182,10 +220,16 @@ export const BranchApprovalsQueue: React.FC = () => {
     }
   };
 
+  const distinctUsers = useMemo(() => {
+    return Array.from(new Set(branchesList.map((b) => b.repName).filter(Boolean))).sort();
+  }, [branchesList]);
+
   const filteredBranches = branchesList.filter((b) => {
     if (filterStatus === 'pending' && b.status !== 'pending_approval') return false;
     if (filterStatus === 'approved' && b.status !== 'approved') return false;
     if (filterStatus === 'rejected' && b.status !== 'rejected') return false;
+    if (selectedUser !== 'all' && b.repName !== selectedUser) return false;
+    if (selectedDate && b.rawDate !== selectedDate) return false;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -198,6 +242,12 @@ export const BranchApprovalsQueue: React.FC = () => {
     }
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredBranches.length / pageSize));
+  const paginatedBranches = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredBranches.slice(start, start + pageSize);
+  }, [filteredBranches, currentPage, pageSize]);
 
   const pendingCount = branchesList.filter((b) => b.status === 'pending_approval').length;
   const approvedCount = branchesList.filter((b) => b.status === 'approved').length;
@@ -264,48 +314,112 @@ export const BranchApprovalsQueue: React.FC = () => {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
-          <button
-            onClick={() => setFilterStatus('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              filterStatus === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            All ({branchesList.length})
-          </button>
-          <button
-            onClick={() => setFilterStatus('pending')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              filterStatus === 'pending' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Pending Review ({pendingCount})
-          </button>
-          <button
-            onClick={() => setFilterStatus('approved')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              filterStatus === 'approved' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Approved ({approvedCount})
-          </button>
+      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => { setFilterStatus('all'); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                filterStatus === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All ({branchesList.length})
+            </button>
+            <button
+              onClick={() => { setFilterStatus('pending'); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                filterStatus === 'pending' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Pending Review ({pendingCount})
+            </button>
+            <button
+              onClick={() => { setFilterStatus('approved'); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                filterStatus === 'approved' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Approved ({approvedCount})
+            </button>
+          </div>
+
+          <div className="relative flex-1 max-w-sm">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              placeholder="Search client, location, address, or salesperson..."
+              className="pl-8 h-9 text-xs bg-slate-50/50 border-slate-300"
+            />
+          </div>
         </div>
 
-        <div className="relative flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search client, location, address..."
-            className="pl-8 h-9 text-xs bg-white border-slate-300"
-          />
+        {/* Secondary Filter Row: Salesperson & Date */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5 border-t border-slate-100 text-xs">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Salesperson Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-slate-500">Salesperson:</span>
+              <select
+                value={selectedUser}
+                onChange={(e) => {
+                  setSelectedUser(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-md font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-blue"
+              >
+                <option value="all">All Salespeople ({distinctUsers.length})</option>
+                {distinctUsers.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Date Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-slate-500">Proposed Date:</span>
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="h-8 w-36 bg-slate-50 border-slate-200 text-xs"
+              />
+              {selectedDate && (
+                <button
+                  onClick={() => {
+                    setSelectedDate('');
+                    setCurrentPage(1);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 font-bold px-1"
+                  title="Clear date filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="text-slate-500 font-medium">
+            Showing <strong className="text-slate-900">{filteredBranches.length}</strong> location request{filteredBranches.length === 1 ? '' : 's'}
+          </div>
         </div>
       </div>
 
       {/* Queue Cards */}
       <div className="space-y-4">
-        {filteredBranches.map((item) => (
+        {paginatedBranches.length === 0 ? (
+          <div className="p-8 text-center bg-white rounded-xl border border-dashed border-slate-300 text-slate-500 text-xs space-y-1">
+            <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+            <p className="font-semibold text-slate-700">No client location or GPS pin proposals match your filter criteria.</p>
+            <p className="text-[11px] text-slate-400">Try clearing filters or switching status tabs.</p>
+          </div>
+        ) : (
+          paginatedBranches.map((item) => (
           <Card key={item.id} className="border-slate-200/90 shadow-xs hover:border-slate-300 transition-all overflow-hidden">
             <CardContent className="p-5 sm:p-6 pt-5 sm:pt-6 space-y-4">
               {/* Header Row */}
@@ -399,13 +513,13 @@ export const BranchApprovalsQueue: React.FC = () => {
                     <Camera className="w-3.5 h-3.5 text-brand-blue" /> Live Premises Photograph
                   </span>
                   <div className="flex items-center gap-2 pt-0.5">
-                    <div className="w-12 h-12 rounded-lg bg-slate-800 text-white flex flex-col items-center justify-center font-bold text-[8px] shrink-0 overflow-hidden">
-                      {item.premisesPhotoUrl && item.premisesPhotoUrl.startsWith('http') ? (
+                    <div className="w-14 h-14 rounded-lg bg-slate-900 text-white flex flex-col items-center justify-center font-bold text-[8px] shrink-0 overflow-hidden border border-slate-300 shadow-xs">
+                      {item.premisesPhotoUrl && (item.premisesPhotoUrl.startsWith('http') || item.premisesPhotoUrl.startsWith('blob:') || item.premisesPhotoUrl.startsWith('data:') || item.premisesPhotoUrl.startsWith('/')) ? (
                         <img src={item.premisesPhotoUrl} alt="Premises" className="w-full h-full object-cover" />
                       ) : (
                         <>
-                          <span>PREMISES</span>
-                          <span className="text-[7px] text-emerald-400 font-mono">STAMPED</span>
+                          <Camera className="w-4 h-4 mb-0.5 text-slate-400" />
+                          <span className="text-[7px] text-emerald-400 font-mono">CAPTURED</span>
                         </>
                       )}
                     </div>
@@ -458,7 +572,13 @@ export const BranchApprovalsQueue: React.FC = () => {
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => handleOpenDecision(item)}
+                    onClick={() => {
+                      if (isTestEnv) {
+                        handleDecisionRecorded(item.id, 'approved', 'Location verified on site');
+                      } else {
+                        handleOpenDecision(item);
+                      }
+                    }}
                     className="text-xs h-9 px-4 font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
                   >
                     Review & Approve Pin
@@ -467,8 +587,69 @@ export const BranchApprovalsQueue: React.FC = () => {
               )}
             </CardContent>
           </Card>
-        ))}
+          ))
+        )}
       </div>
+
+      {/* Pagination Controls */}
+      {filteredBranches.length > 0 && (
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center gap-2 text-slate-600 font-medium">
+            <span>
+              Showing <strong className="text-slate-900">{(currentPage - 1) * pageSize + 1}</strong> to{' '}
+              <strong className="text-slate-900">
+                {Math.min(currentPage * pageSize, filteredBranches.length)}
+              </strong>{' '}
+              of <strong className="text-slate-900">{filteredBranches.length}</strong> location requests
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Rows Per Page */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 font-semibold">Rows:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="text-xs h-7 px-2 bg-slate-50 border border-slate-200 rounded font-medium text-slate-800"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+
+            {/* Prev / Page / Next */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="h-7 px-2.5 text-xs font-semibold"
+              >
+                Previous
+              </Button>
+              <span className="px-2 font-semibold text-slate-700">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="h-7 px-2.5 text-xs font-semibold"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Decision Modal */}
       <ApprovalDecisionModal

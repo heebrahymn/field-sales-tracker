@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { BrandLogo } from '@/components/brand/BrandLogo';
+import { supabase } from '@/lib/supabase';
+import { managementService } from '@/services/managementService';
+import { attendanceService } from '@/services/attendanceService';
 import {
   LayoutDashboard,
   CheckCircle2,
@@ -8,7 +11,6 @@ import {
   ShieldAlert,
   AlertTriangle,
   PhoneCall,
-  Building2,
   CalendarDays,
   FileSpreadsheet,
   Smartphone,
@@ -54,6 +56,51 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 }) => {
   const { currentUser } = useAuth();
   const isHQ = currentUser.role === 'hq_admin';
+  const [liveBadges, setLiveBadges] = useState<Partial<Record<DesktopNavSection, number>>>({});
+
+  useEffect(() => {
+    let active = true;
+    async function loadCounts() {
+      try {
+        if (currentUser.role === 'hq_admin') {
+          const [{ count: excCount }, { count: devCount }] = await Promise.all([
+            supabase.from('exceptions').select('id', { count: 'exact', head: true }).eq('status', 'pending_review'),
+            supabase.from('device_replacement_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending_review'),
+          ]);
+          if (active) {
+            setLiveBadges({
+              exceptions: excCount ?? 0,
+              devices: devCount ?? 0,
+            });
+          }
+        } else {
+          const market = currentUser.marketCode || 'NG';
+          const [vRes, pPins, excs, flags, absReqs] = await Promise.all([
+            managementService.getCountryVisits(market),
+            managementService.getCountryPendingPins(market),
+            managementService.getCountryExceptions(market, 'pending_review'),
+            managementService.getCountryVerificationFlags(market, 'open'),
+            attendanceService.getPendingNonVisitRequests(market),
+          ]);
+          if (active) {
+            setLiveBadges({
+              visits: vRes.data?.length ?? 0,
+              approvals: pPins.length ?? 0,
+              exceptions: excs.data?.length ?? 0,
+              flags: flags.data?.length ?? 0,
+              attendance: absReqs.data?.length ?? 0,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[DesktopSidebar] Failed to load live counts:', err);
+      }
+    }
+    loadCounts();
+    return () => {
+      active = false;
+    };
+  }, [currentUser.role, currentUser.marketCode]);
 
   const navItems = isHQ
     ? [
@@ -67,7 +114,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           group: 'Administration & MDM',
           items: [
             { id: 'users' as DesktopNavSection, label: 'User & Role Management', icon: Users },
-            { id: 'devices' as DesktopNavSection, label: 'Company Devices & MDM', icon: Smartphone, badge: '2' },
+            { id: 'devices' as DesktopNavSection, label: 'Company Devices & MDM', icon: Smartphone },
             { id: 'markets' as DesktopNavSection, label: 'Rule Sets & Calendars', icon: Sliders },
           ],
         },
@@ -81,7 +128,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         {
           group: 'Governance & Oversight',
           items: [
-            { id: 'exceptions' as DesktopNavSection, label: 'Exception Oversight', icon: ShieldAlert, badge: '4' },
+            { id: 'exceptions' as DesktopNavSection, label: 'Exception Oversight', icon: ShieldAlert },
             { id: 'audits' as DesktopNavSection, label: 'Client Audit Oversight', icon: PhoneCall },
             { id: 'audit_log' as DesktopNavSection, label: 'System Audit Log', icon: FileClock },
           ],
@@ -92,10 +139,10 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           group: 'Oversight & Monitoring',
           items: [
             { id: 'dashboard' as DesktopNavSection, label: 'Operational Dashboard', icon: LayoutDashboard },
-            { id: 'visits' as DesktopNavSection, label: 'Client Visit Verification', icon: CheckCircle2, badge: '34' },
-            { id: 'approvals' as DesktopNavSection, label: 'Client & GPS Approvals', icon: CheckSquare, badge: '4' },
-            { id: 'exceptions' as DesktopNavSection, label: 'Exception Workbench', icon: ShieldAlert, badge: '3' },
-            { id: 'flags' as DesktopNavSection, label: 'Risk Flags Queue', icon: AlertTriangle, badge: '5' },
+            { id: 'visits' as DesktopNavSection, label: 'Client Visit Verification', icon: CheckCircle2 },
+            { id: 'approvals' as DesktopNavSection, label: 'Client & GPS Approvals', icon: CheckSquare },
+            { id: 'exceptions' as DesktopNavSection, label: 'Exception Workbench', icon: ShieldAlert },
+            { id: 'flags' as DesktopNavSection, label: 'Risk Flags Queue', icon: AlertTriangle },
             { id: 'audits' as DesktopNavSection, label: 'Client Audit Calls (5%)', icon: PhoneCall },
           ],
         },
@@ -103,7 +150,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           group: 'Team & Directory',
           items: [
             { id: 'attendance' as DesktopNavSection, label: 'Team Attendance', icon: CalendarDays },
-            { id: 'clients' as DesktopNavSection, label: 'Clients & Locations', icon: Building2 },
             { id: 'exports' as DesktopNavSection, label: 'Audited CSV Exports', icon: FileSpreadsheet },
           ],
         },
@@ -165,7 +211,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                     <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-white' : 'text-slate-500')} />
                     <span className="truncate">{item.label}</span>
                   </div>
-                  {item.badge && (
+                  {liveBadges[item.id] !== undefined && liveBadges[item.id]! > 0 && (
                     <span
                       className={cn(
                         'text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0',
@@ -174,7 +220,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                           : 'bg-amber-100 text-amber-900 border border-amber-200'
                       )}
                     >
-                      {item.badge}
+                      {liveBadges[item.id]}
                     </span>
                   )}
                 </button>
