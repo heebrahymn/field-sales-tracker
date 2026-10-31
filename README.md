@@ -46,7 +46,7 @@ To maintain absolute focus on core field activity verification and operational i
 | **Location & Mapping** | Browser Geolocation API, Leaflet, OpenStreetMap |
 | **Testing & Quality** | Vitest, React Testing Library |
 
-### Official Brand Design Tokens
+### Official Brand Design Tokens & Asset Suite
 
 | Token | Hex Value | Usage |
 |---|---|---|
@@ -54,6 +54,14 @@ To maintain absolute focus on core field activity verification and operational i
 | **Carbon Green** | `#1B9A4A` (`#157A3A` text) | Verified statuses, start day actions, success indicators |
 | **Carbon Yellow Highlight** | `#E8CF2F` | Live timer pulses, active visit highlights, operational accents |
 | **Neutral Surfaces** | `#FFFFFF` / Slate scales | High-contrast cards, outdoor-friendly forms, scannable tables |
+
+#### Production Favicon & Web App Icon Suite (ADR 0019)
+- **`public/favicon.svg`**: Infinite-resolution scalable vector SVG modeled with authentic brand colors and a solid white underlay for dual-theme (light/dark tab) contrast.
+- **`public/favicon.ico`**: Multi-resolution icon embedding 16x16, 32x32, and 48x48 mipmaps for desktop browsers and bookmarks.
+- **`public/favicon-16x16.png` & `public/favicon-32x32.png`**: Calibrated browser tab icons.
+- **`public/favicon-96x96.png`**: Chrome desktop shortcut icon.
+- **`public/apple-touch-icon.png`**: 180x180 icon for Apple iOS Safari home-screen installation.
+- **`public/web-app-manifest-192x192.png` & `public/web-app-manifest-512x512.png`**: Maskable high-resolution icons referenced in `public/site.webmanifest`.
 
 ---
 
@@ -78,6 +86,7 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Admin/Cam — Device & User Governance, Pagination, Manual Dialogs & Mobile Camera Flip (ADR 0016)
 [✓] Review/Sync — Country Sales Head Reviews, Dedicated Non-Visit Screen, Bidirectional Real-Time Sync & Storage Bucket Alignment (ADR 0017)
 [✓] Reassign/Sync — HQ Admin Device Reassignment Supersession, Spare Allocation RPC Alignment & Central Inventory Governance (ADR 0018)
+[✓] Brand/Favicon — Authentic Carbon Brand Favicon Suite & Web App Manifest Upgrade (ADR 0019)
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
 ```
