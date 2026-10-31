@@ -84,3 +84,4 @@ During comprehensive operational walkthroughs of the HQ Admin Handset Management
    - Verified active handset activation on salesperson profile (`fix_step7_salesperson_profile_activated.png`).
    - Verified synchronized handset on Country Sales Head team attendance (`fix_step8_sales_head_team_handset_activated.png`).
    - Verified direct handset reassignment with automatic supersession notice and instant table success (`fix_reassign_modal_supersede_notice.png`, `fix_reassign_modal_post_success.png`).
+

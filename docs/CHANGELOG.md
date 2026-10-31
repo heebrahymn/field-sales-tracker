@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Post-Stage 3F Milestone] - Authentic Carbon Brand Favicon Suite & Web App Manifest Upgrade (2026-10-31)
+
+### Favicon & Brand Identity Upgrade
+- **Replaced Placeholder Geometric Favicon with Authentic Brand Mark:**
+  - Retired the early scaffold geometric SVG (`public/favicon.svg` with blue square, yellow triangle, and green circle).
+  - Implemented the official dynamic Carbon brand mark (Carbon Green `#1B9A4A`, Carbon Blue `#21409A`, Carbon Yellow `#E8CF2F`) with crisp white interior divider stripes and full transparent canvas bounding.
+  - Crafted an antialiased white base silhouette ensuring high contrast and pristine divider visibility across both light (`#FFFFFF`, `#F1F5F9`) and dark (`#0F172A`, `#1E293B`) browser tab themes.
+- **Production-Grade Multi-Resolution Asset Generation:**
+  - `public/favicon.svg`: Scalable vector SVG with native brand color classes and white base silhouette.
+  - `public/favicon.ico`: Multi-resolution icon file bundling 16x16, 32x32, and 48x48 mipmaps.
+  - `public/favicon-96x96.png`, `public/favicon-32x32.png`, `public/favicon-16x16.png`: Calibrated desktop and HiDPI browser tab icons.
+  - `public/apple-touch-icon.png`: 180x180 icon for iOS Safari "Add to Home Screen" and bookmarks.
+  - `public/web-app-manifest-192x192.png` & `public/web-app-manifest-512x512.png`: High-resolution maskable PWA icons.
+  - `public/site.webmanifest`: Standard Web App Manifest configured for standalone PWA installation with brand theme `#21409A`.
+- **HTML Document Head & Service Worker Precache Integration:**
+  - Updated `index.html` with complete `<link rel="icon">`, `<link rel="apple-touch-icon">`, and `<link rel="manifest">` tags.
+  - Updated `public/sw.js` `PRECACHE_URLS` so offline field representatives retain brand icons even without active network access.
+
+### Verified
+- **TypeScript:** `npx tsc --noEmit` passed with 0 errors.
+- **Vitest Suite:** 199 / 199 tests passing across all 14 test suites.
+- **Vite Production Build:** `npm run build` compiled cleanly; verified all favicon assets copied into `dist/`.
+- **Visual Verification:** Generated before-and-after visual proof comparing old placeholder tab screenshot against the authentic Carbon mark.
+
+---
+
 ## [Post-Stage 3F Milestone] - HQ Admin Handset Custody Reassignment Supersession, Spare Allocation RPC Alignment & Central Inventory Governance (2026-10-30)
 
 ### Handset Reassignment, Spare Allocation & Central Inventory (ADR 0018)

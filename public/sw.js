@@ -16,6 +16,10 @@ const PRECACHE_URLS = [
   '/',
   '/index.html',
   '/brand/carbon_logo.png',
+  '/favicon.svg',
+  '/favicon-96x96.png',
+  '/favicon.ico',
+  '/site.webmanifest',
 ];
 
 self.addEventListener('install', (event) => {
