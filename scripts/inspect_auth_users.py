@@ -1,7 +1,7 @@
 from supabase import create_client
 
-url = 'https://[SUPABASE_PROJECT_ID].supabase.co'
-key = '[SUPABASE_SERVICE_ROLE_KEY_REDACTED]'
+url = os.environ.get('VITE_SUPABASE_URL', 'https://[SUPABASE_PROJECT_ID].supabase.co')
+key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
 sb = create_client(url, key)
 
 print("PROFILES:")

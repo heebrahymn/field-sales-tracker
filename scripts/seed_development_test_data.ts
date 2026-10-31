@@ -53,7 +53,7 @@ function loadEnv(): { url: string; serviceRoleKey: string; devUserPassword: stri
     );
   }
 
-  return { url, serviceRoleKey, devUserPassword: devUserPassword || '[DEV_USER_PASSWORD_REDACTED]' };
+  return { url, serviceRoleKey, devUserPassword: devUserPassword || process.env.DEV_USER_PASSWORD || '' };
 }
 
 async function run() {

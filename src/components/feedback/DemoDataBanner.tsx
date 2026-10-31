@@ -56,7 +56,7 @@ export const DemoDataBanner: React.FC<DemoDataBannerProps> = ({ onLogout }) => {
 
       {/* Center: SSoT Notice */}
       <div className="hidden lg:flex items-center text-slate-400 text-[11px]">
-        <span>Connected to Live Supabase DB: <code className="text-emerald-400 font-mono text-[10px] ml-1">[SUPABASE_PROJECT_ID]</code> (Single Source of Truth)</span>
+        <span>Connected to Live Supabase DB: <span className="text-emerald-400 font-semibold ml-1">(Single Source of Truth)</span></span>
       </div>
 
       {/* Right: Actions */}

@@ -18,8 +18,8 @@ import json
 from datetime import datetime, timezone
 import requests
 
-SUPABASE_URL = "https://[SUPABASE_PROJECT_ID].supabase.co"
-PUBLISHABLE_KEY = "[VITE_SUPABASE_PUBLISHABLE_KEY]"
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "https://[SUPABASE_PROJECT_ID].supabase.co")
+PUBLISHABLE_KEY = os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY", os.environ.get("VITE_SUPABASE_ANON_KEY", ""))
 
 
 def get_env_var(key_name):
@@ -32,7 +32,7 @@ def get_env_var(key_name):
     return val or ""
 
 
-DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or "[DEV_USER_PASSWORD_REDACTED]"
+DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or os.environ.get("DEV_USER_PASSWORD", "")
 
 
 def login(email):

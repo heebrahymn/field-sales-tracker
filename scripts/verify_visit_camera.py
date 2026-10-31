@@ -41,7 +41,7 @@ def main():
 
         print("[STEP 2] Signing in as Field Salesperson Tunde Adebayo...")
         page.fill('input[type="email"]', "tunde.adebayo@carboncarcare.com")
-        page.fill('input[type="password"]', "[DEV_USER_PASSWORD_REDACTED]")
+        page.fill('input[type="password"]', os.environ.get("DEV_USER_PASSWORD", ""))
         page.click('button[type="submit"]')
         page.wait_for_load_state("networkidle")
         time.sleep(3)

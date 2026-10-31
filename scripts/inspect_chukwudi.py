@@ -10,7 +10,7 @@ def inspect():
         time.sleep(2)
 
         page.fill('input[type="email"]', "chukwudi.okafor@carboncarcare.com")
-        page.fill('input[type="password"]', "[DEV_USER_PASSWORD_REDACTED]")
+        page.fill('input[type="password"]', os.environ.get("DEV_USER_PASSWORD", ""))
         page.click('button[type="submit"]')
         page.wait_for_load_state("networkidle")
         time.sleep(3)

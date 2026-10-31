@@ -20,7 +20,7 @@ def get_env_var(key_name):
                     return line.strip().split("=", 1)[1]
     return val or ""
 
-DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or "[DEV_USER_PASSWORD_REDACTED]"
+DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or os.environ.get("DEV_USER_PASSWORD", "")
 
 def save_screenshot(page, filename):
     p1 = os.path.join(OUTPUT_DIR, filename)
@@ -94,7 +94,7 @@ def run_test():
         page.fill("input[placeholder*='234 800 123 4567']", "+234 802 555 7788")
         
         # Set Temporary Password
-        new_emp_password = "[DEV_USER_PASSWORD_REDACTED]"
+        new_emp_password = os.environ.get("DEV_USER_PASSWORD", "")
         page.fill("input[placeholder*='secure 20-character']", new_emp_password)
         
         save_screenshot(page, "p0_fix_04_filled_provision_form.png")

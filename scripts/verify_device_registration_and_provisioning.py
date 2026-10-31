@@ -24,8 +24,8 @@ def get_env_var(key_name):
                     return line.strip().split("=", 1)[1]
     return val or ""
 
-DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or "[DEV_USER_PASSWORD_REDACTED]"
-SUPABASE_URL = "https://[SUPABASE_PROJECT_ID].supabase.co"
+DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or os.environ.get("DEV_USER_PASSWORD", "")
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "https://[SUPABASE_PROJECT_ID].supabase.co")
 SUPABASE_SERVICE_ROLE_KEY = get_env_var("SUPABASE_SERVICE_ROLE_KEY")
 
 TEST_ASSET_TAG = f"CC-DEV-LOS-REG-{int(time.time()) % 10000}"

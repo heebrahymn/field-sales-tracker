@@ -20,8 +20,8 @@ import uuid
 import requests
 from datetime import datetime, timezone
 
-SUPABASE_URL = "https://[SUPABASE_PROJECT_ID].supabase.co"
-PUBLISHABLE_KEY = "[VITE_SUPABASE_PUBLISHABLE_KEY]"
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "https://[SUPABASE_PROJECT_ID].supabase.co")
+PUBLISHABLE_KEY = os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY", os.environ.get("VITE_SUPABASE_ANON_KEY", ""))
 
 
 def get_dev_password():

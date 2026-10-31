@@ -383,8 +383,8 @@ export const visitService = {
               MW: 'tamika.phiri@carboncarcare.com',
             };
             const managerEmail = managerEmails[params.marketCode] || 'babatunde.adeleke@carboncarcare.com';
-            const devPassword = (import.meta.env as any).DEV_USER_PASSWORD || '[DEV_USER_PASSWORD_REDACTED]';
-            const supabaseUrl = (import.meta.env as any).VITE_SUPABASE_URL || 'https://[SUPABASE_PROJECT_ID].supabase.co';
+            const devPassword = (import.meta.env as any).DEV_USER_PASSWORD || (import.meta.env as any).DEV_USER_PASSWORD || '';
+            const supabaseUrl = (import.meta.env as any).VITE_SUPABASE_URL || (import.meta.env as any).VITE_SUPABASE_URL || '';
             const anonKey = (import.meta.env as any).VITE_SUPABASE_PUBLISHABLE_KEY || '';
 
             const custodianClient = createClient(supabaseUrl, anonKey, {

@@ -6,7 +6,7 @@ with sync_playwright() as p:
     page = c.new_page()
     page.goto('http://localhost:5173/login')
     page.fill("input[name='email'], input[type='email']", 'tunde.adebayo@carboncarcare.com')
-    page.fill("input[name='password'], input[type='password']", '[DEV_USER_PASSWORD_REDACTED]')
+    page.fill("input[name='password'], input[type='password']", os.environ.get('DEV_USER_PASSWORD', ''))
     page.click("button:has-text('Sign In With Credentials')")
     page.wait_for_timeout(4000)
     print('Current URL:', page.url)

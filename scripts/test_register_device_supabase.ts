@@ -1,14 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const url = 'https://[SUPABASE_PROJECT_ID].supabase.co';
-const anonKey = '[VITE_SUPABASE_PUBLISHABLE_KEY]';
+const url = process.env.VITE_SUPABASE_URL || 'https://[SUPABASE_PROJECT_ID].supabase.co';
+const anonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const sb = createClient(url, anonKey);
 
 async function testRegister() {
   console.log('1. Signing in as HQ Admin...');
   const { data: authData, error: authErr } = await sb.auth.signInWithPassword({
     email: 'hq.admin@carboncarcare.com',
-    password: '[DEV_USER_PASSWORD_REDACTED]',
+    password: process.env.DEV_USER_PASSWORD || '',
   });
 
   if (authErr || !authData.user) {

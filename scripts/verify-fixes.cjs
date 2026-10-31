@@ -20,7 +20,7 @@ async function runVerification() {
 
   // Fill in Country Sales Head login
   await page.fill('input[type="email"]', 'babatunde.adeleke@carboncarcare.com');
-  await page.fill('input[type="password"]', '[DEV_USER_PASSWORD_REDACTED]');
+  await page.fill('input[type="password"]', process.env.DEV_USER_PASSWORD || '');
   await page.click('button:has-text("Sign In to Carbon Field")');
 
   await page.waitForTimeout(3000);
@@ -71,7 +71,7 @@ async function runVerification() {
   await mobilePage.goto(`${BASE_URL}/login`);
   await mobilePage.waitForLoadState('networkidle');
   await mobilePage.fill('input[type="email"]', 'tunde.adebayo@carboncarcare.ng');
-  await mobilePage.fill('input[type="password"]', '[DEV_USER_PASSWORD_REDACTED]');
+  await mobilePage.fill('input[type="password"]', process.env.DEV_USER_PASSWORD || '');
   await mobilePage.click('button:has-text("Sign In to Carbon Field")');
   await mobilePage.waitForTimeout(3000);
 

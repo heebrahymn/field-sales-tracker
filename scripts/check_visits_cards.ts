@@ -19,7 +19,7 @@ const supabase = createClient(url, anonKey);
 async function check() {
   await supabase.auth.signInWithPassword({
     email: 'babatunde.adeleke@carboncarcare.com',
-    password: '[DEV_USER_PASSWORD_REDACTED]',
+    password: process.env.DEV_USER_PASSWORD || '',
   });
 
   const { data: visits, error } = await supabase

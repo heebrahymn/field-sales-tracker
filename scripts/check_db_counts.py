@@ -1,7 +1,7 @@
 import os
 import requests
 
-url = 'https://[SUPABASE_PROJECT_ID].supabase.co'
+url = os.environ.get('VITE_SUPABASE_URL', 'https://[SUPABASE_PROJECT_ID].supabase.co')
 key = ''
 if os.path.exists('.env.local'):
     with open('.env.local', 'r') as f:

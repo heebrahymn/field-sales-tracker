@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stage 0, Stage 1A–1E, Stage 2A–2B, Pre-Stage 3 Audit, Stage 3A, Stage 3B, Stage 3C, Stage 3D, Stage 3E, Stage 3F, and Supabase Dev SSoT Migration Completed; Controlled Field Pilot Staging Deployed; Final Business Operational Rollout Authorisation Pending  
+**Status:** Stages 0–3F Completed; Post-Stage 3F Governance & Brand Assets (ADRs 0015–0019) Applied; Final MVP Completeness Audit Completed; Prepared for Comprehensive Role-Based User Acceptance Testing (UAT); Stakeholder Review Pending  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard

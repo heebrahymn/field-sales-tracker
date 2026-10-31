@@ -10,7 +10,7 @@ envContent.split('\n').forEach(line => {
 
 const url = env.VITE_SUPABASE_URL;
 const key = env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY;
-const password = env.DEV_USER_PASSWORD || env.SEED_TEST_USER_PASSWORD || '[DEV_USER_PASSWORD_REDACTED]';
+const password = env.DEV_USER_PASSWORD || env.SEED_TEST_USER_PASSWORD || process.env.DEV_USER_PASSWORD || '';
 
 const supabase = createClient(url, key);
 

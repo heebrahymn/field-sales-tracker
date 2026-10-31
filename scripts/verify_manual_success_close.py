@@ -12,7 +12,7 @@ def get_dev_password():
         for line in f:
             if line.startswith("DEV_USER_PASSWORD="):
                 return line.strip().split("=", 1)[1]
-    return "[DEV_USER_PASSWORD_REDACTED]"
+    return os.environ.get("DEV_USER_PASSWORD", "")
 
 def copy_to_brain(filename):
     src = os.path.join(SCREENSHOT_DIR, filename)

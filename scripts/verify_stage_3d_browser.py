@@ -38,8 +38,8 @@ from datetime import datetime, timezone
 import requests
 from playwright.sync_api import sync_playwright
 
-SUPABASE_URL = "https://[SUPABASE_PROJECT_ID].supabase.co"
-PUBLISHABLE_KEY = "[VITE_SUPABASE_PUBLISHABLE_KEY]"
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "https://[SUPABASE_PROJECT_ID].supabase.co")
+PUBLISHABLE_KEY = os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY", os.environ.get("VITE_SUPABASE_ANON_KEY", ""))
 
 OUTPUT_DIR = os.path.join("docs", "screenshots", "stage3d")
 ARTIFACT_DIR = r"C:\Users\HQ Administrator\.gemini\antigravity\brain\fc573132-6d8d-4550-b06f-9eb28f426230"

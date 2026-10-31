@@ -14,8 +14,8 @@ import requests
 import json
 from datetime import datetime
 
-SUPABASE_URL = "https://[SUPABASE_PROJECT_ID].supabase.co"
-PUBLISHABLE_KEY = "[VITE_SUPABASE_PUBLISHABLE_KEY]"
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "https://[SUPABASE_PROJECT_ID].supabase.co")
+PUBLISHABLE_KEY = os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY", os.environ.get("VITE_SUPABASE_ANON_KEY", ""))
 
 def get_dev_password():
     pwd = os.environ.get("DEV_USER_PASSWORD")

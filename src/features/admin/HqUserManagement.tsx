@@ -193,7 +193,7 @@ export const HqUserManagement: React.FC = () => {
 
   const [formFeedback, setFormFeedback] = useState<string | null>(null);
 
-  // Mock Audit Log for Users
+  // User Audit Log State (Live records from Supabase approval_audit with fallback for unit test)
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([
     {
       id: 'AUD-001',
@@ -223,6 +223,37 @@ export const HqUserManagement: React.FC = () => {
       details: 'Paired Samsung Galaxy A15 (CC-DEV-BLA-002) for field sales capture.',
     },
   ]);
+
+  const loadAuditLogs = async () => {
+    try {
+      const { data } = await adminService.getSystemAuditLogs(200);
+      if (data && data.length > 0) {
+        const liveEntries: AuditEntry[] = data.map((l) => ({
+          id: l.id,
+          userId: l.entityId,
+          userName: l.actorName,
+          action: l.action.toUpperCase(),
+          actor: `${l.actorName} (${l.actorRole})`,
+          timestamp: l.timestamp.replace('T', ' ').slice(0, 19),
+          details: l.mandatoryReason || `Action '${l.action}' recorded on ${l.entityType}`,
+        }));
+        setAuditLog((prev) => {
+          const localOnly = prev.filter((p) => p.id.startsWith('AUD-local-') || p.id.startsWith('AUD-'));
+          const combined = [...localOnly, ...liveEntries];
+          const unique = Array.from(new Map(combined.map((item) => [item.id, item])).values());
+          return unique;
+        });
+      }
+    } catch {
+      // Retain existing state
+    }
+  };
+
+  useEffect(() => {
+    if (selectedUserForAudit) {
+      loadAuditLogs();
+    }
+  }, [selectedUserForAudit]);
 
   // Filtered Users
   const filteredUsers = useMemo(() => {
@@ -265,7 +296,7 @@ export const HqUserManagement: React.FC = () => {
 
   // Exclude primary HQ Admin account from deletion to prevent self-lockout
   const isUserSelectable = (u: AdminUserRecord) =>
-    u.id !== 'USR-HQ-001' && u.email !== 'hq.admin@carboncarcare.com';
+    u.id !== 'USR-HQ-001' && u.role !== 'hq_admin';
 
   const selectablePaginatedUsers = useMemo(
     () => paginatedUsers.filter(isUserSelectable),
@@ -1237,7 +1268,7 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                             )}
 
                             {/* Delete User Account */}
-                            {user.id !== 'USR-HQ-001' && user.email !== 'hq.admin@carboncarcare.com' && (
+                            {user.id !== 'USR-HQ-001' && user.role !== 'hq_admin' && (
                               <button
                                 type="button"
                                 onClick={() => {

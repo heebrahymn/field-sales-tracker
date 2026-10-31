@@ -43,7 +43,7 @@ def get_env_var(key_name):
     return val or ""
 
 
-DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or "[DEV_USER_PASSWORD_REDACTED]"
+DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or os.environ.get("DEV_USER_PASSWORD", "")
 
 results = {
     "url": LIVE_URL,

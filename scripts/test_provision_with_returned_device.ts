@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const url = 'https://[SUPABASE_PROJECT_ID].supabase.co';
-const key = '[SUPABASE_SERVICE_ROLE_KEY_REDACTED]';
+const url = process.env.VITE_SUPABASE_URL || 'https://[SUPABASE_PROJECT_ID].supabase.co';
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const sb = createClient(url, key);
 
 async function testEdgeFunctionProvisionWithDevice() {

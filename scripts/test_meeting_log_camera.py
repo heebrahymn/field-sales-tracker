@@ -4,7 +4,7 @@ from playwright.async_api import async_playwright
 
 ARTIFACTS_DIR = r"C:\Users\HQ Administrator\.gemini\antigravity\brain\fc573132-6d8d-4550-b06f-9eb28f426230"
 BASE_URL = "http://localhost:5173"
-PASSWORD = "[DEV_USER_PASSWORD_REDACTED]"
+PASSWORD = os.environ.get("DEV_USER_PASSWORD", "")
 
 async def run():
     async with async_playwright() as p:

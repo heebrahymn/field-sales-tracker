@@ -15,7 +15,7 @@ def inspect():
         if email_input:
             email_input.fill("tunde.adebayo@carboncarcare.com")
             pwd_input = page.query_selector('input[type="password"]') or page.query_selector('#password')
-            pwd_input.fill("[DEV_USER_PASSWORD_REDACTED]")
+            pwd_input.fill(os.environ.get("DEV_USER_PASSWORD", ""))
             page.click('button[type="submit"]')
             page.wait_for_load_state("networkidle")
             time.sleep(3)

@@ -22,7 +22,7 @@ const adminSupabase = createClient(url, serviceKey);
 async function main() {
   const { data: user, error: loginErr } = await supabase.auth.signInWithPassword({
     email: 'babatunde.adeleke@carboncarcare.com',
-    password: '[DEV_USER_PASSWORD_REDACTED]',
+    password: process.env.DEV_USER_PASSWORD || '',
   });
   console.log('Login Babatunde:', user?.user?.email, loginErr?.message);
 

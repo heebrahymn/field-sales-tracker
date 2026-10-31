@@ -24,7 +24,7 @@ def get_dev_password():
         for line in f:
             if line.startswith("DEV_USER_PASSWORD="):
                 return line.strip().split("=", 1)[1]
-    return "[DEV_USER_PASSWORD_REDACTED]"
+    return os.environ.get("DEV_USER_PASSWORD", "")
 
 def run():
     dev_password = get_dev_password()

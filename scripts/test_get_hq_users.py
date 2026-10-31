@@ -1,8 +1,8 @@
 import os
 import requests
 
-SUPABASE_URL = "https://[SUPABASE_PROJECT_ID].supabase.co"
-PUBLISHABLE_KEY = "[VITE_SUPABASE_PUBLISHABLE_KEY]"
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "https://[SUPABASE_PROJECT_ID].supabase.co")
+PUBLISHABLE_KEY = os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY", os.environ.get("VITE_SUPABASE_ANON_KEY", ""))
 
 def get_env_var(key_name):
     val = os.environ.get(key_name)

@@ -27,7 +27,7 @@ def run_test():
         print("1. Logging into HQ Admin...")
         page.goto(TARGET_URL, wait_until="networkidle")
         page.fill("input[name='email']", "hq.admin@carboncarcare.com")
-        page.fill("input[name='password']", "[DEV_USER_PASSWORD_REDACTED]")
+        page.fill("input[name='password']", os.environ.get("DEV_USER_PASSWORD", ""))
         page.click("button[type='submit']")
         page.wait_for_timeout(3000)
 

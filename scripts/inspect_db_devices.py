@@ -1,8 +1,8 @@
 from supabase import create_client
 import os
 
-url = 'https://[SUPABASE_PROJECT_ID].supabase.co'
-key = '[SUPABASE_SERVICE_ROLE_KEY_REDACTED]'
+url = os.environ.get('VITE_SUPABASE_URL', 'https://[SUPABASE_PROJECT_ID].supabase.co')
+key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
 sb = create_client(url, key)
 
 res = sb.from_('devices').select('id, asset_tag, serial_number, make, model, market_code, inventory_status, device_assignments(*)').execute()

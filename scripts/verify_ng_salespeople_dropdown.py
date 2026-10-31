@@ -27,7 +27,7 @@ def get_env_var(key_name):
                     return line.strip().split("=", 1)[1]
     return val or ""
 
-DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or "[DEV_USER_PASSWORD_REDACTED]"
+DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or os.environ.get("DEV_USER_PASSWORD", "")
 
 def run_test():
     with sync_playwright() as p:

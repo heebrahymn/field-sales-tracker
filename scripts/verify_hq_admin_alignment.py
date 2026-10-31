@@ -3,7 +3,7 @@ import os
 from playwright.sync_api import sync_playwright
 
 BRAIN_DIR = r"C:\Users\HQ Administrator\.gemini\antigravity\brain\fc573132-6d8d-4550-b06f-9eb28f426230"
-DEV_PASSWORD = "[DEV_USER_PASSWORD_REDACTED]"
+DEV_PASSWORD = os.environ.get("DEV_USER_PASSWORD", "")
 BASE_URL = "http://localhost:5173"
 
 def save_brain_screenshot(page, filename):

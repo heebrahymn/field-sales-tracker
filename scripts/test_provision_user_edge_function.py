@@ -2,8 +2,8 @@ import os
 import requests
 import json
 
-SUPABASE_URL = "https://[SUPABASE_PROJECT_ID].supabase.co"
-PUBLISHABLE_KEY = "[VITE_SUPABASE_PUBLISHABLE_KEY]"
+SUPABASE_URL = os.environ.get("VITE_SUPABASE_URL", "https://[SUPABASE_PROJECT_ID].supabase.co")
+PUBLISHABLE_KEY = os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY", os.environ.get("VITE_SUPABASE_ANON_KEY", ""))
 EDGE_FUNCTION_URL = f"{SUPABASE_URL}/functions/v1/admin-provision-user"
 
 def get_env_var(key_name):
@@ -15,7 +15,7 @@ def get_env_var(key_name):
                     return line.strip().split("=", 1)[1]
     return val or ""
 
-DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or "[DEV_USER_PASSWORD_REDACTED]"
+DEV_PASSWORD = get_env_var("DEV_USER_PASSWORD") or os.environ.get("DEV_USER_PASSWORD", "")
 
 def login(email):
     r = requests.post(
@@ -116,7 +116,7 @@ def run():
             "phone_number": "+2348055566778",
             "role": "salesperson",
             "market_code": "NG",
-            "password": "[DEV_USER_PASSWORD_REDACTED]"
+            "password": os.environ.get("DEV_USER_PASSWORD", "")
         }
     )
     print(f"  Status: {r_prov.status_code}")
@@ -146,7 +146,7 @@ def run():
     r_login = requests.post(
         f"{SUPABASE_URL}/auth/v1/token?grant_type=password",
         headers={"apikey": PUBLISHABLE_KEY, "Content-Type": "application/json"},
-        json={"email": test_rep_email, "password": "[DEV_USER_PASSWORD_REDACTED]"},
+        json={"email": test_rep_email, "password": os.environ.get("DEV_USER_PASSWORD", "")},
     )
     print(f"  Login status: {r_login.status_code}")
     assert r_login.status_code == 200, f"New employee failed to authenticate: {r_login.text}"
