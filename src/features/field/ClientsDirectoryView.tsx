@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useFieldSession, ClientBranch } from '@/context/FieldSessionContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
+import { useAuthSafe } from '@/context/AuthContext';
 import { RegisterBranchModal } from '@/features/field/RegisterBranchModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +25,10 @@ interface ClientsDirectoryViewProps {
 
 export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onStartVisitAtBranch }) => {
   const { branches, activeVisit, refreshBranches } = useFieldSession();
+  const auth = useAuthSafe();
+  const { getActiveMarketRules } = useMarketConfig();
+  const activeRules = getActiveMarketRules((auth?.currentUser?.marketCode || 'NG') as any);
+  const geofenceLimit = activeRules.defaultGeofenceRadiusMeters ?? 200;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'nearby' | 'depots' | 'pending'>('all');
@@ -204,7 +210,7 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
         ) : (
           filteredBranches.map((branch) => {
             const isCurrentlyActive = activeVisit?.branchId === branch.id;
-            const isInsideGeofence = branch.distanceMeters <= 200;
+            const isInsideGeofence = branch.distanceMeters <= geofenceLimit;
 
             return (
               <div
@@ -302,7 +308,7 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
                       Shared Co. Phone: <strong className="font-mono">{branch.sharedCompanyPhone}</strong>
                     </span>
                     <span className="text-[9px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">
-                      PRD §4.2 Approved
+                      Approved
                     </span>
                   </div>
                 )}

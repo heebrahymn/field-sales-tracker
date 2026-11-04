@@ -96,6 +96,10 @@ def run():
 
         # Step 4: Fill form
         print(f"\nStep 4: Filling registration form for {TEST_ASSET_TAG}...", flush=True)
+        # Unlock manual input if in auto-generated mode
+        if page.locator("button:has-text('Customize')").count() > 0:
+            page.locator("button:has-text('Customize')").click()
+            page.wait_for_timeout(300)
         page.fill("#input-reg-asset-id", TEST_ASSET_TAG)
         page.fill("#input-reg-serial-number", TEST_SERIAL)
         page.fill("input[placeholder='e.g. 864209051999123']", "864209051999123")

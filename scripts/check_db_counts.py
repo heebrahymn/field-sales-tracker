@@ -1,12 +1,14 @@
 import os
 import requests
 
-url = os.environ.get('VITE_SUPABASE_URL', 'https://[SUPABASE_PROJECT_ID].supabase.co')
+url = os.environ.get('VITE_SUPABASE_URL', '')
 key = ''
 if os.path.exists('.env.local'):
     with open('.env.local', 'r') as f:
         for line in f:
-            if line.startswith('SUPABASE_SERVICE_ROLE_KEY='):
+            if line.startswith('VITE_SUPABASE_URL='):
+                url = line.strip().split('=', 1)[1]
+            elif line.startswith('SUPABASE_SERVICE_ROLE_KEY='):
                 key = line.strip().split('=', 1)[1]
 
 headers = {'apikey': key, 'Authorization': f'Bearer {key}'}
@@ -27,4 +29,3 @@ for t in tables:
         print(f'  {t:30}: {count} (HTTP {r.status_code})')
     except Exception as e:
         print(f'  {t:30}: ERROR {e}')
-

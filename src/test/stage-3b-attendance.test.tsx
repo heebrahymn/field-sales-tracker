@@ -152,7 +152,7 @@ describe('Stage 3B: Real Attendance & Workday Management Tests', () => {
 
       expect(result.data).toBeNull();
       expect(result.error).not.toBeNull();
-      expect(result.error?.message).toContain('active client visit is currently in progress (PRD §6.1 / AT-03)');
+      expect(result.error?.message).toContain('active client visit is currently in progress');
     });
 
     it('rejects duplicate endDayAttendance if status is already ended', async () => {
@@ -810,7 +810,7 @@ describe('Stage 3B: Real Attendance & Workday Management Tests', () => {
 
       // The initial FieldSessionProvider state has activeVisit: Apex Heavy Logistics
       expect(screen.getByText(/End Day Blocked: Active Visit Open/i)).toBeInTheDocument();
-      expect(screen.getByText(/Rule AT-03/i)).toBeInTheDocument();
+      expect(screen.getByText(/cannot end your workday while a physical visit session remains open/i)).toBeInTheDocument();
       expect(screen.getByText(/Apex Heavy Logistics Fleet Depot/i)).toBeInTheDocument();
 
       // Confirm & End Workday button should NOT be rendered while blocked
@@ -868,7 +868,7 @@ describe('Stage 3B: Real Attendance & Workday Management Tests', () => {
         </AuthProvider>
       );
 
-      expect(screen.getByText(/PRD §2 & §6.1 Non-Visit Workday/i)).toBeInTheDocument();
+      expect(screen.getByText(/Authorized Non-Visit Workday/i)).toBeInTheDocument();
 
       // Submit form
       fireEvent.click(screen.getByRole('button', { name: /Submit Request/i }));

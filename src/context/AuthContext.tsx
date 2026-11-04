@@ -12,6 +12,7 @@ export interface AssignedDeviceInfo {
   make?: string;
   status: 'approved' | 'pending' | 'revoked';
   securityAuthorization?: string;
+  batteryHealth?: number;
 }
 
 export interface UserProfile {
@@ -47,6 +48,7 @@ export const DEMO_PROFILES: Record<string, UserProfile> = {
       make: 'Samsung',
       status: 'approved',
       securityAuthorization: 'authorized',
+      batteryHealth: 95,
     },
   },
   country_sales_head: {
@@ -228,6 +230,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
               model,
               asset_id,
               asset_tag,
+              battery_health,
               inventory_status,
               security_authorization
             )
@@ -245,6 +248,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
             make: dev.make || 'Samsung',
             status: dev.inventory_status === 'active' ? 'approved' : 'pending',
             securityAuthorization: dev.security_authorization || 'authorized',
+            batteryHealth: (dev as any).battery_health ?? 95,
           };
         }
       }

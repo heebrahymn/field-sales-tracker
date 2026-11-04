@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useFieldSession, ClientBranch } from '@/context/FieldSessionContext';
+import { useAuth } from '@/context/AuthContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 import { RegisterBranchModal } from '@/features/field/RegisterBranchModal';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
 import { Button } from '@/components/ui/button';
@@ -26,6 +28,10 @@ export interface ClientGroup {
 }
 
 export const ClientsLocationsDirectory: React.FC = () => {
+  const { currentUser } = useAuth();
+  const { getActiveMarketRules } = useMarketConfig();
+  const activeRules = getActiveMarketRules(currentUser.marketCode);
+  const maxPinThreshold = activeRules?.maxProposedPinGpsAccuracyMeters || 50;
   const { branches, approveBranchPin, rejectBranchPin } = useFieldSession();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -121,7 +127,7 @@ export const ClientsLocationsDirectory: React.FC = () => {
       subtitle: `${loc.address} • Location #${loc.branchCode}`,
       repName: loc.registeredByRepName || 'Tunde Adebayo (CC-REP-042)',
       claimedTime: loc.lastVisitDate || 'Today 10:45 WAT',
-      accuracy: loc.accuracyMeters ? `±${loc.accuracyMeters}m (Passes ≤50m threshold)` : '±18m (Passes ≤50m threshold)',
+      accuracy: loc.accuracyMeters ? `±${loc.accuracyMeters}m (Passes ≤${maxPinThreshold}m threshold)` : `±18m (Passes ≤${maxPinThreshold}m threshold)`,
       evidenceNote: loc.evidenceNote || 'Premises entrance and workshop signage verified. GPS pin confirmed at central gate.',
       sharedPhoneWarning: loc.hasSharedPhone,
     };
@@ -168,7 +174,7 @@ export const ClientsLocationsDirectory: React.FC = () => {
                 Country Head Directory
               </span>
               <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                PRD §4.2 Multi-Facility Model
+                Multi-Facility Model
               </span>
             </div>
             <h2 className="text-xl font-bold text-slate-900 mt-1">Clients &amp; Locations</h2>
@@ -191,7 +197,7 @@ export const ClientsLocationsDirectory: React.FC = () => {
         <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-start gap-2.5 text-xs text-slate-700">
           <Info className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
           <div className="text-[11px] leading-relaxed">
-            <strong className="text-slate-900 font-semibold">Client Location Hierarchy:</strong> Client organisations maintain multiple physical locations (e.g. <em>Apapa Fleet Depot</em> and <em>Ikeja Logistics Hub</em> under <em>Apex Heavy Logistics Ltd</em>). Each physical location carries its own independently audited GPS pin. Sibling locations may share a central switchboard telephone number without duplicate rejection (PRD §4.2).
+            <strong className="text-slate-900 font-semibold">Client Location Hierarchy:</strong> Client organisations maintain multiple physical locations (e.g. <em>Apapa Fleet Depot</em> and <em>Ikeja Logistics Hub</em> under <em>Apex Heavy Logistics Ltd</em>). Each physical location carries its own independently audited GPS pin. Sibling locations may share a central switchboard telephone number without duplicate rejection.
           </div>
         </div>
 
@@ -426,7 +432,7 @@ export const ClientsLocationsDirectory: React.FC = () => {
                                 {loc.approvedGpsLat.toFixed(4)}° N, {loc.approvedGpsLng.toFixed(4)}° E
                               </p>
                               <p className="text-[10px] text-emerald-700 font-semibold">
-                                Fix Accuracy: ±18m (Passes ≤50m rule)
+                                Fix Accuracy: ±18m (Passes ≤{maxPinThreshold}m rule)
                               </p>
                             </div>
 

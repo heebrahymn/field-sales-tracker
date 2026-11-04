@@ -315,7 +315,7 @@ def run():
         # 6.1 Operations Overview
         save_screenshot(page_hq, "stage3f_13_hq_overview_1280.png")
         hq_text = page_hq.inner_text("body")
-        has_hq = "HQ Administration" in hq_text or "Enterprise Operations" in hq_text or "All Markets" in hq_text or "Ayodele" in hq_text
+        has_hq = "HQ Administration" in hq_text or "Enterprise Operations" in hq_text or "All Markets" in hq_text
         log_test("D6-01", "HQ Operations Overview Loaded", "PASS" if has_hq else "FAIL")
 
         # 6.2 User Management Tab

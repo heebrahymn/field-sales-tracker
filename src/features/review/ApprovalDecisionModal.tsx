@@ -142,7 +142,7 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
 
               {item.sharedPhoneWarning && (
                 <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-slate-700 leading-tight">
-                  <strong className="text-brand-blue font-bold">Policy Note (PRD §4.2):</strong> A shared parent telephone number was detected across sibling client locations. This is explicitly permitted and does not invalidate the physical client location.
+                  <strong className="text-brand-blue font-bold">Policy Note:</strong> A shared parent telephone number was detected across sibling client locations. This is explicitly permitted and does not invalidate the physical client location.
                 </div>
               )}
 

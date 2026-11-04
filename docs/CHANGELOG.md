@@ -6,6 +6,136 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Release Candidate rc-1.0.0-uat-verified] - Post-UAT Stabilisation, Defect Consolidation & Release Candidate Verification (2026-11-04)
+
+### Post-UAT Defect Consolidation & Code Resolution (DEF-001 through DEF-019)
+- **Formal Project Owner Acceptance (100% Retests Passed):** The project owner has formally confirmed full manual UAT completion across all user roles, verified that all 19 identified defects (DEF-001 through DEF-019) were corrected, and confirmed all 19 targeted manual retests have PASSED. All defects in `docs/testing/UAT_DEFECT_REGISTER.md` are marked `ACCEPTED — PROJECT OWNER RETEST PASSED` with zero further UAT retesting required.
+- **Zero Simulator Artifacts in Production UI (DEF-019):**
+  - Replaced static `±14m` in `PersistentStatusStrip.tsx` with dynamic hardware accuracy (`liveGpsCoordinate`, `activeVisit.gpsAccuracyMeters`, or `GPS Ready`); eliminated `"Simulated Hardware GPS"` tooltip.
+  - Removed `"Simulated GPS updated..."` toast notification from `FieldSessionContext.tsx`.
+  - Scoped "Offline Simulator Controls" card strictly to test environments (`isTestEnv`) in `OfflineSyncView.tsx`.
+  - Converted "Toggle Network Simulator" button into a read-only Network Connection Status badge (`Online` / `Offline`).
+- **Comprehensive Table Pagination Integration (DEF-011, DEF-014, DEF-015):**
+  - Integrated reusable `TablePagination` with standard page size controls (`[10, 20, 50, 100]` or `[5, 10, 20, 50]` for compact views), page navigation, item counters, and filter resets across:
+    - Country Reporting Individual Operational Records (`CountryReportingView.tsx`)
+    - HQ Exception Oversight (`HqExceptionOversight.tsx`)
+    - HQ Client Audit Oversight (`HqClientAuditOversight.tsx`)
+    - HQ System Audit Log (`HqSystemAuditLog.tsx`)
+    - HQ Client Master Import Batches (`HqClientMasterImport.tsx`)
+    - Salesperson Device Replacement Requests (`ProfileView.tsx`)
+    - Country Sales Head Risk Flags Queue (`RiskFlagsWorkbench.tsx`)
+- **Salesperson Non-Visit Request Cancellation Authorization (DEF-013):**
+  - Fixed `/api/attendance/cancel-non-visit.ts` and `attendanceService.cancelAbsenceRequest()` to allow the requesting salesperson to cancel their own pending non-visit workday request without triggering reviewer authentication / 403 Forbidden errors.
+  - Appended relational audit log entry for salesperson cancellation events.
+- **Reporting & Nomenclature Standardization (DEF-010, DEF-012):**
+  - Replaced "Unique Branches" with "Locations visited" across Country Reporting and Sales Head summary metrics (`CountryReportingView.tsx`, `SalesHeadDashboardPreview.tsx`).
+  - Corrected Country CSV Export date range toggle and salesperson filter binding (`CountryCsvExportModal.tsx`, `countryCsvService.ts`).
+- **Dashboard Preview Layout Density (DEF-009):**
+  - Sliced Sales Head Dashboard preview cards for Client Approvals and Exceptions to 5 items max, adding dynamic `"View All (N)"` CTAs leading to dedicated workbenches.
+- **3-State Device Custody & Depot Availability Reconciliation (DEF-003, DEF-007):**
+  - Enforced strict distinction across `Pending Inspection` (`pending_inspection` / `quarantined` when custody is relinquished via reassignment, replacement activation, or user deactivation), `Returned` (`returned` only when physical depot receipt is explicitly confirmed), and `Available` (`available` only after IT clearance).
+  - Restricted HQ User Provisioning (`HqUserManagement.tsx`, `supabase/functions/admin-provision-user`), HQ Device Assignment & Spare Allocation (`HqDeviceManagement.tsx`, `DeviceReplacementContext.tsx`, `adminService.ts`) strictly to `inventory_status = 'available'`.
+  - Defaulted replacement activation disposition to `Pending Return & Inspection` (`quarantined` / `pending_inspection`) and added dedicated regression suite `src/test/device-custody-reconciliation.test.tsx`.
+- **Verification Suite & Quality Metrics:**
+  - 288 / 288 Vitest tests passing across 30 test files (including new test suites for device custody reconciliation, pagination, non-visit cancellation, and battery).
+  - 13 / 13 Direct API and Row-Level Security integration tests passing against live Supabase dev project; 29-migration and 7-bucket private Storage parity verified.
+  - 0 TypeScript compiler errors (`npx tsc -b`).
+  - 0 ESLint errors (5 non-blocking warnings).
+  - Clean production build compiled with Vite 6.4.4; zero simulator strings, mock records, or credentials in production bundle.
+
+---
+
+## [Post-Stage 3F Milestone] - HQ Admin Central Client Directory, Managerial Parity & Correction Governance (2026-11-01)
+
+### Central Multi-Market Client & Site Directory (ADR 0022)
+- **Dedicated HQ Client Directory:** Added `Clients & Sites` (`clients`) management module to the HQ Admin dashboard (`HqAdminDashboardPreview.tsx`, `HQ_MODULE_TABS`) and sidebar navigation under `Clients & Master Data` (`DesktopSidebar.tsx`), with dynamic live badge counts for pending reviews.
+- **Cross-Market Directory Visibility:** Displays all corporate organisations and physical branches across Nigeria (NG), Zambia (ZM), and Malawi (MW) with real-time statistics ribbon (Total Sites, Active & Approved, Pending Manager/HQ Review, Location Pending, Inactive/Rejected).
+- **Multi-Dimension Filters & Search:** Filterable by Market (`ALL`, `NG`, `ZM`, `MW`), Operational Status, Facility Category, and free-text search across company names, branch designations, landmarks, and contact personnel.
+- **Managerial Action Parity:** Equipped HQ Administrators with full authority to review, approve, or reject proposed GPS location pins via `public.approve_branch_location_pin` and `public.reject_branch_location_pin` RPCs with mandatory audit justification.
+- **Salesperson Typo & Mistake Correction:** Added modal to edit company name, branch name, category, street address, city, switchboard phone, and primary site contact details with mandatory audit rationale recorded to `public.approval_audit`.
+- **Audit-Compliant Site Deletion:** Implemented safe branch deletion: permanently removes erroneous registrations without history, while strictly protecting branches with recorded field visits or exceptions by transitioning them to `Inactive (Decommissioned)`.
+- **Salesperson & Registration Date Filters:** Added user/rep dropdown populated with distinct site creators, and an ISO date picker (`input[type="date"]`) with clear capability to isolate facilities registered on specific dates.
+- **Configurable Pagination:** Implemented default 3-item pagination (`pageSize = 3`) with dropdown options for `3`, `5`, `10`, and `50` per page, complete with top and bottom pagination ribbons (`Showing X to Y of Z client sites`, `Page X of Y`).
+- **Authoritative Verification:** Verified via 217/217 Vitest tests (including 10 dedicated tests in `hq-client-directory.test.tsx`), 0 TypeScript errors, and full Playwright E2E browser automation across all pagination sizes and filters.
+
+---
+
+## [Post-Stage 3F Milestone] - Live Supabase Market Rules Persistence & Dynamic Attendance GPS Uncertainty Thresholds (2026-10-31)
+
+### Live Market Rules Persistence & Prospective Immutability (ADR 0021)
+- **Direct Supabase Rule Commit:** Integrated `adminService.commitMarketRuleVersion` to persist HQ Admin operational parameter adjustments directly into Supabase `public.market_rules`, closing previous active versions (`effective_to = now()`, `is_active = false`) and inserting new immutable versions (`effective_to = null`, `is_active = true`).
+- **Audit Governance Ledger:** Recorded all operational parameter adjustments into `public.approval_audit` with `mandatory_reason`, `actor_id`, and parameter JSON snapshots.
+- **HQ Admin UI Calibration:** Replaced simulation placeholders in `HqMarketConfiguration.tsx` with production rule governance controls, added an editable input for `defaultGeofenceRadiusMeters`, and wired `updateMarketRules` to update live Supabase state.
+
+### Dynamic Salesperson Attendance GPS Gate & Degradation Handling
+- **Dynamic Accuracy Threshold Binding:** Removed hardcoded 100m GPS accuracy checks in `StartDayModal.tsx`, `attendanceService.ts`, and `offlineSyncService.ts`. Bounded check-in gates dynamically to the active territory rule's `max_visit_gps_accuracy_m`.
+- **Immediate State Reflection:** Implemented reactive re-evaluation in `StartDayModal.tsx`: when active market rules or GPS readings update, the GPS check status immediately recalculates, enabling "Confirm & Start Workday" when reported accuracy falls within the configured threshold (e.g. ±323m under a 350m threshold).
+- **Comprehensive Quality Verification:** 207/207 Vitest tests passing, 0 TypeScript errors, live Supabase version commit and attendance acceptance verified with Merusha Kisten.
+
+---
+
+## [Post-Stage 3F Milestone] - Final UAT Baseline Corrections, Credential Sanitization & Five-Tier Verification (2026-10-31)
+
+### Security & Credential Governance (DEF-006)
+- **Plaintext Credential Sanitization:** Excised all plaintext passwords from acceptance documentation (`FULL_ROLE_BASED_UAT_PLAN.md`, `UAT_TEST_CASES.md`). Replaced literal passwords with standardized instruction: *"Use the securely supplied test credentials."*
+- **Auth Credential Rotation:** Rotated active development test user passwords across all test accounts via GoTrue Admin API (`npm run provision:users`), securely updating `.env.local` (`DEV_USER_PASSWORD`).
+- **Secret Detection Compliance:** Verified zero occurrences of cleartext credentials, service-role keys, or database passwords in tracked repository files, addressing GitGuardian secret alerts.
+
+### Five-Tier Verification Separation
+- **Separation of Developer Passes from Stakeholder Sign-Off:** Updated all 40 UAT scenarios + 5 new ERP scenarios (45 total) to distinguish:
+  1. *Developer Automated Verification:* Vitest unit/integration suites and Playwright headless runs.
+  2. *Developer Local Browser Verification:* Interactive localhost:5173 browser execution on mobile viewports.
+  3. *Live Supabase Integration Verification:* Direct REST/RPC API verification against hosted Supabase dev project.
+  4. *Stakeholder Manual UAT Result:* Explicitly set to `NOT TESTED` awaiting formal business stakeholder execution.
+  5. *Physical-Device Test Result:* Explicitly set to `NOT TESTED (Physical Handset Required)` pending field pilot execution.
+
+### Canonical Schema Reconciliation & Database-Driven Reporting
+- **Database Column Alignment:** Reconciled canonical Supabase fields across all 45 test cases (`start_latitude`, `start_longitude`, `start_accuracy_m`, `start_selfie_url` for attendance; `branch_name` and `operating_status` for branches; `exception_type` and `resulting_visit_id` for exceptions; `verification_status` and `location_classification` for visits).
+- **Authoritative SQL Calculations:** Replaced brittle static dashboard totals with authoritative SQL queries, preserving strict separation between PostGIS-verified visits and approved-unverified visits.
+- **Live Supabase Totals Verified:** 44 branches (24 fleet operator, 13 logistics, 6 workshop, 1 distributor; 23 active, 16 location_pending), 56 branch pins (15 active approved, 41 historical/superseded/pending), 70 visits (23 inside_confident verified, 37 manager_approved_unverified), 43 devices.
+
+### Device Custody Status Integrity (DEF-007)
+- **Accurate Custody State Attribution:** Updated `adminService.reassignDevice` and `confirmReplacementActivation` to mark superseded hardware as `pending_inspection` with revoked authorization rather than falsely attributing physical depot receipt before technician verification.
+- **Aligned UI Guidance:** Updated `HqDeviceManagement.tsx` custody notice to: *"Relinquish custody of [asset] (mark pending inspection) & reassign handset"*.
+
+### Suite 9: ERP Client Master Import Without GPS UAT (ADR 0020)
+- **Dedicated Acceptance Scenarios:** Added `UAT-ERP-01` to `UAT-ERP-05` covering CSV ingestion without coordinates, ground GPS pin proposals, versioned activation, and first-meeting unverified exceptions.
+
+---
+
+## [Post-Stage 3F Milestone] - ERP Client Master Import Without GPS Coordinates & Field Pin Proposal Governance (2026-10-31)
+
+### ERP Client Master Import & Field Pin Governance
+- **Optional GPS Coordinates During Client Master Ingestion (PRD §4.2 / ADR 0020):**
+  - Updated `HqClientMasterImport.tsx` with `parseClientMasterCsv` to accept legacy ERP client records omitting latitude and longitude.
+  - Rows without coordinates are ingested with `status = 'warning_location_pending'` and validation guidance: *"Location Pending: Missing GPS pin. Rep must propose physical pin during first visit."*
+  - Added real file input with "Choose CSV File" button and "Download Template" button exporting `generateErpClientMasterTemplate`.
+- **Database Persistence & Anti-Fabrication Invariants:**
+  - Enhanced `adminService.processClientMasterImport` in `src/services/adminService.ts`. Unpinned branches are stored with `operating_status = 'location_pending'`.
+  - Strictly prevents fabrication of GPS pins; no pin rows are created for unpinned branches until physically visited.
+  - Re-importing existing active branches without coordinates preserves prior approved active pins without downgrade.
+- **Salesperson Physical Pin Proposal Mode:**
+  - Enhanced `RegisterBranchModal.tsx` to support `mode="propose_pin"` and `defaultBranch` input.
+  - Locks target organisation and branch fields; focuses the salesperson on capturing fresh physical GPS fix (accuracy ≤ 50m) and live premises camera photo.
+  - Invokes authoritative RPC `public.propose_branch_location_pin`, assigning `status = 'pending_review'`, `is_active = false`, and incrementing version number.
+- **Visit Screen & First Meeting Exception Recording (PRD §7.4):**
+  - In `VisitWorkflowView.tsx`, unpinned branches display prominent guidance and two direct action buttons:
+    - *Propose Physical GPS Pin (Stage 3E Queue)*: launches `RegisterBranchModal` in pin proposal mode.
+    - *Record Meeting via Exception (Location-Unverified)*: launches `CreateExceptionModal` with pre-filled branch ID and initial rationale.
+  - Normal verified check-in remains disabled/blocked until Country Sales Head approval.
+- **Authoritative Country Sales Head Approval & Review:**
+  - Country Sales Heads inspect proposed pins in `BranchApprovalsQueue.tsx` with photo evidence.
+  - Approving a pin via RPC `approve_branch_location_pin` activates the pin, updates `branches.operating_status = 'active'`, and preserves historical visit evidence.
+  - Approving the unpinned meeting exception via RPC `review_salesperson_exception` creates an exception visit with `verification_status = 'manager_approved_unverified'` (NEVER `location_verified`).
+
+### Verified
+- **TypeScript:** `npx tsc --noEmit` passed with 0 errors.
+- **Vitest Suite:** 207 / 207 tests passing across all 15 test suites (including 8 new dedicated ERP import scenarios in `src/test/erp-import-and-pin-proposal.test.tsx`).
+- **Live Supabase Dev Project:** 10/10 acceptance points verified end-to-end via `scripts/test_erp_import_live_workflow.py`.
+- **Vite Production Build:** `npm run build` compiled cleanly in 6.33s.
+
+---
+
 ## [Post-Stage 3F Milestone] - Final MVP Completeness Audit & Full Role-Based Manual UAT Preparation (2026-10-31)
 
 ### MVP Completeness Audit & UAT Preparation

@@ -63,6 +63,7 @@ export interface RealVisitVerificationRecord {
   withinGeofence: boolean;
   premisesPhotoPath: string | null;
   premisesPhotoUrl?: string | null;
+  capturedOffline?: boolean;
   meetingLog?: {
     id: string;
     contactName: string;
@@ -109,6 +110,11 @@ export interface RealBranchPinProposal {
   decisionReason?: string | null;
   versionNumber: number;
   isActive: boolean;
+  contactName?: string;
+  contactRole?: string;
+  contactPhone?: string;
+  switchboardPhone?: string;
+  hasSharedPhone?: boolean;
 }
 
 export type RealBranchPinRecord = RealBranchPinProposal;
@@ -374,6 +380,7 @@ export const managementService = {
           check_out_accuracy_m,
           premises_photo_url,
           verification_status,
+          captured_offline,
           created_at,
           profiles:user_id (id, full_name, email, role, market_code),
           branches:branch_id (
@@ -382,7 +389,14 @@ export const managementService = {
             street_address,
             market_code,
             category,
-            organisations:organisation_id (id, name)
+            organisations:organisation_id (id, name),
+            branch_location_pins (
+              id,
+              latitude,
+              longitude,
+              reported_accuracy_m,
+              status
+            )
           ),
           branch_location_pins:branch_pin_id (
             id,
@@ -436,7 +450,12 @@ export const managementService = {
       });
 
       const records: RealVisitVerificationRecord[] = filteredRows.map((row: any) => {
-        const pin = row.branch_location_pins;
+        const pin =
+          row.branch_location_pins ||
+          (Array.isArray(row.branches?.branch_location_pins)
+            ? row.branches.branch_location_pins.find((p: any) => p.status === 'approved') ||
+              row.branches.branch_location_pins[0]
+            : null);
         let distanceMeters: number | null = null;
         let withinGeofence = false;
 
@@ -491,6 +510,7 @@ export const managementService = {
           geofenceRadiusM: 200,
           distanceMeters,
           withinGeofence,
+          capturedOffline: Boolean(row.captured_offline),
           premisesPhotoPath: row.premises_photo_url,
           meetingLog: log
             ? {
@@ -611,7 +631,16 @@ export const managementService = {
             street_address,
             market_code,
             category,
-            organisations:organisation_id (name)
+            switchboard_phone,
+            organisations:organisation_id (name),
+            client_contacts (
+              id,
+              full_name,
+              designation,
+              phone_number,
+              email,
+              is_primary
+            )
           ),
           profiles:proposed_by (full_name, email)
         `);
@@ -635,29 +664,51 @@ export const managementService = {
         return row.branches?.market_code === marketCode;
       });
 
-      const records: RealBranchPinProposal[] = filtered.map((row: any) => ({
-        id: row.id,
-        branchId: row.branch_id,
-        branchName: row.branches?.branch_name || 'Client Branch',
-        organisationName: row.branches?.organisations?.name || 'Organisation',
-        category: row.branches?.category || 'fleet_operator',
-        address: row.branches?.street_address || 'Site Address',
-        marketCode: row.branches?.market_code || marketCode,
-        latitude: row.latitude,
-        longitude: row.longitude,
-        reportedAccuracyM: row.reported_accuracy_m,
-        premisesPhotoPath: row.premises_photo_url,
-        proposedBy: row.proposed_by,
-        proposedByName: row.profiles?.full_name || 'Carbon Salesperson',
-        proposedByEmail: row.profiles?.email || '',
-        proposedAt: row.proposed_at,
-        status: row.status,
-        reviewedBy: row.reviewed_by,
-        reviewedAt: row.reviewed_at,
-        decisionReason: row.decision_reason,
-        versionNumber: row.version_number,
-        isActive: row.is_active,
-      }));
+      // Compute shared phone count across branches in this dataset
+      const phoneCounts: Record<string, number> = {};
+      (data || []).forEach((row: any) => {
+        const phone = row.branches?.switchboard_phone?.trim();
+        if (phone) {
+          phoneCounts[phone] = (phoneCounts[phone] || 0) + 1;
+        }
+      });
+
+      const records: RealBranchPinProposal[] = filtered.map((row: any) => {
+        const rawContacts = row.branches?.client_contacts;
+        const contactsList = Array.isArray(rawContacts) ? rawContacts : [];
+        const primaryContact = contactsList.find((c: any) => c.is_primary) || contactsList[0] || null;
+        const switchboard = row.branches?.switchboard_phone?.trim() || '';
+        const hasShared = Boolean(switchboard && phoneCounts[switchboard] > 1);
+
+        return {
+          id: row.id,
+          branchId: row.branch_id,
+          branchName: row.branches?.branch_name || 'Client Branch',
+          organisationName: row.branches?.organisations?.name || 'Organisation',
+          category: row.branches?.category || 'fleet_operator',
+          address: row.branches?.street_address || 'Site Address',
+          marketCode: row.branches?.market_code || marketCode,
+          latitude: row.latitude,
+          longitude: row.longitude,
+          reportedAccuracyM: row.reported_accuracy_m,
+          premisesPhotoPath: row.premises_photo_url,
+          proposedBy: row.proposed_by,
+          proposedByName: row.profiles?.full_name || 'Carbon Salesperson',
+          proposedByEmail: row.profiles?.email || '',
+          proposedAt: row.proposed_at,
+          status: row.status,
+          reviewedBy: row.reviewed_by,
+          reviewedAt: row.reviewed_at,
+          decisionReason: row.decision_reason,
+          versionNumber: row.version_number,
+          isActive: row.is_active,
+          contactName: primaryContact?.full_name || 'Site Contact',
+          contactRole: primaryContact?.designation || 'Operations Lead',
+          contactPhone: primaryContact?.phone_number || switchboard || '+234 1 000 0000',
+          switchboardPhone: switchboard,
+          hasSharedPhone: hasShared,
+        };
+      });
 
       return { data: records, error: null };
     } catch (err: any) {
@@ -1027,7 +1078,7 @@ export const managementService = {
           auditOutcome: row.audit_outcome,
           disputeStatus: row.dispute_status,
           disputeNotes: row.dispute_notes,
-          resolvedBy: row.resolved_by,
+          resolvedBy: row.resolved_by ? (row.profiles?.full_name || 'Country Sales Head') : undefined,
           resolvedAt: row.resolved_at,
           createdAt: row.created_at,
           visit: v
@@ -1183,18 +1234,78 @@ export const managementService = {
   async exportCountryVisitsCsv(params: {
     marketCode: string;
     repId?: string;
+    repName?: string;
+    dateRange?: 'today' | 'current_week' | 'quarter_to_date' | 'custom';
+    startDate?: string;
+    endDate?: string;
+    includeUnverifiedExceptions?: boolean;
+    includeProvisionalWarning?: boolean;
   }): Promise<{ rowCount: number; error: Error | null }> {
     try {
-      const { data: visits, error: vErr } = await this.getCountryVisits(params.marketCode, undefined, 200);
+      const { data: visits, error: vErr } = await this.getCountryVisits(params.marketCode, undefined, 500);
 
       if (vErr) {
         return { rowCount: 0, error: vErr };
       }
 
       let filtered = visits;
+
+      // Filter by Salesperson (repId UUID match or repName match)
       if (params.repId && params.repId !== 'all') {
-        filtered = filtered.filter((v) => v.repId === params.repId);
+        const queryRepId = params.repId.trim().toLowerCase();
+        const queryRepName = params.repName ? params.repName.trim().toLowerCase() : '';
+        filtered = filtered.filter((v) => {
+          if (v.repId && v.repId.toLowerCase() === queryRepId) return true;
+          if (queryRepName && v.repName && v.repName.toLowerCase() === queryRepName) return true;
+          if (v.repName && v.repName.toLowerCase().includes(queryRepId)) return true;
+          return false;
+        });
       }
+
+      // Filter by Date Range
+      if (params.dateRange) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        if (params.dateRange === 'today') {
+          filtered = filtered.filter((v) => {
+            const vDate = v.workDate || (v.checkInAt ? v.checkInAt.slice(0, 10) : '');
+            return vDate === todayStr;
+          });
+        } else if (params.dateRange === 'current_week') {
+          const oneWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+          filtered = filtered.filter((v) => {
+            const vDate = v.workDate || (v.checkInAt ? v.checkInAt.slice(0, 10) : '');
+            return vDate >= oneWeekAgo;
+          });
+        } else if (params.dateRange === 'quarter_to_date') {
+          const now = new Date();
+          const currentQuarter = Math.floor(now.getMonth() / 3);
+          const qStart = new Date(now.getFullYear(), currentQuarter * 3, 1).toISOString().slice(0, 10);
+          filtered = filtered.filter((v) => {
+            const vDate = v.workDate || (v.checkInAt ? v.checkInAt.slice(0, 10) : '');
+            return vDate >= qStart;
+          });
+        } else if (params.dateRange === 'custom') {
+          if (params.startDate) {
+            filtered = filtered.filter((v) => {
+              const vDate = v.workDate || (v.checkInAt ? v.checkInAt.slice(0, 10) : '');
+              return vDate >= params.startDate!;
+            });
+          }
+          if (params.endDate) {
+            filtered = filtered.filter((v) => {
+              const vDate = v.workDate || (v.checkInAt ? v.checkInAt.slice(0, 10) : '');
+              return vDate <= params.endDate!;
+            });
+          }
+        }
+      }
+
+      // Filter unverified exceptions if toggled off
+      if (params.includeUnverifiedExceptions === false) {
+        filtered = filtered.filter((v) => v.verificationStatus !== 'manager_approved_unverified');
+      }
+
+      const includeProvisionalCol = params.includeProvisionalWarning !== false;
 
       const headers = [
         'Export Timestamp (UTC)',
@@ -1220,6 +1331,7 @@ export const managementService = {
         'Narrative Outcome',
         'Next Steps (Free Text Narrative)',
         'Client Audit Result',
+        ...(includeProvisionalCol ? ['Provisional Sync Status'] : []),
         'Formula Escaped (CWE-1236)',
       ];
 
@@ -1247,6 +1359,9 @@ export const managementService = {
         v.meetingLog?.outcomeNarrative || 'N/A',
         v.meetingLog?.nextStepText || 'N/A',
         v.clientAuditStatus?.auditOutcome || 'Pending Audit',
+        ...(includeProvisionalCol
+          ? [v.capturedOffline ? 'Provisional (Offline Captured - Cutoff 19:00)' : 'Live Synced']
+          : []),
         'TRUE',
       ]);
 

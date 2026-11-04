@@ -317,7 +317,8 @@ async function runDirectApiSecurityTests() {
     // TEST SUITE 5: HQ Admin Cross-Market Visibility
     // -------------------------------------------------------------------------
     console.log('\n--- Test Suite 5: HQ Administrator Cross-Market Oversight ---');
-    const hq = await getAuthClient('hq.admin@carboncarcare.com');
+    const hqEmail = process.env.VITE_TEST_HQ_ADMIN_EMAIL || process.env.HQ_ADMIN_EMAIL || 'hq.admin@carboncarcare.com';
+    const hq = await getAuthClient(hqEmail);
 
     const { data: hqProfiles } = await hq.client
       .from('profiles')

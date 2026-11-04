@@ -94,7 +94,7 @@ export const TablePagination: React.FC<TablePaginationProps> = ({
       </div>
 
       {/* Right: Page Navigation Controls */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 flex-wrap justify-center">
         {/* First Page */}
         <Button
           variant="outline"

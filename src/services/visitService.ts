@@ -7,7 +7,6 @@
  */
 
 import { supabase } from '@/lib/supabase';
-import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/database.types';
 
 export type VisitKind = Database['public']['Enums']['visit_kind'];
@@ -349,6 +348,39 @@ export const visitService = {
     premisesPhotoPath: string;
   }): Promise<{ data: DatabaseBranchWithDetails | null; error: Error | null }> {
     try {
+      // 1. Authoritative Server-Side Registration Endpoint (Vite Dev & Vercel Serverless)
+      if (typeof window !== 'undefined' && typeof fetch === 'function') {
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData?.session?.access_token;
+          if (token) {
+            const resp = await fetch('/api/client/register', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify(params),
+            });
+
+            if (resp.ok) {
+              const resData = await resp.json();
+              if (resData.success && resData.branch) {
+                return { data: resData.branch as DatabaseBranchWithDetails, error: null };
+              }
+            } else {
+              const errData = await resp.json().catch(() => null);
+              if (errData?.error) {
+                return { data: null, error: new Error(errData.error) };
+              }
+            }
+          }
+        } catch (fetchErr) {
+          console.warn('[visitService] /api/client/register endpoint note:', fetchErr);
+        }
+      }
+
+      // 2. Direct Supabase Client Fallback (e.g. Unit Tests or Direct RLS Fallback)
       let orgId = params.organisationId;
       if (!orgId) {
         // Resolve organisation in market
@@ -363,8 +395,8 @@ export const visitService = {
         if (matched) {
           orgId = matched.id;
         } else {
-          // 1. Attempt insert with current session
-          const { data: newOrg } = await supabase
+          // Attempt insert with current session
+          const { data: newOrg, error: orgInsertErr } = await supabase
             .from('organisations')
             .insert({
               name: params.organisationName.trim(),
@@ -376,47 +408,10 @@ export const visitService = {
           if (newOrg?.id) {
             orgId = newOrg.id;
           } else {
-            // 2. Fallback to market custodian helper with write authority to prevent defaulting to unrelated company
-            const managerEmails: Record<string, string> = {
-              NG: 'babatunde.adeleke@carboncarcare.com',
-              ZM: 'chileshe.mwape@carboncarcare.com',
-              MW: 'tamika.phiri@carboncarcare.com',
+            return {
+              data: null,
+              error: new Error(orgInsertErr?.message || `Failed to create client organization "${params.organisationName.trim()}". Please verify permissions.`),
             };
-            const managerEmail = managerEmails[params.marketCode] || 'babatunde.adeleke@carboncarcare.com';
-            const devPassword = (import.meta.env as any).DEV_USER_PASSWORD || (import.meta.env as any).DEV_USER_PASSWORD || '';
-            const supabaseUrl = (import.meta.env as any).VITE_SUPABASE_URL || (import.meta.env as any).VITE_SUPABASE_URL || '';
-            const anonKey = (import.meta.env as any).VITE_SUPABASE_PUBLISHABLE_KEY || '';
-
-            const custodianClient = createClient(supabaseUrl, anonKey, {
-              auth: { persistSession: false, autoRefreshToken: false },
-            });
-
-            const { error: loginErr } = await custodianClient.auth.signInWithPassword({
-              email: managerEmail,
-              password: devPassword,
-            });
-
-            if (!loginErr) {
-              const { data: createdOrg } = await custodianClient
-                .from('organisations')
-                .insert({
-                  name: params.organisationName.trim(),
-                  market_code: params.marketCode,
-                })
-                .select('id')
-                .single();
-
-              if (createdOrg?.id) {
-                orgId = createdOrg.id;
-              }
-            }
-
-            if (!orgId) {
-              return {
-                data: null,
-                error: new Error(`Failed to create client organization "${params.organisationName.trim()}". Please verify permissions.`),
-              };
-            }
           }
         }
       }

@@ -41,6 +41,7 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
     isOnline,
     isAttendanceProvisional,
     enqueueOfflineEndDay,
+    setLiveGpsCoordinate,
   } = useFieldSession();
 
   // Fresh End Day GPS state
@@ -82,6 +83,12 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
           accuracy: accuracy,
         });
         setGpsState('acquired');
+        setLiveGpsCoordinate?.({
+          latitude,
+          longitude,
+          accuracy,
+          timestamp: pos.timestamp || Date.now(),
+        });
       },
       (err) => {
         console.warn('[EndDayModal] Geolocation error:', err);
@@ -219,14 +226,14 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                PRD §6.1 Attendance Closure
+                Workday Attendance Closure
               </span>
             </div>
             <h3 className="font-bold text-slate-900 text-base mt-1">
               End Workday &amp; Final Summary
             </h3>
             <p className="text-xs text-slate-500 font-medium">
-              Salesperson: {currentUser.name} ({currentUser.employeeId})
+              Salesperson: {currentUser.name}
             </p>
           </div>
           <button
@@ -275,7 +282,7 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
                 >
                   {successInfo.provisionalOffline
                     ? 'Closing GPS queued in durable IndexedDB journal. Will sync after upstream visit & attendance events.'
-                    : 'End of day status and closing GPS coordinate recorded in Supabase.'}
+                    : 'End of day status and closing GPS coordinate recorded in the operational ledger.'}
                 </p>
               </div>
 
@@ -329,7 +336,7 @@ export const EndDayModal: React.FC<EndDayModalProps> = ({
                   <span>End Day Blocked: Active Visit Open</span>
                 </div>
                 <p className="text-xs text-amber-800 leading-relaxed">
-                  Per <strong>PRD §6.1 and Rule AT-03</strong>, you cannot end your workday while a physical visit session remains open.
+                  Per company policy, you cannot end your workday while a physical visit session remains open.
                 </p>
                 <div className="bg-white/80 p-2.5 rounded-lg border border-amber-200 text-[11px] text-slate-800 space-y-1">
                   <p className="font-bold text-slate-900">{activeVisit.branchName}</p>

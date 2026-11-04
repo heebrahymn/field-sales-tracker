@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stages 0–3F Completed; Post-Stage 3F Governance & Brand Assets (ADRs 0015–0019) Applied; Final MVP Completeness Audit Completed; Prepared for Comprehensive Role-Based User Acceptance Testing (UAT); Stakeholder Review Pending  
+**Status:** Stages 0–3F Completed; Post-UAT Stabilisation & Release Candidate 1.0.0 Promoted (`rc-1.0.0-uat-verified` — DEF-001–DEF-019 Formally Accepted by Project Owner; 288/288 Vitest Tests Passing; 13/13 Direct API/RLS Passing; 29-Migration & Private Storage Parity Confirmed); Controlled Vercel Staging Deployed; Ready for Physical Handset Field Pilot  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -232,6 +232,13 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **SSoT** | Supabase Development Single Source of Truth & Frontend Mock Data Elimination | **Completed** (ADR 0015; Multi-Market Seeding, Custodian Dynamic Pool, 197/197 Tests Passing) |
 | **Admin/Cam** | Administration Governance, Pagination, Device Lifecycle, Manual Dialog Dismissals & Mobile Camera Switching | **Completed** (ADR 0016; 199/199 Vitest, 0 TypeScript Errors, Full Mobile & Desktop Browser E2E Verified) |
 | **Review/Sync** | Country Sales Head Reviews, Dedicated Non-Visit Screen, Bidirectional Real-Time Sync & Storage Bucket Alignment | **Completed** (ADR 0017; 199/199 Vitest, 0 TypeScript Errors, Automated E2E Verified) |
+| **Reassign/Spare** | Handset Custody Reassignment Supersession, Spare Allocation Persistence & Cross-Workflow Handover Sync | **Completed** (ADR 0018; Handset Supersession, Direct HQ Admin Depot Allocation, 0 Errors) |
+| **Brand Favicon** | Authentic Carbon Brand Mark Favicon Suite & Complete Web/PWA Asset Alignment | **Completed** (ADR 0019; Vector SVG, 32x32/16x16 Favicons, 192/512 PWA Icons) |
+| **ERP-GPS** | ERP Client Master Import Without GPS Coordinates & Field Pin Proposal Workflow | **Completed** (ADR 0020; 207/207 Vitest Tests Passing, Live PostGIS RPC Verified) |
+| **Market Rules / GPS** | Live Supabase Market Rules Persistence, Prospective Immutability & Dynamic Attendance GPS Uncertainty Thresholds | **Completed** (ADR 0021; 207/207 Vitest Tests Passing, Live Supabase Rule Commit & Acceptance Verified) |
+| **Post-UAT RC Verification** | Consolidation of DEF-001–DEF-019, In-App Simulator Elimination, Multi-View Table Pagination, Non-Visit Auth Fix, 3-State Device Custody Reconciliation, Live Supabase Parity | **Completed** (288/288 Vitest Tests Passing across 30 suites, 13/13 API RLS, 0 TS Errors, 0 ESLint Errors, Vite Production Build Passing) |
+| **UAT Retest Sign-Off** | Formal Project Owner Acceptance Retest for Corrected Workflows DEF-001–DEF-019 | **Completed** (19/19 Retests Passed; Formally Accepted by Project Owner; Zero Retests Outstanding) |
+| **Release Candidate 1.0.0** | Final Verified RC Package (`rc-1.0.0-uat-verified`) Promoted to GitHub & Controlled Vercel Staging (`https://field-sales-tracker-b6l7.vercel.app/`) | **Completed** (Zero Mock Leakage, 29-Migration & 7-Bucket Private Storage Parity Confirmed) |
 | **Field Pilot** | Real-device physical GPS/camera/offline QA on Samsung Galaxy A15 / Nokia G22, local IT commissioning, final field pilot reconciliation | Ready for Controlled Execution |
 | **Operational Rollout** | Business-wide multi-market operational go-live across Nigeria, Zambia, and Malawi | Awaiting Final Stakeholder Authorisation |
 
@@ -253,11 +260,15 @@ Use production-quality TypeScript, reusable components, input validation and cle
 
 Support privacy notices, limited event-based location capture, access controls, data retention review, backups, observability and appropriate jurisdictional reviews. Do not promise spoof-proof GPS, tamper-proof offline events or perfect sync across devices/browsers.
 
+### Credential Security & Verification Integrity
+- Passwords, access tokens, service role keys, and personal emails must never be written in repository files, documentation, test plans, or completion reports. All test accounts authenticate via dynamic credentials securely provisioned through the Supabase Auth Admin API (`npm run provision:users`) and stored in the local `.env.local`. In UAT instructions, refer to credentials as "Use the securely supplied test credentials".
+- Test plans and acceptance reports must strictly separate (1) Developer automated verification, (2) Developer local browser verification, (3) Live Supabase integration verification, (4) Stakeholder manual UAT result, and (5) Physical-device test result. Stakeholder manual results must be recorded as `NOT TESTED` until formal stakeholder acceptance is collected. Hardware-dependent tests must remain `NOT TESTED (Physical Handset Required)` until on-site field pilot testing.
+
 ## 15. Current State & Architectural Baseline — Stage 3E & 3F Completed
 
 Stage 3E is committed (`d4dbb37`, tag `stage-3e-management-approved`), and **Stage 3F (End-to-End QA, Staging Deployment & Field Pilot Readiness)** is fully implemented, verified, and documented (ADR 0014, `STAGE_3F_FIELD_QA.md`, `STAGE_3F_QA_REPORT.md`). The current architecture establishes:
 
-1. **Applied Migrations 00001–00028:** Remote Supabase dev project `[SUPABASE_PROJECT_ID]` has all migrations applied and verified, including Migration 00028 enforcing strict market isolation on all Country Sales Head RPCs (`approve_branch_location_pin`, `reject_branch_location_pin`, `review_branch_location_pin`, `review_salesperson_exception`, `record_client_audit_call`, `resolve_client_audit_dispute`).
+1. **Applied Migrations 00001–00029:** Remote Supabase dev project `[SUPABASE_PROJECT_ID]` has all 29 migrations applied and verified, including Migration 00028 enforcing strict market isolation on all Country Sales Head RPCs (`approve_branch_location_pin`, `reject_branch_location_pin`, `review_branch_location_pin`, `review_salesperson_exception`, `record_client_audit_call`, `resolve_client_audit_dispute`) and Migration 00029 adding `pending_inspection` to `public.device_status`.
 2. **Authoritative Backend PostGIS Geofencing & Anti-Spoofing (PRD §7.1, §8.4):**
    - Trigger `trg_validate_visit_location_verification` independently computes WGS84 ellipsoidal distance via `ST_Distance(NEW.check_in_geom::geography, v_pin_geom::geography)` and overrides client-supplied `location_classification` so spoofed `inside_confident` payloads are rejected with `23514`.
    - Enforces cross-market isolation (`profiles.market_code = branches.market_code`), attendance ownership (`attendance_days.user_id = NEW.user_id`), active approved pin validation, and mandatory private premises photo (`visit-premises-photos`).
@@ -277,14 +288,19 @@ Stage 3E is committed (`d4dbb37`, tag `stage-3e-management-approved`), and **Sta
    - Formula-safe audited CSV export (`exportCountryVisitsCsv`) with CWE-1236 sanitization logged to `public.export_jobs`.
 7. **HQ Enterprise Administration & MDM (`src/services/adminService.ts`, ADR 0013):**
    - Multi-market operations dashboard (`NG`, `ZM`, `MW`), user provisioning, and role governance.
-   - **Zero Bottleneck Company Device Replacement (PRD §6.5):** Field salespeople submit device replacement requests directly to HQ Admin; Country Sales Heads have zero approval or submission gate. HQ Admin reviews, dispatches replacement from central spare inventory with tracking, and confirms activation while recording old device disposition; `uq_single_active_device_per_rep` strictly preserved.
+   - **Zero Bottleneck Company Device Replacement & 3-State Custody Governance (PRD §6.5, ADR 0018):** Field salespeople submit device replacement requests directly to HQ Admin; Country Sales Heads have zero approval or submission gate. HQ Admin reviews, dispatches replacement from central spare inventory (`inventory_status = 'available'` strictly), and confirms activation while recording old device disposition (`quarantined` / `pending_inspection` default, `returned_to_depot` / `returned` only when physically received, or `revoked`); superseded/relinquished handsets transition to `pending_inspection` (never falsely marked `returned` or `available`); `uq_single_active_device_per_rep` strictly preserved.
    - Market rule set versioning and administrative audit log inspection.
    - Client Master ERP CSV batch ingestion (`processClientMasterImport`) logged to `public.import_batches`; unpinned branches marked `location_pending`; multiple branches permitted to share central parent company telephone per PRD §4.2.
 8. **Live Vercel Staging Deployment (Stage 3F, ADR 0014):**
    - Hosted at `https://field-sales-tracker-b6l7.vercel.app/` under HTTPS with strict security headers (`nosniff`, `DENY`, `strict-origin-when-cross-origin`).
    - Automated E2E verification complete (27/27 PASS across all roles, viewports 390x844, 360x800, and 1280x800).
    - Physical device test protocol prepared for field pilot coordinators in Lagos, Lusaka, and Blantyre; hardware tests marked NOT TESTED (Physical Handset Required).
-9. **Next Step:** Controlled Field Pilot on physical company-issued Samsung Galaxy A15 / Nokia G22 handsets. Do not launch unrestricted business-wide rollout without explicit review and approval.
+9. **ERP Client Master Import Without GPS & Field Pin Governance (ADR 0020):**
+   - RFC-4180 CSV importer allows optional `latitude` and `longitude` fields in ERP Client Master uploads; unpinned locations are assigned `operating_status = 'location_pending'` and displayed as unpinned to field salespeople.
+   - Salespeople on mobile capture physical GPS coordinates (accuracy <= 50m) and live premises photos at unpinned locations to propose official GPS pins via `propose_branch_location_pin`.
+   - Country Sales Heads review and approve/reject pin proposals in the Manager Console; approval activates versioned pins without altering historical evidence.
+   - Field salespeople can log their first meeting at an unpinned location as `Manager Approved - Location Unverified` via the dedicated exception workflow (`review_salesperson_exception`), preserving backend PostGIS geofence integrity for normal visits.
+10. **Next Step:** Controlled Field Pilot on physical company-issued Samsung Galaxy A15 / Nokia G22 handsets. Do not launch unrestricted business-wide rollout without explicit review and approval.
 
 ## 16. Instructions for every future user prompt
 

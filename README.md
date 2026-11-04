@@ -88,7 +88,10 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] Reassign/Sync — HQ Admin Device Reassignment Supersession, Spare Allocation RPC Alignment & Central Inventory Governance (ADR 0018)
 [✓] Brand/Favicon — Authentic Carbon Brand Favicon Suite & Web App Manifest Upgrade (ADR 0019)
 [✓] MVP Audit & UAT Prep — Final MVP Completeness Audit & Full Role-Based Manual UAT Preparation
-[ ] Manual UAT Execution — Full Stakeholder Role-Based UAT across Salesperson, Country Sales Head & HQ Admin
+[✓] ERP Import & Pin Governance — ERP Client Master Import Without GPS Coordinates & Field Pin Proposal Governance (ADR 0020)
+[✓] UAT Baseline Corrections — Credential Sanitization, Five-Tier Verification Separation, Canonical Schema Reconciliation & Device Custody Status Integrity
+[✓] Manual UAT & Retest Sign-Off — Full Project Owner Role-Based UAT & 19/19 Defect Retests Passed & Formally Accepted (DEF-001–DEF-019)
+[✓] Release Candidate 1.0.0 — Final Verified RC (`rc-1.0.0-uat-verified`) Promoted to GitHub & Controlled Vercel Staging (`288/288` Vitest, `13/13` API/RLS, 29-Migration Parity)
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
 ```
@@ -458,7 +461,7 @@ npx tsc --noEmit
 # ESLint static code quality audit
 npm run lint
 
-# Automated unit & integration tests (Vitest — 14 suites, 195 tests)
+# Automated unit & integration tests (Vitest — 30 test files, 288 tests passing)
 npm test
 ```
 
@@ -518,6 +521,14 @@ npm run build
 - [ADR 0012: Stage 3D Durable Offline IndexedDB Journal, Media Queue & Dependency Synchronisation](docs/decisions/0012-stage-3d-offline-indexeddb-journal-and-sync.md)
 - [ADR 0013: Stage 3E Management Dashboards, GPS Pin Governance, Zero Bottleneck MDM & Safe CSV Exports](docs/decisions/0013-stage-3e-management-and-hq-integration.md)
 - [ADR 0014: Stage 3F Staging Deployment, Physical Device QA Protocols & Staging Isolation](docs/decisions/0014-stage-3f-staging-deployment-and-field-pilot-readiness.md)
+- [ADR 0015: Supabase Development Single Source of Truth & Mock Data Elimination](docs/decisions/0015-supabase-single-source-of-truth-mock-elimination.md)
+- [ADR 0016: Admin Governance, Pagination, Manual Close & Camera Switching](docs/decisions/0016-admin-governance-pagination-manual-close-and-camera-flip.md)
+- [ADR 0017: Country Sales Head Reviews, Approval Queues & Storage Alignment](docs/decisions/0017-country-sales-head-reviews-approval-queues-non-visit-screen-and-storage-alignment.md)
+- [ADR 0018: Handset Custody Reassignment Supersession & Direct HQ Depot Allocation](docs/decisions/0018-hq-device-reassignment-supersession-spare-allocation-and-cross-workflow-sync.md)
+- [ADR 0019: Authentic Carbon Brand Mark Favicon Suite & Web/PWA Asset Alignment](docs/decisions/0019-authentic-carbon-brand-favicon-and-pwa-asset-upgrade.md)
+- [ADR 0020: ERP Client Master Import Without GPS Coordinates & Field Pin Proposal Governance](docs/decisions/0020-erp-client-master-import-without-gps-and-field-pin-governance.md)
+- [ADR 0021: Live Market Rules Persistence, Prospective Immutability & Dynamic Attendance GPS](docs/decisions/0021-dynamic-market-rules-and-attendance-gps-governance.md)
+- [ADR 0022: HQ Admin Central Client Directory, Managerial Parity & Correction Governance](docs/decisions/0022-hq-admin-client-directory-and-correction-governance.md)
 
 ### Technical Implementation & QA Reports
 - [Stage 3B Attendance Implementation Guide](docs/implementation/STAGE_3B_ATTENDANCE.md)
@@ -530,6 +541,9 @@ npm run build
 - [Stage 3E QA & Security Verification Report](docs/testing/STAGE_3E_QA_REPORT.md)
 - [Stage 3F End-to-End QA & Staging Implementation Guide](docs/implementation/STAGE_3F_FIELD_QA.md)
 - [Stage 3F QA & Field Pilot Readiness Report](docs/testing/STAGE_3F_QA_REPORT.md)
+- [Post-UAT Defect & Gap Register](docs/testing/UAT_DEFECT_REGISTER.md)
+- [Post-UAT Release Readiness Report](docs/testing/POST_UAT_RELEASE_READINESS_REPORT.md)
+- [Physical Android Field Validation Plan](docs/testing/PHYSICAL_ANDROID_FIELD_VALIDATION_PLAN.md)
 
 ---
 

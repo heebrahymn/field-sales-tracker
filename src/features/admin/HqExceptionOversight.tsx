@@ -13,6 +13,7 @@ import {
   AlertOctagon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { MarketCode } from '@/context/AuthContext';
 
 export interface HqExceptionRecord {
@@ -66,11 +67,15 @@ const TEST_EXCEPTIONS: HqExceptionRecord[] = [
   },
 ];
 
-export const HqExceptionOversight: React.FC = () => {
-  const [exceptions, setExceptions] = useState<HqExceptionRecord[]>(() => (isTestEnv ? TEST_EXCEPTIONS : []));
+export interface HqExceptionOversightProps {
+  initialExceptions?: HqExceptionRecord[];
+}
+
+export const HqExceptionOversight: React.FC<HqExceptionOversightProps> = ({ initialExceptions }) => {
+  const [exceptions, setExceptions] = useState<HqExceptionRecord[]>(() => initialExceptions || (isTestEnv ? TEST_EXCEPTIONS : []));
 
   useEffect(() => {
-    if (isTestEnv) return;
+    if (initialExceptions || isTestEnv) return;
     managementService.getCountryExceptions('ALL').then(({ data }) => {
       if (data && data.length > 0) {
         setExceptions(
@@ -82,7 +87,7 @@ export const HqExceptionOversight: React.FC = () => {
                 ? 'Zambia (Lusaka)'
                 : 'Malawi (Blantyre)';
 
-            let status: HqExceptionRecord['status'] = 'pending_manager_review';
+            let status: HqExceptionRecord['status'];
             if (e.status === 'approved') status = 'manager_approved_unverified';
             else if (e.status === 'rejected') status = 'rejected';
             else if (e.status === 'escalated') status = 'escalated_to_hq';
@@ -140,6 +145,24 @@ export const HqExceptionOversight: React.FC = () => {
       return matchesSearch && matchesMarket && matchesStatus;
     });
   }, [exceptions, searchQuery, marketFilter, statusFilter]);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, marketFilter, statusFilter]);
+
+  // Pagination bounds and slice
+  const totalPages = Math.max(1, Math.ceil(filteredExceptions.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedExceptions = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return filteredExceptions.slice(startIndex, startIndex + pageSize);
+  }, [filteredExceptions, safeCurrentPage, pageSize]);
 
   // Handle HQ Escalation Action
   const handleHqAction = (actionType: 'uphold' | 'request_reinvestigation' | 'add_administrative_note') => {
@@ -206,7 +229,7 @@ export const HqExceptionOversight: React.FC = () => {
               Strict Author Separation & No-Fabrication Guarantee
             </span>
             <span className="text-[10px] bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded font-mono font-bold">
-              PRD §2 & §7 Rule
+              Exception Governance
             </span>
           </div>
           <p className="text-amber-900">
@@ -297,7 +320,7 @@ export const HqExceptionOversight: React.FC = () => {
                   >
                     {m === 'ALL' ? 'All Hubs' : m}
                   </button>
-                ))}
+                  ))}
               </div>
 
               <select
@@ -332,13 +355,22 @@ export const HqExceptionOversight: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredExceptions.map((exc) => (
+              {filteredExceptions.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-slate-500 text-xs">
+                    No exceptions match the chosen filter criteria.
+                  </td>
+                </tr>
+              ) : (
+                paginatedExceptions.map((exc) => (
                 <tr key={exc.id} className="hover:bg-slate-50/80 transition-colors">
                   {/* ID & Type */}
                   <td className="py-3 px-4">
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono font-bold text-xs text-brand-blue">{exc.id}</span>
+                        <span className="font-mono font-bold text-xs text-brand-blue">
+                          #{exc.id.length > 12 ? exc.id.slice(0, 8).toUpperCase() : exc.id}
+                        </span>
                         {exc.overdueReviewHours && exc.overdueReviewHours > 24 && (
                           <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
                             Overdue ({exc.overdueReviewHours}h)
@@ -356,7 +388,6 @@ export const HqExceptionOversight: React.FC = () => {
                     <div className="font-semibold text-slate-800 text-xs">
                       {exc.salespersonName}
                     </div>
-                    <span className="text-[10px] font-mono text-slate-400">{exc.salespersonId}</span>
                   </td>
 
                   {/* Market Hub */}
@@ -415,10 +446,24 @@ export const HqExceptionOversight: React.FC = () => {
                     </Button>
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>
+
+        {/* Table Pagination */}
+        {filteredExceptions.length > 0 && (
+          <TablePagination
+            currentPage={safeCurrentPage}
+            pageSize={pageSize}
+            totalItems={filteredExceptions.length}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[10, 20, 50, 100]}
+            itemName="exceptions"
+          />
+        )}
       </Card>
 
       {/* INSPECT & ADJUDICATE MODAL */}
@@ -433,7 +478,7 @@ export const HqExceptionOversight: React.FC = () => {
                     HQ Exception Forensic Inspection
                   </h3>
                   <p className="text-[11px] font-mono text-slate-500">
-                    {selectedException.id} • {selectedException.marketName}
+                    #{selectedException.id.length > 12 ? selectedException.id.slice(0, 8).toUpperCase() : selectedException.id} • {selectedException.marketName}
                   </p>
                 </div>
               </div>
@@ -475,7 +520,6 @@ export const HqExceptionOversight: React.FC = () => {
                       Author Salesperson
                     </span>
                     <p className="font-bold text-slate-900 text-sm">{selectedException.salespersonName}</p>
-                    <p className="text-slate-500 text-[11px]">{selectedException.salespersonId}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">

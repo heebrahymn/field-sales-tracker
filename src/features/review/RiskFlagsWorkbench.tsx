@@ -15,9 +15,11 @@ import {
   X,
   RefreshCw,
   Loader2,
-  Database as DatabaseIcon,
+  Calendar,
+  User,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { TablePagination } from '@/components/ui/table-pagination';
 
 export interface RiskFlagRecord {
   id: string;
@@ -34,6 +36,7 @@ export interface RiskFlagRecord {
   clientName: string;
   branchName: string;
   detectedAt: string;
+  rawDate?: string;
   metricObserved: string;
   thresholdLimit: string;
   explanation: string;
@@ -53,6 +56,15 @@ export const RiskFlagsWorkbench: React.FC = () => {
   const [actionType, setActionType] = useState<'dismiss' | 'request_explanation' | 'confirm_violation' | null>(null);
   const [justificationReason, setJustificationReason] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Filter by name and date range
+  const [selectedRep, setSelectedRep] = useState<string>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+
+  // Pagination state: default to 5 flags per page
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
 
   const [realFlags, setRealFlags] = useState<RealVerificationFlag[]>([]);
   const [isLoadingReal, setIsLoadingReal] = useState(false);
@@ -98,6 +110,21 @@ export const RiskFlagsWorkbench: React.FC = () => {
       else if (rf.status === 'under_review' || rf.status === 'escalated') mappedStatus = 'explanation_requested';
       else if (rf.status === 'confirmed_violation') mappedStatus = 'confirmed_violation';
 
+      let rawDate = '';
+      if (rf.createdAt) {
+        try {
+          const d = new Date(rf.createdAt);
+          if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            rawDate = `${y}-${m}-${day}`;
+          }
+        } catch {
+          rawDate = rf.createdAt.slice(0, 10);
+        }
+      }
+
       return {
         id: rf.id,
         flagType: mappedType,
@@ -106,6 +133,7 @@ export const RiskFlagsWorkbench: React.FC = () => {
         clientName: rf.organisationName || 'Client Organisation',
         branchName: rf.branchName || 'Field Location',
         detectedAt: rf.createdAt ? new Date(rf.createdAt).toLocaleString() : 'Detected',
+        rawDate,
         metricObserved: rf.details?.metricObserved || rf.details?.reason || rf.flagCode,
         thresholdLimit: rf.details?.thresholdLimit || 'Automated Telemetry Threshold',
         explanation: rf.details?.notes || rf.details?.explanation || 'Flag raised by database telemetry or audit check.',
@@ -165,26 +193,53 @@ export const RiskFlagsWorkbench: React.FC = () => {
         ? 'Explanation Requested from Rep'
         : 'Confirmed Policy Violation';
 
-    setToastMessage(`Flag [${selectedFlagForAction.id}] updated: ${actionText}. Audit logged.`);
+    const shortFlagId = selectedFlagForAction.id.length > 8 ? selectedFlagForAction.id.slice(0, 8).toUpperCase() : selectedFlagForAction.id;
+    setToastMessage(`Flag #${shortFlagId} updated: ${actionText}. Audit logged.`);
     setSelectedFlagForAction(null);
     setActionType(null);
   };
+
+  // Distinct salespeople across flags for filtering
+  const distinctReps = useMemo(() => {
+    const set = new Set<string>();
+    flags.forEach((f) => {
+      if (f.repName) set.add(f.repName);
+    });
+    return Array.from(set).sort();
+  }, [flags]);
 
   const filteredFlags = flags.filter((f) => {
     if (filterSeverity !== 'all' && f.severity !== filterSeverity) return false;
     if (filterStatus === 'open' && f.status !== 'open_review') return false;
     if (filterStatus === 'resolved' && f.status === 'open_review') return false;
+    if (selectedRep !== 'all' && f.repName !== selectedRep) return false;
+    if (startDate && f.rawDate && f.rawDate < startDate) return false;
+    if (endDate && f.rawDate && f.rawDate > endDate) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
         f.repName.toLowerCase().includes(q) ||
         f.clientName.toLowerCase().includes(q) ||
+        f.branchName.toLowerCase().includes(q) ||
         f.id.toLowerCase().includes(q) ||
         f.metricObserved.toLowerCase().includes(q)
       );
     }
     return true;
   });
+
+  // Reset pagination to page 1 on filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterSeverity, filterStatus, searchQuery, selectedRep, startDate, endDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredFlags.length / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedFlags = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredFlags.slice(start, start + pageSize);
+  }, [filteredFlags, safePage, pageSize]);
 
   const openCount = flags.filter((f) => f.status === 'open_review').length;
 
@@ -213,7 +268,7 @@ export const RiskFlagsWorkbench: React.FC = () => {
           <div className="text-xs">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-900 text-sm">
-                Behavioral Risk Flags &amp; Telemetry Exceptions (PRD §8.2)
+                Behavioral Risk Flags &amp; Telemetry Exceptions
               </h3>
               <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-rose-200">
                 Market: {currentUser?.marketCode || 'NG'}
@@ -316,12 +371,113 @@ export const RiskFlagsWorkbench: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Secondary Filter Row: Salesperson Name & Date Range */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5 border-t border-slate-100 text-xs">
+            <div className="flex items-center gap-3.5 flex-wrap">
+              {/* Salesperson Filter */}
+              <div className="flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-slate-400" />
+                <span className="font-semibold text-slate-500">Salesperson:</span>
+                <select
+                  value={selectedRep}
+                  onChange={(e) => {
+                    setSelectedRep(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-md font-medium text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-brand-blue"
+                  title="Filter by salesperson name"
+                >
+                  <option value="all">All Salespeople ({distinctReps.length})</option>
+                  {distinctReps.map((rep) => (
+                    <option key={rep} value={rep}>
+                      {rep}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date Range: From */}
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <span className="font-semibold text-slate-500">Date From:</span>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 w-36 bg-slate-50 border-slate-200 text-xs"
+                  title="Start date"
+                />
+              </div>
+
+              {/* Date Range: To */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-slate-500">To:</span>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 w-36 bg-slate-50 border-slate-200 text-xs"
+                  title="End date"
+                />
+              </div>
+
+              {/* Clear Date Range Button */}
+              {(startDate || endDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStartDate('');
+                    setEndDate('');
+                    setCurrentPage(1);
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-rose-600 bg-slate-100 hover:bg-rose-50 px-2 py-1 rounded-md transition-colors"
+                  title="Clear date range"
+                >
+                  <X className="w-3 h-3" />
+                  Clear Dates
+                </button>
+              )}
+            </div>
+
+            {/* Clear All Filters button if any filter active */}
+            {(selectedRep !== 'all' || startDate || endDate || searchQuery || filterSeverity !== 'all' || filterStatus !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRep('all');
+                  setStartDate('');
+                  setEndDate('');
+                  setSearchQuery('');
+                  setFilterSeverity('all');
+                  setFilterStatus('all');
+                  setCurrentPage(1);
+                }}
+                className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 underline self-start sm:self-center"
+              >
+                Reset All Filters
+              </button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
       {/* Flag Cards */}
       <div className="space-y-4">
-        {filteredFlags.map((flag) => {
+        {filteredFlags.length === 0 ? (
+          <Card className="border-slate-200 bg-white shadow-xs">
+            <CardContent className="p-8 text-center text-slate-500 text-xs">
+              No behavioral risk flags match the selected criteria.
+            </CardContent>
+          </Card>
+        ) : (
+          paginatedFlags.map((flag) => {
           const isOpen = flag.status === 'open_review';
 
           return (
@@ -346,14 +502,10 @@ export const RiskFlagsWorkbench: React.FC = () => {
                     </span>
 
                     <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                      {flag.id}
+                      #{flag.id.length > 12 ? flag.id.slice(0, 8).toUpperCase() : flag.id}
                     </span>
 
-                    {flag.isRealRecord && (
-                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
-                        <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Flag
-                      </span>
-                    )}
+
 
                     <span className="text-xs text-slate-600 font-medium">
                       Salesperson: <strong className="text-slate-900">{flag.repName}</strong>
@@ -463,8 +615,22 @@ export const RiskFlagsWorkbench: React.FC = () => {
               </CardContent>
             </Card>
           );
-        })}
-      </div>
+        })
+      )}
+
+      {filteredFlags.length > 0 && (
+        <TablePagination
+          currentPage={safePage}
+          pageSize={pageSize}
+          totalItems={filteredFlags.length}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[5, 10, 20, 50]}
+          itemName="flags"
+          className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs mt-4"
+        />
+      )}
+    </div>
 
       {/* Action Resolution Modal */}
       {selectedFlagForAction && actionType && (
@@ -489,7 +655,7 @@ export const RiskFlagsWorkbench: React.FC = () => {
 
             <div className="space-y-2 text-xs">
               <p className="text-slate-600">
-                Flag: <strong className="font-mono text-slate-900">{selectedFlagForAction.id}</strong> •{' '}
+                Flag: <strong className="font-mono text-slate-900">#{selectedFlagForAction.id.length > 12 ? selectedFlagForAction.id.slice(0, 8).toUpperCase() : selectedFlagForAction.id}</strong> •{' '}
                 {selectedFlagForAction.clientName}
               </p>
 

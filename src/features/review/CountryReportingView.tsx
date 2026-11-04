@@ -4,6 +4,7 @@ import { managementService, RealVisitVerificationRecord } from '@/services/manag
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { CountryCsvExportModal } from '@/features/review/CountryCsvExportModal';
 import {
   Calendar,
@@ -65,6 +66,8 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'summary' | 'granular'>('summary');
+  const [granularPage, setGranularPage] = useState<number>(1);
+  const [granularPageSize, setGranularPageSize] = useState<number>(10);
 
   useEffect(() => {
     let mounted = true;
@@ -110,7 +113,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
         ? new Date(v.checkInAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT'
         : '--:--';
 
-      let status: GranularVisitRecord['status'] = 'pending_review';
+      let status: GranularVisitRecord['status'];
       if (v.verificationStatus === 'location_verified') status = 'location_verified';
       else if (v.verificationStatus === 'manager_approved_unverified') status = 'manager_approved_unverified';
       else status = 'pending_review';
@@ -125,7 +128,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
         date: checkInDate,
         timeWAT: checkInTime,
         status,
-        offlineCaptured: !v.withinGeofence,
+        offlineCaptured: Boolean(v.capturedOffline),
         logStatus: v.meetingLog ? 'complete' : 'missing',
         logDurationMinutes: 15,
         productsDiscussed: v.meetingLog?.productsDiscussed?.join(', ') || 'General portfolio discussion',
@@ -252,6 +255,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
     setSelectedBranch('all');
     setSelectedStatus('all');
     setSearchQuery('');
+    setGranularPage(1);
   };
 
   // Filtered Granular Records
@@ -306,6 +310,20 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
     });
   }, [allRecords, selectedRep, selectedBranch, selectedStatus, selectedDateRange, customStartDate, customEndDate, searchQuery]);
 
+  // Auto-reset granular page when filters change
+  useEffect(() => {
+    setGranularPage(1);
+  }, [selectedRep, selectedBranch, selectedStatus, selectedDateRange, customStartDate, customEndDate, searchQuery]);
+
+  // Paginated Operational Records
+  const totalGranularPages = Math.max(1, Math.ceil(filteredRecords.length / granularPageSize));
+  const safeGranularPage = Math.min(Math.max(1, granularPage), totalGranularPages);
+
+  const paginatedRecords = useMemo(() => {
+    const start = (safeGranularPage - 1) * granularPageSize;
+    return filteredRecords.slice(start, start + granularPageSize);
+  }, [filteredRecords, safeGranularPage, granularPageSize]);
+
   // Filtered Rep Breakdown Table Data
   const filteredReps = useMemo(() => {
     return salesReps.filter((rep) => {
@@ -357,7 +375,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
           <BarChart3 className="w-5 h-5 text-brand-blue shrink-0 mt-0.5" />
           <div className="text-xs">
             <h3 className="font-bold text-slate-900 text-sm">
-              Operational Reporting &amp; Audit Analytics (PRD §10)
+              Operational Reporting &amp; Audit Analytics
             </h3>
             <p className="text-slate-700 font-medium mt-0.5">
               Multi-dimensional reporting across attendance, physical GPS visits, exception rates, unique branches, and offline sync. Strict MVP scope:{' '}
@@ -514,7 +532,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
             <span className="text-[11px] font-bold text-slate-500">Active Filters:</span>
             {selectedRep !== 'all' && (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-blue-50 text-brand-blue border border-blue-200 font-semibold text-[11px]">
-                Salesperson: {salesReps.find((r) => r.id === selectedRep)?.name || selectedRep}
+                Salesperson: {salesReps.find((r) => r.id === selectedRep)?.name || 'Selected Salesperson'}
                 <button onClick={() => setSelectedRep('all')} className="hover:text-red-600 ml-1">
                   <X className="w-3 h-3" />
                 </button>
@@ -596,7 +614,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs flex items-center gap-2 text-amber-900">
           <Info className="w-4 h-4 text-amber-700 shrink-0" />
           <span>
-            <strong>Provisional Data Notice (PRD §10):</strong> Daily figures reflect real-time synced events. Devices with unsynchronised offline queues will be reconciled at the 19:00 daily cutoff.
+            <strong>Provisional Data Notice:</strong> Daily figures reflect real-time synced events. Devices with unsynchronised offline queues will be reconciled at the 19:00 daily cutoff.
           </span>
         </div>
       )}
@@ -626,7 +644,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
         {/* 3. Unique Branches Reached */}
         <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>Unique Branches</span>
+            <span>Locations Visited</span>
             <Building2 className="w-4 h-4 text-brand-blue" />
           </div>
           <div className="text-2xl font-black text-slate-900">{dynamicMetrics.uniqueBranches}</div>
@@ -726,7 +744,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
                       <th className="py-3 px-4">Assigned Territory</th>
                       <th className="py-3 px-4">Verified Visits</th>
                       <th className="py-3 px-4">Approved Unverified</th>
-                      <th className="py-3 px-4">Unique Branches</th>
+                      <th className="py-3 px-4">Locations Visited</th>
                       <th className="py-3 px-4">Offline Share</th>
                       <th className="py-3 px-4 text-right">Log SLA Compliance</th>
                     </tr>
@@ -738,7 +756,6 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
                         <tr key={rep.id} className="hover:bg-slate-50/70 transition-colors">
                           <td className="py-3.5 px-4">
                             <div className="font-bold text-slate-900">{rep.name}</div>
-                            <div className="text-[10px] text-slate-500 font-mono">{rep.id}</div>
                           </td>
                           <td className="py-3.5 px-4 font-medium text-slate-700">{rep.territory}</td>
                           <td className="py-3.5 px-4 font-bold text-emerald-700">{repData.verified}</td>
@@ -822,14 +839,13 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredRecords.map((record) => (
+                    {paginatedRecords.map((record) => (
                       <tr key={record.id} className="hover:bg-slate-50/70 transition-colors">
                         <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
-                          {record.id}
+                          #{record.id}
                         </td>
                         <td className="py-3.5 px-4">
                           <div className="font-bold text-slate-900">{record.repName}</div>
-                          <div className="text-[10px] text-slate-500 font-mono">{record.repId}</div>
                         </td>
                         <td className="py-3.5 px-4">
                           <div className="font-semibold text-slate-900">{record.branchName}</div>
@@ -870,6 +886,17 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
                 </table>
               </div>
             )}
+            {filteredRecords.length > 0 && (
+              <TablePagination
+                currentPage={safeGranularPage}
+                pageSize={granularPageSize}
+                totalItems={filteredRecords.length}
+                onPageChange={setGranularPage}
+                onPageSizeChange={setGranularPageSize}
+                pageSizeOptions={[10, 20, 50, 100]}
+                itemName="records"
+              />
+            )}
           </CardContent>
         </Card>
       )}
@@ -880,7 +907,18 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
         onClose={() => setIsExportModalOpen(false)}
         marketName={marketName}
         defaultRep={selectedRep}
-        defaultDateRange={selectedDateRange === 'quarterly' ? 'quarter_to_date' : selectedDateRange === 'daily' ? 'today' : 'current_week'}
+        defaultDateRange={
+          selectedDateRange === 'quarterly'
+            ? 'quarter_to_date'
+            : selectedDateRange === 'daily'
+            ? 'today'
+            : selectedDateRange === 'custom'
+            ? 'custom'
+            : 'current_week'
+        }
+        defaultStartDate={customStartDate}
+        defaultEndDate={customEndDate}
+        salespeople={salespeople}
       />
     </div>
   );

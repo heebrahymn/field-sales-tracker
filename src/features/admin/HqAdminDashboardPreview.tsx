@@ -5,6 +5,7 @@ import { HqUserManagement } from './HqUserManagement';
 import { HqDeviceManagement } from './HqDeviceManagement';
 import { HqMarketConfiguration } from './HqMarketConfiguration';
 import { HqClientMasterImport } from './HqClientMasterImport';
+import { HqClientDirectory } from './HqClientDirectory';
 import { HqExceptionOversight } from './HqExceptionOversight';
 import { HqClientAuditOversight } from './HqClientAuditOversight';
 import { HqReportingExport } from './HqReportingExport';
@@ -15,6 +16,7 @@ import {
   Smartphone,
   Sliders,
   UploadCloud,
+  Building2,
   FileSpreadsheet,
   ShieldAlert,
   PhoneCall,
@@ -32,6 +34,7 @@ const HQ_MODULE_TABS: { id: DesktopNavSection; label: string; icon: React.Elemen
   { id: 'users', label: 'Users & Roles', icon: Users },
   { id: 'devices', label: 'Devices & MDM', icon: Smartphone },
   { id: 'markets', label: 'Rule Sets', icon: Sliders },
+  { id: 'clients', label: 'Clients & Sites', icon: Building2 },
   { id: 'import', label: 'Client Import', icon: UploadCloud },
   { id: 'exceptions', label: 'Exceptions', icon: ShieldAlert },
   { id: 'audits', label: 'Client Audits', icon: PhoneCall },
@@ -77,6 +80,7 @@ export const HqAdminDashboardPreview: React.FC<HqAdminDashboardPreviewProps> = (
       {currentSection === 'users' && <HqUserManagement />}
       {currentSection === 'devices' && <HqDeviceManagement />}
       {currentSection === 'markets' && <HqMarketConfiguration />}
+      {currentSection === 'clients' && <HqClientDirectory />}
       {currentSection === 'import' && <HqClientMasterImport />}
       {currentSection === 'exceptions' && <HqExceptionOversight />}
       {currentSection === 'audits' && <HqClientAuditOversight />}

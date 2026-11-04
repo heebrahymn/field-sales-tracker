@@ -157,7 +157,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 {isLoading ? (
                   <span className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Authenticating with Supabase...</span>
+                    <span>Authenticating...</span>
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 justify-center">

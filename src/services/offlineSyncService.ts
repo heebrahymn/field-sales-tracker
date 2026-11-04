@@ -471,7 +471,7 @@ export const offlineSyncService = {
     const ctx = await this.getOrCreateCachedContext(ownerUserId, marketCode);
     if (ctx.lastKnownServerTimeMs && captureTimeMs < ctx.lastKnownServerTimeMs - MAX_CLOCK_DRIFT_MS) {
       const diffMins = Math.round((ctx.lastKnownServerTimeMs - captureTimeMs) / 60000);
-      return `Clock discrepancy detected: Device timestamp is ${diffMins} min behind last known server time (PRD §8.2 / §9).`;
+      return `Clock discrepancy detected: Device timestamp is ${diffMins} min behind last known server time.`;
     }
 
     const userEvents = (await offlineDb.eventJournal.where('ownerUserId').equals(ownerUserId).toArray()).sort(
@@ -605,6 +605,7 @@ export const offlineSyncService = {
     selfieBlob: Blob;
     submissionId?: string;
     capturedAt?: string;
+    maxAccuracy?: number;
   }): Promise<{
     event: OfflineJournalEvent | null;
     provisionalAttendance: any | null;
@@ -619,14 +620,16 @@ export const offlineSyncService = {
       accuracy,
       selfieBlob,
       capturedAt,
+      maxAccuracy,
     } = params;
 
-    if (accuracy > 100) {
+    const maxThreshold = maxAccuracy ?? 100;
+    if (accuracy > maxThreshold) {
       return {
         event: null,
         provisionalAttendance: null,
         error: new Error(
-          `GPS accuracy (±${Math.round(accuracy)}m) exceeds maximum allowable threshold (100m).`
+          `GPS accuracy (±${Math.round(accuracy)}m) exceeds maximum allowable threshold (${maxThreshold}m).`
         ),
       };
     }
@@ -1321,7 +1324,7 @@ export const offlineSyncService = {
         event: null,
         provisionalAttendance: null,
         error: new Error(
-          'Cannot end workday while an active visit is open (PRD §6.1 / AT-03). Check out of the active visit first.'
+          'Cannot end workday while an active visit is open. Check out of the active visit first.'
         ),
       };
     }

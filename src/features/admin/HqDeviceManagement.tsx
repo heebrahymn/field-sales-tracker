@@ -23,10 +23,12 @@ import {
   Loader2,
   Pencil,
   Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { MarketCode } from '@/context/AuthContext';
+import { generateCompanyAssetId } from '@/utils/deviceUtils';
 import {
   useDeviceReplacement,
   CompanyDevice,
@@ -95,12 +97,34 @@ export const HqDeviceManagement: React.FC = () => {
   const [dispatchNotes, setDispatchNotes] = useState('');
 
   const [requestToActivate, setRequestToActivate] = useState<DeviceReplacementRequest | null>(null);
-  const [oldDeviceDisposition, setOldDeviceDisposition] = useState<'revoked' | 'returned_to_depot' | 'quarantined'>('returned_to_depot');
+  const [oldDeviceDisposition, setOldDeviceDisposition] = useState<'revoked' | 'returned_to_depot' | 'quarantined'>('quarantined');
 
   const [selectedRequestForHistory, setSelectedRequestForHistory] = useState<DeviceReplacementRequest | null>(null);
 
   // Device Registration Modal State
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [isManualAssetId, setIsManualAssetId] = useState(false);
+  const [assetIdOffset, setAssetIdOffset] = useState(0);
+
+  const handleRegenerateAssetId = () => {
+    const nextOffset = assetIdOffset + 1;
+    setAssetIdOffset(nextOffset);
+    const nextId = generateCompanyAssetId(registerForm.marketCode, devices, nextOffset);
+    setRegisterForm((prev) => ({
+      ...prev,
+      assetId: nextId,
+    }));
+  };
+
+  useEffect(() => {
+    if (showRegisterModal && !registerForm.assetId && !isManualAssetId) {
+      setRegisterForm((prev) => ({
+        ...prev,
+        assetId: generateCompanyAssetId(prev.marketCode || 'NG', devices, 0),
+      }));
+    }
+  }, [showRegisterModal, devices, isManualAssetId]);
+
   const [registerForm, setRegisterForm] = useState<RegisterDeviceInput>({
     assetId: '',
     make: 'Samsung',
@@ -178,6 +202,8 @@ export const HqDeviceManagement: React.FC = () => {
 
   useEffect(() => {
     loadLiveSalespeople();
+    refreshRequests();
+    refreshDevices();
   }, []);
 
   useEffect(() => {
@@ -525,13 +551,14 @@ export const HqDeviceManagement: React.FC = () => {
 
       setRegisterSuccess(`Device ${registerForm.assetId.trim()} successfully registered in ${marketLabel} inventory.`);
 
-      // Reset form
+      // Reset form with next auto-generated asset ID
+      const nextAutoId = generateCompanyAssetId(registerForm.marketCode, devices, 0);
       setRegisterForm({
-        assetId: '',
+        assetId: nextAutoId,
         make: 'Samsung',
         model: 'Galaxy A15 Enterprise',
         serialNumber: '',
-        marketCode: 'NG',
+        marketCode: registerForm.marketCode,
         initialStatus: 'Available',
         imei: '',
         osVersion: 'Android 14 / One UI 6.0',
@@ -540,6 +567,8 @@ export const HqDeviceManagement: React.FC = () => {
         warrantyExpiryDate: '',
         notes: '',
       });
+      setIsManualAssetId(false);
+      setAssetIdOffset(0);
 
       // Kept open until user manually dismisses or registers another device
     } catch (err: any) {
@@ -709,7 +738,7 @@ export const HqDeviceManagement: React.FC = () => {
         else if (targetLifecycleStatus === 'Retired') dbStatus = 'retired';
 
         await adminService.updateDevice(devId, { inventoryStatus: dbStatus, notes: statusChangeReason.trim() });
-        if (dbStatus === 'returned' || dbStatus === 'retired' || dbStatus === 'lost_stolen') {
+        if (dbStatus !== 'active' && dbStatus !== 'assigned') {
           await supabase.from('device_assignments').update({ is_current: false, returned_at: new Date().toISOString() }).eq('device_id', devId).eq('is_current', true);
         }
         await refreshDevices();
@@ -738,6 +767,7 @@ export const HqDeviceManagement: React.FC = () => {
         status: 'approved',
         reason,
       });
+      await refreshRequests();
     }
 
     setRequestToApprove(null);
@@ -758,6 +788,7 @@ export const HqDeviceManagement: React.FC = () => {
         status: 'rejected',
         reason,
       });
+      await refreshRequests();
     }
 
     setRequestToReject(null);
@@ -765,9 +796,22 @@ export const HqDeviceManagement: React.FC = () => {
   };
 
   // Step 3: Assign Spare Device
-  const handleConfirmAssignSpare = () => {
+  const handleConfirmAssignSpare = async () => {
     if (!requestToAssignSpare || !selectedSpareAssetId) return;
-    assignSpareDevice(requestToAssignSpare.id, selectedSpareAssetId);
+    const reqId = requestToAssignSpare.id;
+    const spareAssetId = selectedSpareAssetId;
+
+    assignSpareDevice(reqId, spareAssetId);
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reqId)) {
+      await adminService.allocateSpareDevice({
+        replacementId: reqId,
+        spareDeviceId: spareAssetId,
+      });
+      await refreshRequests();
+      await refreshDevices();
+    }
+
     setRequestToAssignSpare(null);
     setSelectedSpareAssetId('');
   };
@@ -783,10 +827,12 @@ export const HqDeviceManagement: React.FC = () => {
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reqId)) {
       await adminService.dispatchReplacementDevice({
         replacementId: reqId,
-        replacementDeviceId: selectedSpareAssetId || '00000000-0000-0000-0000-000000000000',
+        replacementDeviceId: requestToDispatch.replacementDeviceAssetId || selectedSpareAssetId || '00000000-0000-0000-0000-000000000000',
         courierTrackingRef: notes,
         dispatchNotes: notes,
       });
+      await refreshRequests();
+      await refreshDevices();
     }
 
     setRequestToDispatch(null);
@@ -806,6 +852,8 @@ export const HqDeviceManagement: React.FC = () => {
         replacementId: reqId,
         oldDeviceDisposition: disp,
       });
+      await refreshRequests();
+      await refreshDevices();
     }
 
     setRequestToActivate(null);
@@ -946,6 +994,23 @@ export const HqDeviceManagement: React.FC = () => {
             onClick={() => {
               setRegisterError(null);
               setRegisterSuccess(null);
+              setIsManualAssetId(false);
+              setAssetIdOffset(0);
+              const autoId = generateCompanyAssetId('NG', devices, 0);
+              setRegisterForm({
+                assetId: autoId,
+                make: 'Samsung',
+                model: 'Galaxy A15 Enterprise',
+                serialNumber: '',
+                marketCode: 'NG',
+                initialStatus: 'Available',
+                imei: '',
+                osVersion: 'Android 14 / One UI 6.0',
+                purchaseDate: new Date().toISOString().slice(0, 10),
+                supplier: 'Samsung West Africa Direct',
+                warrantyExpiryDate: '',
+                notes: '',
+              });
               setShowRegisterModal(true);
             }}
             className="h-9 bg-brand-blue hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm px-3.5 py-2 rounded-lg border border-blue-400/30 shrink-0 whitespace-nowrap cursor-pointer transition-colors"
@@ -966,7 +1031,7 @@ export const HqDeviceManagement: React.FC = () => {
         <div className="space-y-1 leading-relaxed">
           <span className="font-bold text-brand-blue">Hardware Policy & Chain-of-Custody Integrity</span>
           <p className="text-slate-600">
-            Per PRD §2.1, Carbon Car Care provides all field handsets. Device identifiers are assigned in the database and linked to field session tokens.
+            Carbon Car Care provides all field handsets. Device identifiers are assigned in the database and linked to field session tokens.
             When a device fails or is lost, the salesperson submits exception logs upon device recovery; HQ admins manage replacement hardware without fabricating field evidence.
           </p>
         </div>
@@ -1065,7 +1130,7 @@ export const HqDeviceManagement: React.FC = () => {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/70 pb-2.5">
                     <div className="flex items-center flex-wrap gap-2">
                       <span className="font-mono font-bold text-slate-900 text-xs bg-white px-2 py-0.5 rounded border border-slate-200">
-                        {req.id}
+                        #{req.id.length > 12 ? req.id.slice(0, 8).toUpperCase() : req.id}
                       </span>
                       <span className="text-[10px] bg-slate-200 px-2 py-0.5 rounded font-semibold text-slate-700">
                         {req.marketName}
@@ -1073,7 +1138,6 @@ export const HqDeviceManagement: React.FC = () => {
                       <span className="text-slate-500 font-medium">
                         Salesperson: <strong className="text-slate-800">{req.salespersonName}</strong>
                       </span>
-                      <span className="text-slate-400 font-mono text-[11px]">({req.salespersonId})</span>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -1214,7 +1278,7 @@ export const HqDeviceManagement: React.FC = () => {
                           size="sm"
                           onClick={() => {
                             setRequestToActivate(req);
-                            setOldDeviceDisposition('returned_to_depot');
+                            setOldDeviceDisposition('quarantined');
                           }}
                           className="h-8 text-xs bg-cyan-700 hover:bg-cyan-800 text-white font-semibold flex items-center gap-1.5"
                         >
@@ -1274,7 +1338,7 @@ export const HqDeviceManagement: React.FC = () => {
           <div>
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Available in Depot</p>
             <p className="text-2xl font-black text-indigo-700 mt-0.5">
-              {devices.filter((d) => d.inventoryStatus === 'Available' || d.inventoryStatus === 'Returned').length}
+              {devices.filter((d) => d.inventoryStatus === 'Available').length}
             </p>
             <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
               Ready for Assignment
@@ -1517,8 +1581,8 @@ export const HqDeviceManagement: React.FC = () => {
                     {/* Actions */}
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* Assign if Available or Returned */}
-                        {(device.inventoryStatus === 'Available' || device.inventoryStatus === 'Returned') && (
+                        {/* Assign strictly if Available (cleared for issue) */}
+                        {device.inventoryStatus === 'Available' && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -1680,6 +1744,23 @@ export const HqDeviceManagement: React.FC = () => {
                     size="sm"
                     onClick={() => {
                       setRegisterSuccess(null);
+                      setIsManualAssetId(false);
+                      setAssetIdOffset(0);
+                      const nextId = generateCompanyAssetId(registerForm.marketCode, devices, 0);
+                      setRegisterForm({
+                        assetId: nextId,
+                        make: 'Samsung',
+                        model: 'Galaxy A15 Enterprise',
+                        serialNumber: '',
+                        marketCode: registerForm.marketCode,
+                        initialStatus: 'Available',
+                        imei: '',
+                        osVersion: 'Android 14 / One UI 6.0',
+                        purchaseDate: new Date().toISOString().slice(0, 10),
+                        supplier: 'Samsung West Africa Direct',
+                        warrantyExpiryDate: '',
+                        notes: '',
+                      });
                     }}
                     className="text-xs border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer"
                   >
@@ -1708,17 +1789,73 @@ export const HqDeviceManagement: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Company Asset ID *</label>
-                    <input
-                      id="input-reg-asset-id"
-                      required
-                      type="text"
-                      placeholder="e.g. CC-DEV-LOS-010"
-                      value={registerForm.assetId}
-                      onChange={(e) => setRegisterForm({ ...registerForm, assetId: e.target.value })}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono uppercase focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
-                    />
-                    <span className="text-[10px] text-slate-400">Must be unique across all country fleets.</span>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-bold text-slate-700">Company Asset ID *</label>
+                      <div className="flex items-center gap-1.5">
+                        {!isManualAssetId ? (
+                          <span className="inline-flex items-center text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            Auto
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                            Manual
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isManualAssetId) {
+                              setIsManualAssetId(false);
+                              setRegisterForm((prev) => ({
+                                ...prev,
+                                assetId: generateCompanyAssetId(prev.marketCode, devices, assetIdOffset),
+                              }));
+                            } else {
+                              setIsManualAssetId(true);
+                            }
+                          }}
+                          id="btn-toggle-manual-asset-id"
+                          className="text-[10px] text-brand-blue hover:underline font-semibold cursor-pointer"
+                        >
+                          {isManualAssetId ? 'Use Auto' : 'Customize'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <input
+                        id="input-reg-asset-id"
+                        required
+                        type="text"
+                        autoComplete="off"
+                        data-lpignore="true"
+                        readOnly={!isManualAssetId}
+                        placeholder="e.g. CP-DEV-NG-01"
+                        value={registerForm.assetId}
+                        onChange={(e) => setRegisterForm({ ...registerForm, assetId: e.target.value })}
+                        className={cn(
+                          "w-full px-3 py-2 border rounded-lg text-xs font-mono uppercase transition-colors",
+                          !isManualAssetId
+                            ? "bg-slate-50 text-slate-900 font-bold border-slate-200 cursor-default pr-9 focus:ring-0 focus:border-slate-300"
+                            : "bg-white text-slate-900 border-slate-200 focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                        )}
+                      />
+                      {!isManualAssetId && (
+                        <button
+                          type="button"
+                          onClick={handleRegenerateAssetId}
+                          id="btn-regenerate-asset-id"
+                          title="Generate alternate Asset ID"
+                          className="absolute right-2 top-2 p-1 text-slate-400 hover:text-brand-blue hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                      {!isManualAssetId
+                        ? `System generated for ${registerForm.marketCode === 'NG' ? 'Nigeria (NG)' : registerForm.marketCode === 'ZM' ? 'Zambia (ZM)' : 'Malawi (MW)'} Fleet.`
+                        : 'Must be unique across all country fleets.'}
+                    </span>
                   </div>
 
                   <div>
@@ -1739,17 +1876,14 @@ export const HqDeviceManagement: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Device Make *</label>
-                    <select
+                    <input
+                      required
+                      type="text"
+                      placeholder="e.g. Samsung, Nokia, Tecno"
                       value={registerForm.make}
                       onChange={(e) => setRegisterForm({ ...registerForm, make: e.target.value })}
-                      className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
-                    >
-                      <option value="Samsung">Samsung</option>
-                      <option value="Nokia">Nokia</option>
-                      <option value="Google">Google</option>
-                      <option value="Motorola">Motorola</option>
-                      <option value="Other">Other</option>
-                    </select>
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
+                    />
                   </div>
 
                   <div>
@@ -1767,8 +1901,20 @@ export const HqDeviceManagement: React.FC = () => {
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Assigned Market *</label>
                     <select
+                      id="select-reg-market-code"
                       value={registerForm.marketCode}
-                      onChange={(e) => setRegisterForm({ ...registerForm, marketCode: e.target.value as MarketCode })}
+                      onChange={(e) => {
+                        const newMarket = e.target.value as MarketCode;
+                        const nextId = isManualAssetId
+                          ? registerForm.assetId
+                          : generateCompanyAssetId(newMarket, devices, 0);
+                        setAssetIdOffset(0);
+                        setRegisterForm({
+                          ...registerForm,
+                          marketCode: newMarket,
+                          assetId: nextId,
+                        });
+                      }}
                       className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
                     >
                       <option value="NG">Nigeria (Lagos Hub)</option>
@@ -1966,7 +2112,7 @@ export const HqDeviceManagement: React.FC = () => {
                         className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
                       >
                         <option value="">
-                          {isLoadingSalespeople ? 'Loading representatives from Supabase...' : '-- Choose Sales Representative --'}
+                          {isLoadingSalespeople ? 'Loading representatives...' : '-- Choose Sales Representative --'}
                         </option>
                         {combinedSalespeople
                           .filter((p) => p.marketCode === deviceToAssign.marketCode)
@@ -2000,8 +2146,9 @@ export const HqDeviceManagement: React.FC = () => {
                           <strong className="font-mono text-slate-900">{existingActiveDeviceForAssign.assetId}</strong>.
                         </p>
                         <p className="text-[11px] text-amber-800 leading-relaxed">
-                          Company policy enforces 1:1 hardware custody. Confirming handover will automatically reassign custody, return{' '}
-                          <strong className="font-mono text-slate-900">{existingActiveDeviceForAssign.assetId}</strong> to the central depot, and activate{' '}
+                          Company policy enforces 1:1 hardware custody. Confirming handover will automatically relinquish custody of{' '}
+                          <strong className="font-mono text-slate-900">{existingActiveDeviceForAssign.assetId}</strong> (marking it{' '}
+                          <strong>Pending Inspection</strong> until physical depot receipt and IT clearance) and activate{' '}
                           <strong className="font-mono text-slate-900">{deviceToAssign.assetId}</strong> for {selectedRepForAssign?.name}.
                         </p>
                         <label className="flex items-center gap-2 cursor-pointer pt-1">
@@ -2012,7 +2159,7 @@ export const HqDeviceManagement: React.FC = () => {
                             className="rounded border-amber-400 text-brand-blue focus:ring-brand-blue"
                           />
                           <span className="text-[11px] font-semibold text-amber-950">
-                            Return {existingActiveDeviceForAssign.assetId} to depot & reassign handset
+                            Relinquish custody of {existingActiveDeviceForAssign.assetId} (mark pending inspection) & reassign handset
                           </span>
                         </label>
                       </div>
@@ -2111,7 +2258,7 @@ export const HqDeviceManagement: React.FC = () => {
                   className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs bg-white font-medium focus:border-brand-blue"
                 >
                   <option value="">
-                    {isLoadingSalespeople ? 'Loading representatives from Supabase...' : '-- Choose New Custodian --'}
+                    {isLoadingSalespeople ? 'Loading representatives...' : '-- Choose New Custodian --'}
                   </option>
                   {combinedSalespeople
                     .filter(
@@ -2371,7 +2518,7 @@ export const HqDeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">Approve Device Replacement</h3>
-                  <p className="text-[11px] font-mono text-slate-500">{requestToApprove.id} • {requestToApprove.companyDeviceAssetId}</p>
+                  <p className="text-[11px] font-mono text-slate-500">#{requestToApprove.id.length > 12 ? requestToApprove.id.slice(0, 8).toUpperCase() : requestToApprove.id} • {requestToApprove.companyDeviceAssetId}</p>
                 </div>
               </div>
               <button
@@ -2406,7 +2553,7 @@ export const HqDeviceManagement: React.FC = () => {
               </div>
 
               <div className="p-3 rounded-lg bg-blue-50/70 border border-blue-200 text-slate-700 text-[11px] leading-relaxed">
-                <strong>PRD Governance Rule:</strong> Approving transitions status to <em>Approved</em>. Spare handset allocation, dispatch, and MDM activation will follow as distinct audit steps.
+                <strong>Governance Rule:</strong> Approving transitions status to <em>Approved</em>. Spare handset allocation, dispatch, and MDM activation will follow as distinct audit steps.
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -2442,7 +2589,7 @@ export const HqDeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">Reject Device Replacement Request</h3>
-                  <p className="text-[11px] font-mono text-slate-500">{requestToReject.id} • {requestToReject.companyDeviceAssetId}</p>
+                  <p className="text-[11px] font-mono text-slate-500">#{requestToReject.id.length > 12 ? requestToReject.id.slice(0, 8).toUpperCase() : requestToReject.id} • {requestToReject.companyDeviceAssetId}</p>
                 </div>
               </div>
               <button
@@ -2512,7 +2659,7 @@ export const HqDeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">Allocate Spare Handset from Depot</h3>
-                  <p className="text-[11px] font-mono text-slate-500">{requestToAssignSpare.id} • {requestToAssignSpare.marketName}</p>
+                  <p className="text-[11px] font-mono text-slate-500">#{requestToAssignSpare.id.length > 12 ? requestToAssignSpare.id.slice(0, 8).toUpperCase() : requestToAssignSpare.id} • {requestToAssignSpare.marketName}</p>
                 </div>
               </div>
               <button
@@ -2537,7 +2684,7 @@ export const HqDeviceManagement: React.FC = () => {
                 <label className="block font-bold text-slate-700 mb-1.5">Select Available Handset from IT Depot Inventory *</label>
                 <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                   {devices
-                    .filter((d) => d.inventoryStatus === 'Available' || d.inventoryStatus === 'Returned')
+                    .filter((d) => d.inventoryStatus === 'Available')
                     .map((spare) => (
                       <label
                         key={spare.assetId}
@@ -2606,7 +2753,7 @@ export const HqDeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">Record Device Dispatch / Handover</h3>
-                  <p className="text-[11px] font-mono text-slate-500">{requestToDispatch.id}</p>
+                  <p className="text-[11px] font-mono text-slate-500">#{requestToDispatch.id.length > 12 ? requestToDispatch.id.slice(0, 8).toUpperCase() : requestToDispatch.id}</p>
                 </div>
               </div>
               <button
@@ -2676,7 +2823,7 @@ export const HqDeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">Confirm Activation & Disposition</h3>
-                  <p className="text-[11px] font-mono text-slate-500">{requestToActivate.id}</p>
+                  <p className="text-[11px] font-mono text-slate-500">#{requestToActivate.id.length > 12 ? requestToActivate.id.slice(0, 8).toUpperCase() : requestToActivate.id}</p>
                 </div>
               </div>
               <button
@@ -2707,14 +2854,14 @@ export const HqDeviceManagement: React.FC = () => {
                     <input
                       type="radio"
                       name="disposition"
-                      value="returned_to_depot"
-                      checked={oldDeviceDisposition === 'returned_to_depot'}
-                      onChange={() => setOldDeviceDisposition('returned_to_depot')}
+                      value="quarantined"
+                      checked={oldDeviceDisposition === 'quarantined'}
+                      onChange={() => setOldDeviceDisposition('quarantined')}
                       className="mt-0.5 text-cyan-600"
                     />
                     <div>
-                      <strong className="text-slate-900 block">Return to IT Depot</strong>
-                      <span className="text-[11px] text-slate-500">Handset returned to country IT logistics depot for diagnostic repair or parts salvage.</span>
+                      <strong className="text-slate-900 block">Pending Return & Inspection (Quarantined)</strong>
+                      <span className="text-[11px] text-slate-500">Custody relinquished; marks handset Pending Inspection until physical depot receipt and IT check.</span>
                     </div>
                   </label>
 
@@ -2722,14 +2869,14 @@ export const HqDeviceManagement: React.FC = () => {
                     <input
                       type="radio"
                       name="disposition"
-                      value="quarantined"
-                      checked={oldDeviceDisposition === 'quarantined'}
-                      onChange={() => setOldDeviceDisposition('quarantined')}
+                      value="returned_to_depot"
+                      checked={oldDeviceDisposition === 'returned_to_depot'}
+                      onChange={() => setOldDeviceDisposition('returned_to_depot')}
                       className="mt-0.5 text-cyan-600"
                     />
                     <div>
-                      <strong className="text-slate-900 block">Quarantine for Investigation</strong>
-                      <span className="text-[11px] text-slate-500">Place handset in IT security quarantine for sensor inspection.</span>
+                      <strong className="text-slate-900 block">Physical Depot Receipt Confirmed (Returned)</strong>
+                      <span className="text-[11px] text-slate-500">Handset physically received at country IT depot; requires diagnostic/wipe clearance before marking Available.</span>
                     </div>
                   </label>
 
@@ -2782,7 +2929,7 @@ export const HqDeviceManagement: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">
-                    {selectedRequestForHistory.id} Audit History
+                    #{selectedRequestForHistory.id.length > 12 ? selectedRequestForHistory.id.slice(0, 8).toUpperCase() : selectedRequestForHistory.id} Audit History
                   </h3>
                   <p className="text-[11px] text-slate-500 font-mono">
                     {selectedRequestForHistory.companyDeviceAssetId} • Custodian: {selectedRequestForHistory.salespersonName}
@@ -2924,17 +3071,14 @@ export const HqDeviceManagement: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Device Make *</label>
-                    <select
+                    <input
+                      required
+                      type="text"
+                      placeholder="e.g. Samsung, Nokia, Tecno"
                       value={editDeviceForm.make}
                       onChange={(e) => setEditDeviceForm({ ...editDeviceForm, make: e.target.value })}
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
-                    >
-                      <option value="Samsung">Samsung</option>
-                      <option value="Nokia">Nokia</option>
-                      <option value="Xiaomi">Xiaomi</option>
-                      <option value="Google">Google</option>
-                      <option value="Other">Other Enterprise Handset</option>
-                    </select>
+                    />
                   </div>
 
                   <div>

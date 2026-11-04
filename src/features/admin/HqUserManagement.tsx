@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Pencil,
   Trash2,
+  UserX,
   ChevronDown,
   Power,
 } from 'lucide-react';
@@ -133,13 +134,14 @@ export const HqUserManagement: React.FC = () => {
     }
   };
 
-  // Helper to determine if a company device is unassigned and available in depot for a target market
+  // Helper to determine if a company device is unassigned and cleared as Available in depot for a target market
+  // (Pending Inspection and Returned handsets remain distinct and require IT clearance before assignment)
   const isDeviceUnassignedForMarket = (device: HqDeviceRecord, targetMarket: string) => {
     if (!device || device.marketCode !== targetMarket) return false;
     const statusNormalized = (device.inventoryStatus || '').toLowerCase();
-    const isDepotStatus = statusNormalized === 'available' || statusNormalized === 'returned';
+    const isAvailableInDepot = statusNormalized === 'available';
     const hasNoActiveAssignee = !device.assignedTo;
-    return isDepotStatus && hasNoActiveAssignee;
+    return isAvailableInDepot && hasNoActiveAssignee;
   };
 
   useEffect(() => {
@@ -156,6 +158,7 @@ export const HqUserManagement: React.FC = () => {
     deviceAssignmentError?: string | null;
   } | null>(null);
   const [copiedCredentials, setCopiedCredentials] = useState(false);
+  const [copiedUserId, setCopiedUserId] = useState(false);
   const [selectedUserForAudit, setSelectedUserForAudit] = useState<AdminUserRecord | null>(null);
 
   // Assign Handset Modal State for Existing Reps
@@ -605,6 +608,8 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
   const [userToDelete, setUserToDelete] = useState<AdminUserRecord | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [deleteUserError, setDeleteUserError] = useState<string | null>(null);
+  const [deleteUserHasHistory, setDeleteUserHasHistory] = useState(false);
+  const [isDeactivatingFromDelete, setIsDeactivatingFromDelete] = useState(false);
 
   // Actions Dropdown Menu State
   const [activeDropdownUserId, setActiveDropdownUserId] = useState<string | null>(null);
@@ -707,12 +712,26 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
   const handleDeleteUserSubmit = async () => {
     if (!userToDelete) return;
     setDeleteUserError(null);
+    setDeleteUserHasHistory(false);
     setIsDeletingUser(true);
 
     try {
       const res = await adminService.deleteUser(userToDelete.id);
       if (!res.success) {
-        setDeleteUserError(res.error?.message || 'Failed to delete user.');
+        const isHistory =
+          res.hasHistory ||
+          res.error?.message?.includes('USER_HAS_OPERATIONAL_HISTORY') ||
+          res.error?.message?.includes('foreign key constraint') ||
+          res.error?.message?.includes('violates foreign key');
+
+        if (isHistory) {
+          setDeleteUserHasHistory(true);
+          setDeleteUserError(
+            'This employee user account cannot be permanently deleted because operational records (such as hardware assignments, attendance, visits, or client registrations) are linked to their identity. To preserve relational audit integrity, deactivate their account instead.'
+          );
+        } else {
+          setDeleteUserError(res.error?.message || 'Failed to delete user.');
+        }
         setIsDeletingUser(false);
         return;
       }
@@ -721,9 +740,55 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
       await loadDevices();
       setIsDeletingUser(false);
       setUserToDelete(null);
+      setDeleteUserHasHistory(false);
     } catch (err: any) {
-      setDeleteUserError(err.message || 'An unexpected error occurred.');
+      const msg = err.message || 'An unexpected error occurred.';
+      if (msg.includes('foreign key constraint') || msg.includes('USER_HAS_OPERATIONAL_HISTORY')) {
+        setDeleteUserHasHistory(true);
+        setDeleteUserError(
+          'This employee user account cannot be permanently deleted because operational records are linked to their identity. To preserve relational audit integrity, deactivate their account instead.'
+        );
+      } else {
+        setDeleteUserError(msg);
+      }
       setIsDeletingUser(false);
+    }
+  };
+
+  // Deactivate User directly from Delete Modal when historical records exist
+  const handleDeactivateFromDeleteModal = async () => {
+    if (!userToDelete) return;
+    setIsDeactivatingFromDelete(true);
+    setDeleteUserError(null);
+
+    try {
+      const res = await adminService.updateUserProfile(userToDelete.id, { is_active: false });
+      if (!res.success) {
+        setDeleteUserError(res.error?.message || 'Failed to deactivate user.');
+        setIsDeactivatingFromDelete(false);
+        return;
+      }
+
+      // Append to local audit display
+      const auditRecord: AuditEntry = {
+        id: `AUD-${Date.now().toString().slice(-4)}`,
+        userId: userToDelete.id,
+        userName: userToDelete.name,
+        action: 'Account Deactivated',
+        actor: 'HQ Administrator (HQ Admin)',
+        timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        details: `Deactivated user ${userToDelete.name} (${userToDelete.email}) in lieu of deletion to preserve operational history and relational audit integrity.`,
+      };
+      setAuditLog((log) => [auditRecord, ...log]);
+
+      await loadSupabaseUsers();
+      await loadDevices();
+      setIsDeactivatingFromDelete(false);
+      setUserToDelete(null);
+      setDeleteUserHasHistory(false);
+    } catch (err: any) {
+      setDeleteUserError(err.message || 'An unexpected error occurred while deactivating.');
+      setIsDeactivatingFromDelete(false);
     }
   };
 
@@ -749,25 +814,25 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
 
         <div className="flex items-center gap-2.5">
           <Button
-            variant="outline"
-            size="sm"
+            type="button"
             onClick={async () => {
               await loadSupabaseUsers();
               await loadDevices();
             }}
             disabled={isLoadingUsers}
-            className="border-slate-700 text-slate-200 hover:bg-slate-800 text-xs flex items-center gap-1.5"
-            title="Refresh Directory from Supabase"
+            className="h-9 px-3.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-800 text-slate-100 hover:text-white border border-slate-700 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            title="Refresh Directory"
           >
-            <RefreshCw className={cn('w-3.5 h-3.5', isLoadingUsers && 'animate-spin')} />
-            {isLoadingUsers ? 'Syncing...' : 'Refresh'}
+            <RefreshCw className={cn('w-3.5 h-3.5 text-slate-300', isLoadingUsers && 'animate-spin')} />
+            <span>{isLoadingUsers ? 'Syncing...' : 'Refresh'}</span>
           </Button>
           <Button
+            type="button"
             onClick={() => setIsCreateModalOpen(true)}
-            className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
+            className="h-9 px-3.5 bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 rounded-lg cursor-pointer transition-colors"
           >
             <UserPlus className="w-3.5 h-3.5" />
-            Provision New User
+            <span>Provision New User</span>
           </Button>
         </div>
       </div>
@@ -1032,10 +1097,7 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                           {user.name.charAt(0)}
                         </div>
                         <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-slate-900 text-xs">{user.name}</span>
-                            <span className="font-mono text-[10px] text-slate-400">({user.id})</span>
-                          </div>
+                          <p className="font-bold text-slate-900 text-xs">{user.name}</p>
                           <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
                             <Mail className="w-3 h-3 text-slate-400" />
                             {user.email}
@@ -1243,6 +1305,20 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                               <span>View Audit Trail</span>
                             </button>
 
+                            {/* Copy User Database ID */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(user.id);
+                                setActiveDropdownUserId(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-lg text-left transition-colors cursor-pointer"
+                              title="Copy Database UUID"
+                            >
+                              <Copy className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              <span>Copy User ID</span>
+                            </button>
+
                             {/* Status Toggle (Activate / Deactivate) */}
                             {user.id !== 'USR-HQ-001' && (
                               <>
@@ -1275,6 +1351,7 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                                   setActiveDropdownUserId(null);
                                   setUserToDelete(user);
                                   setDeleteUserError(null);
+                                  setDeleteUserHasHistory(false);
                                 }}
                                 className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg text-left transition-colors cursor-pointer"
                                 title="Delete Employee Account"
@@ -1465,7 +1542,7 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
               </div>
 
               <div className="p-3 rounded-lg bg-blue-50/70 border border-blue-200 text-slate-700 text-[11px] leading-relaxed">
-                <strong>Cryptographic Server-Side Provisioning:</strong> The employee account is provisioned in Supabase GoTrue Auth and PostgreSQL profiles via server-side Edge Function. The employee can authenticate immediately with these credentials.
+                <strong>Cryptographic Server-Side Provisioning:</strong> The employee account is provisioned securely via server-side Edge Function. The employee can authenticate immediately with these credentials.
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -1511,7 +1588,7 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 text-base">User Account Provisioned</h3>
-                <p className="text-xs text-slate-500">Persisted in Supabase Auth & PostgreSQL Profiles</p>
+                <p className="text-xs text-slate-500">Persisted in Employee Directory & System Profiles</p>
               </div>
             </div>
 
@@ -1614,9 +1691,28 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                   <h3 className="font-bold text-slate-900 text-sm">
                     User Access & Audit Trail
                   </h3>
-                  <p className="text-[11px] text-slate-500">
-                    {selectedUserForAudit.name} ({selectedUserForAudit.id})
-                  </p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[11px] font-semibold text-slate-700">{selectedUserForAudit.name}</span>
+                    <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                      ID: {selectedUserForAudit.id}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedUserForAudit.id);
+                        setCopiedUserId(true);
+                        setTimeout(() => setCopiedUserId(false), 2000);
+                      }}
+                      className="text-slate-400 hover:text-slate-700 transition-colors p-0.5 rounded hover:bg-slate-100"
+                      title="Copy User ID"
+                    >
+                      {copiedUserId ? (
+                        <Check className="w-3 h-3 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
               <button
@@ -2006,7 +2102,7 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                   {resetPasswordSuccess.mode === 'direct' && resetPasswordSuccess.temporaryPassword ? (
                     <div className="space-y-1.5 pt-1">
                       <p className="text-[11px] text-slate-600">
-                        The employee password has been updated in Supabase Auth. Provide this credential to the user:
+                        The employee password has been updated securely. Provide this credential to the user:
                       </p>
                       <div className="bg-white p-2.5 rounded-lg border border-emerald-200 font-mono font-bold text-slate-900 text-sm tracking-wide flex items-center justify-between">
                         <span>{resetPasswordSuccess.temporaryPassword}</span>
@@ -2118,7 +2214,7 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                     <div>
                       <span className="font-bold text-slate-900 block">Send password recovery link via email</span>
                       <span className="text-[11px] text-slate-500">
-                        Dispatches a secure Supabase Auth recovery link to {userToResetPassword.email}.
+                        Dispatches a secure password recovery link to {userToResetPassword.email}.
                       </span>
                     </div>
                   </label>
@@ -2165,16 +2261,25 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
           <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
-                  <Trash2 className="w-4 h-4" />
+                <div className={cn(
+                  "w-8 h-8 rounded-lg flex items-center justify-center",
+                  deleteUserHasHistory ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"
+                )}>
+                  {deleteUserHasHistory ? <UserX className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Delete Employee User</h3>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    {deleteUserHasHistory ? 'Deactivate Employee User' : 'Delete Employee User'}
+                  </h3>
                   <p className="text-[11px] font-mono text-slate-500">{userToDelete.name} ({userToDelete.email})</p>
                 </div>
               </div>
               <button
-                onClick={() => setUserToDelete(null)}
+                onClick={() => {
+                  setUserToDelete(null);
+                  setDeleteUserError(null);
+                  setDeleteUserHasHistory(false);
+                }}
                 className="text-slate-400 hover:text-slate-600 p-1"
               >
                 <X className="w-4 h-4" />
@@ -2196,42 +2301,89 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                 )}
               </div>
 
-              {deleteUserError && (
+              {deleteUserHasHistory ? (
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-amber-900">Relational Audit Protection Active</p>
+                      <p className="text-amber-800 leading-relaxed mt-0.5">
+                        This employee account has associated field operational records (such as hardware assignments, attendance, visits, or client registrations) in the database. Deleting the profile is blocked to protect historical audit integrity.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="bg-white/90 rounded-lg p-2.5 border border-amber-200/80 text-[11px] text-amber-900 space-y-1">
+                    <p className="font-semibold text-slate-900">What deactivation will do:</p>
+                    <ul className="list-disc list-inside space-y-0.5 text-slate-700">
+                      <li>Immediately revokes login and field access.</li>
+                      {userToDelete.assignedDeviceTag && !userToDelete.assignedDeviceTag.includes('Unassigned') && (
+                        <li>Unlinks company handset <strong>{userToDelete.assignedDeviceTag}</strong> and returns it to available depot inventory.</li>
+                      )}
+                      <li>Safely preserves all historical visits, timestamps, and audit ledgers.</li>
+                    </ul>
+                  </div>
+                </div>
+              ) : deleteUserError ? (
                 <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <span className="leading-relaxed">{deleteUserError}</span>
                 </div>
+              ) : (
+                <p className="text-slate-600 leading-relaxed">
+                  Are you sure you want to permanently delete this user account? This will revoke authentication access and remove their profile from the active workforce roster.
+                </p>
               )}
-
-              <p className="text-slate-600 leading-relaxed">
-                Are you sure you want to permanently delete this user account? This will revoke authentication access and remove their profile from the active workforce roster.
-              </p>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setUserToDelete(null)}
-                  disabled={isDeletingUser}
+                  onClick={() => {
+                    setUserToDelete(null);
+                    setDeleteUserError(null);
+                    setDeleteUserHasHistory(false);
+                  }}
+                  disabled={isDeletingUser || isDeactivatingFromDelete}
                   className="text-xs"
                 >
                   Cancel
                 </Button>
-                <Button
-                  size="sm"
-                  disabled={isDeletingUser}
-                  onClick={handleDeleteUserSubmit}
-                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs"
-                >
-                  {isDeletingUser ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                      Deleting...
-                    </>
-                  ) : (
-                    'Confirm Delete User'
-                  )}
-                </Button>
+                {deleteUserHasHistory ? (
+                  <Button
+                    size="sm"
+                    disabled={isDeactivatingFromDelete}
+                    onClick={handleDeactivateFromDeleteModal}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm"
+                  >
+                    {isDeactivatingFromDelete ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        Deactivating...
+                      </>
+                    ) : (
+                      <>
+                        <UserX className="w-3.5 h-3.5" />
+                        Deactivate Account Instead
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    disabled={isDeletingUser}
+                    onClick={handleDeleteUserSubmit}
+                    className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs"
+                  >
+                    {isDeletingUser ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      'Confirm Delete User'
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           </div>

@@ -43,7 +43,7 @@ export const ExceptionsWorkbenchView: React.FC = () => {
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
         <div>
           <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">
-            PRD §7.4 Operational Exceptions
+            Operational Exceptions
           </span>
           <h2 className="text-lg font-bold text-slate-900 leading-tight">
             My Exceptions Workbench

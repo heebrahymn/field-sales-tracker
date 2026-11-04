@@ -39,19 +39,20 @@ During comprehensive operational walkthroughs of the HQ Admin Handset Management
   - Dispatches RPC `hq_allocate_spare_device` with seamless direct table mutation fallback (`device_replacement_requests.replacement_device_id = spare_uuid`, `status = 'awaiting_spare'`, `devices.inventory_status = 'assigned'`).
   - Updated `dispatchReplacementDevice` and `confirmReplacementActivation` to resolve asset tags to UUIDs, insert new `device_assignments` records (`is_current = true`), activate replacement handsets, and record old device disposition (`returned_to_depot`, `quarantined`, or `revoked`).
 
-### Decision 2: Handset Custody Reassignment Supersession (Zero-Blocker Reassignment)
-- Enhanced `adminService.reassignDevice` and `DeviceReplacementContext.assignDevice` with automatic custody supersession:
-  - When assigning a handset to a salesperson who already holds an active company device, the system supersedes the prior assignment (`is_current = false, returned_at = now()`), updates the old handset's status to `returned`, activates the newly assigned handset (`inventory_status = 'active'`), and updates today's `attendance_days.device_id`.
+### Decision 2: Handset Custody Reassignment Supersession (Zero-Blocker Reassignment & 3-State Custody Separation)
+- Enhanced `adminService.reassignDevice` and `DeviceReplacementContext.assignDevice` with automatic custody supersession and strict 3-state custody governance:
+  - When assigning an `available` handset to a salesperson who already holds an active company device, the system supersedes the prior assignment (`is_current = false, returned_at = now()`), transitions the relinquished handset's status to `pending_inspection` (`security_authorization = 'quarantined'`) rather than falsely attributing physical depot receipt (`returned`), activates the newly assigned handset (`inventory_status = 'active'`), and updates today's `attendance_days.device_id`.
+  - Preserves distinct depot states: `pending_inspection` (custody relinquished / quarantined awaiting physical return & IT inspection), `returned` (physically received at central depot), and `available` (cleared by IT and eligible for assignment or spare allocation).
   - Preserves PRD §2 & §11 company security policy (**strict 1:1 hardware custody**: a representative never holds multiple active handsets simultaneously).
 - Enhanced the **"Assign Handset to Salesperson"** modal in `HqDeviceManagement.tsx`:
   - Dynamically detects when the chosen representative holds an active handset.
   - Displays a clear **Custody Reassignment Notice** and pre-checked option:
-    > ☑️ **Return [OLD-DEVICE] to depot & reassign handset**
+    > ☑️ **Relinquish custody of [OLD-DEVICE] (mark pending inspection) & reassign handset**
   - Updates the primary action button to **"Confirm Handover & Reassign"** (enabled), allowing 1-click custody handover without navigating away.
 
 ### Decision 3: Central Inventory Lifecycle Status Supabase Persistence
 - Updated `handleStatusUpdateSubmit` in `HqDeviceManagement.tsx` to call `adminService.updateDevice(devId, { inventoryStatus: dbStatus, notes })`.
-- If a device is marked `returned`, `retired`, or `lost_stolen`, active assignments in `public.device_assignments` are automatically terminated (`is_current = false, returned_at = now()`).
+- Whenever a device transitions out of `active` or `assigned` (e.g. `pending_inspection`, `returned`, `available`, `under_repair`, `retired`, or `lost_stolen`), active assignments in `public.device_assignments` are automatically terminated (`is_current = false, returned_at = now()`).
 
 ### Decision 4: Real-Time Hardware Profile Refresh & Country Sales Head Alignment
 - Added `refreshProfile()` to `AuthContext.tsx` to bust `localStorage` cache and reload active hardware bindings from Supabase profiles.

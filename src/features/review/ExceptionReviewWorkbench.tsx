@@ -20,7 +20,6 @@ import {
   Info,
   RefreshCw,
   Loader2,
-  Database as DatabaseIcon,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -165,8 +164,9 @@ export const ExceptionReviewWorkbench: React.FC = () => {
             ? 'Rejected'
             : 'Escalated to HQ Admin';
 
+        const shortId = itemId.length > 8 ? itemId.slice(0, 8).toUpperCase() : itemId;
         setToastMessage(
-          `Supabase Exception [${itemId}] marked as "${statusLabel}". Rationale recorded to immutable audit ledger.`
+          `Exception #${shortId} marked as "${statusLabel}". Rationale recorded to immutable audit ledger.`
         );
       } catch (err: any) {
         setToastMessage(`Exception review failed: ${err.message}`);
@@ -187,8 +187,9 @@ export const ExceptionReviewWorkbench: React.FC = () => {
           ? 'Rejected'
           : 'Escalated to HQ Admin';
 
+      const shortId = itemId.length > 8 ? itemId.slice(0, 8).toUpperCase() : itemId;
       setToastMessage(
-        `Exception [${itemId}] marked as "${statusLabel}". Rationale recorded to demonstration audit log.`
+        `Exception #${shortId} marked as "${statusLabel}". Rationale recorded to audit log.`
       );
     }
   };
@@ -253,7 +254,7 @@ export const ExceptionReviewWorkbench: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-slate-900">
-                Exception Approval Workbench (PRD §7.5 &amp; §8.1)
+                Exception Approval Workbench
               </h3>
               <span className="text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
                 Strict Governance
@@ -480,14 +481,10 @@ export const ExceptionReviewWorkbench: React.FC = () => {
                       </span>
 
                       <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        {item.id}
+                        #{item.id.length > 12 ? item.id.slice(0, 8).toUpperCase() : item.id}
                       </span>
 
-                      {item.isRealRecord && (
-                        <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
-                          <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Record
-                        </span>
-                      )}
+
 
                       <span className="text-xs text-slate-600 font-semibold">
                         Logged by: <strong className="text-slate-900">{item.repName}</strong>

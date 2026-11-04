@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useFieldSession } from '@/context/FieldSessionContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 import { attendanceService, getMarketWorkDate } from '@/services/attendanceService';
+import { visitService } from '@/services/visitService';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -25,7 +27,31 @@ interface StartDayModalProps {
 
 export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose }) => {
   const { currentUser, setAttendanceStatus } = useAuth();
-  const { onAttendanceStarted, workdayStatus, isOnline, enqueueOfflineStartDay } = useFieldSession();
+  const { onAttendanceStarted, workdayStatus, isOnline, enqueueOfflineStartDay, setLiveGpsCoordinate } = useFieldSession();
+  const { getActiveMarketRules: getContextMarketRules } = useMarketConfig();
+
+  // Active Market Rule Configuration
+  const [maxGpsAccuracyM, setMaxGpsAccuracyM] = useState<number>(() => {
+    if (currentUser?.marketCode) {
+      return getContextMarketRules(currentUser.marketCode as any)?.maxVisitGpsAccuracyMeters || 100;
+    }
+    return 100;
+  });
+
+  // Query live market rules from Supabase on mount and modal open
+  useEffect(() => {
+    let mounted = true;
+    if (currentUser?.marketCode) {
+      visitService.getActiveMarketRules(currentUser.marketCode).then(({ data }) => {
+        if (mounted && data?.max_visit_gps_accuracy_m != null) {
+          setMaxGpsAccuracyM(Number(data.max_visit_gps_accuracy_m));
+        }
+      });
+    }
+    return () => {
+      mounted = false;
+    };
+  }, [currentUser?.marketCode, isOpen]);
 
   // Camera State
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -259,14 +285,21 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
           timestamp: pos.timestamp || Date.now(),
         });
 
-        // PRD §6.1 / §7: GPS Accuracy Threshold for attendance is <= 100 metres
-        if (accuracy > 100) {
+        // PRD §6.1 / §7: GPS Accuracy Threshold for attendance bounded by active market rule
+        if (accuracy > maxGpsAccuracyM) {
           setGpsState('error');
           setGpsError(
-            `Reported accuracy (±${Math.round(accuracy)}m) exceeds maximum allowable threshold (100m). Please move away from obstructions and retry.`
+            `Reported accuracy (±${Math.round(accuracy)}m) exceeds maximum allowable threshold (${maxGpsAccuracyM}m). Please move away from obstructions and retry.`
           );
         } else {
           setGpsState('acquired');
+          setGpsError(null);
+          setLiveGpsCoordinate?.({
+            latitude,
+            longitude,
+            accuracy,
+            timestamp: pos.timestamp || Date.now(),
+          });
         }
       },
       (err) => {
@@ -285,10 +318,25 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
       {
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 0, // Mandatory: Reject stale cached coordinates (PRD §3 Step 3)
+        maximumAge: 0, // Mandatory: Reject stale cached coordinates (Reject stale cached coordinates)
       }
     );
-  }, []);
+  }, [maxGpsAccuracyM]);
+
+  // Reactive re-evaluation if market rule threshold changes while coordinates are held
+  useEffect(() => {
+    if (gpsCoords) {
+      if (gpsCoords.accuracy > maxGpsAccuracyM) {
+        setGpsState('error');
+        setGpsError(
+          `Reported accuracy (±${Math.round(gpsCoords.accuracy)}m) exceeds maximum allowable threshold (${maxGpsAccuracyM}m). Please move away from obstructions and retry.`
+        );
+      } else {
+        setGpsState('acquired');
+        setGpsError(null);
+      }
+    }
+  }, [maxGpsAccuracyM, gpsCoords]);
 
   // Modal open / close lifecycle
   useEffect(() => {
@@ -329,6 +377,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
           accuracy: gpsCoords.accuracy,
           selfieBlob,
           submissionId: submissionIdRef.current,
+          maxAccuracy: maxGpsAccuracyM,
         });
 
         if (!offlineRes.success) {
@@ -411,7 +460,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                PRD §6.1 Workday Attendance
+                Workday Attendance Check-in
               </span>
             </div>
             <h3 className="font-bold text-slate-900 text-base mt-1">
@@ -480,7 +529,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                 >
                   {successInfo.provisionalOffline
                     ? 'Selfie & GPS queued in durable IndexedDB journal. Will synchronise to server when online.'
-                    : 'Attendance recorded securely to Carbon Car Care Supabase operational ledger.'}
+                    : 'Attendance recorded securely to Carbon Car Care operational ledger.'}
                 </p>
               </div>
 
@@ -538,7 +587,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
               <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-start gap-2.5">
                 <Info className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
                 <div className="text-[11px] text-slate-700 leading-relaxed">
-                  <strong className="text-slate-900 font-semibold">Company Phone Attendance Check:</strong> Front-camera live photo and fresh GPS coordinate verify attendance time. <em>No automated biometric/face-matching used in MVP (PRD §12).</em>
+                  <strong className="text-slate-900 font-semibold">Company Phone Attendance Check:</strong> Front-camera live photo and fresh GPS coordinate verify attendance time. <em>Visual audit only; no automated biometric or face-matching processing.</em>
                 </div>
               </div>
 
@@ -746,7 +795,7 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                       <span className="font-bold text-emerald-700 font-mono">
                         ±{Math.round(gpsCoords.accuracy)} metres
                       </span>
-                      <span className="text-[9px] text-slate-500 block">(Max allowed: 100m)</span>
+                      <span className="text-[9px] text-slate-500 block">(Max allowed: {maxGpsAccuracyM}m)</span>
                     </div>
                     <div className="bg-white p-2 rounded-lg border border-slate-200">
                       <span className="text-slate-500 block text-[10px]">Captured Coordinates</span>

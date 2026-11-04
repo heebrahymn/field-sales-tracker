@@ -7,6 +7,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { MarketCode } from '@/context/AuthContext';
 import { adminService, HqAuditLogItem } from '@/services/adminService';
 
@@ -73,7 +74,7 @@ const INITIAL_AUDIT_LOGS: SystemAuditEvent[] = [
     category: 'market_rules',
     action: 'Configured Market Rule Version v1.2',
     targetRecord: 'RULE-v1.2-CANONICAL',
-    changeSummary: 'Standardized default branch geofence radius to 200m; updated PRD §11 non-retroactivity token.',
+    changeSummary: 'Standardized default branch geofence radius to 200m; updated rule immutability token.',
     severity: 'security_critical',
     ipAddress: '102.89.44.12',
   },
@@ -118,7 +119,11 @@ const INITIAL_AUDIT_LOGS: SystemAuditEvent[] = [
   },
 ];
 
-export const HqSystemAuditLog: React.FC = () => {
+export interface HqSystemAuditLogProps {
+  initialLogs?: SystemAuditEvent[];
+}
+
+export const HqSystemAuditLog: React.FC<HqSystemAuditLogProps> = ({ initialLogs }) => {
   const [liveLogs, setLiveLogs] = useState<HqAuditLogItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [marketFilter, setMarketFilter] = useState<'ALL' | MarketCode>('ALL');
@@ -138,6 +143,7 @@ export const HqSystemAuditLog: React.FC = () => {
 
   // Merge live audit records from approval_audit with baseline demo events
   const mergedLogs: SystemAuditEvent[] = useMemo(() => {
+    if (initialLogs) return initialLogs;
     const liveConverted: SystemAuditEvent[] = liveLogs.map((l) => {
       let mappedCat: SystemAuditEvent['category'] = 'audit_decision';
       if (l.entityType === 'devices' || l.entityType === 'device_assignments') mappedCat = 'device_mdm';
@@ -192,6 +198,24 @@ export const HqSystemAuditLog: React.FC = () => {
       return matchesSearch && matchesMarket && matchesCategory && matchesSeverity;
     });
   }, [mergedLogs, searchQuery, marketFilter, categoryFilter, severityFilter]);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, marketFilter, categoryFilter, severityFilter]);
+
+  // Pagination bounds and slice
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedLogs = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return filteredLogs.slice(startIndex, startIndex + pageSize);
+  }, [filteredLogs, safeCurrentPage, pageSize]);
 
   return (
     <div className="space-y-6 select-none">
@@ -320,12 +344,21 @@ export const HqSystemAuditLog: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredLogs.map((log) => (
+              {filteredLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
+                    No system audit log events match the chosen filter criteria.
+                  </td>
+                </tr>
+              ) : (
+                paginatedLogs.map((log) => (
                 <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
                   {/* Log ID & Timestamp */}
                   <td className="py-3 px-4">
                     <div>
-                      <span className="font-mono font-bold text-xs text-brand-blue">{log.id}</span>
+                      <span className="font-mono font-bold text-xs text-brand-blue">
+                        {log.id.length > 20 ? `#${log.id.slice(0, 8).toUpperCase()}` : log.id}
+                      </span>
                       <p className="font-mono text-[10px] text-slate-500 mt-0.5">{log.timestamp}</p>
                       <p className="font-mono text-[9px] text-slate-400">IP: {log.ipAddress}</p>
                     </div>
@@ -374,10 +407,24 @@ export const HqSystemAuditLog: React.FC = () => {
                     )}
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>
+
+        {/* Table Pagination */}
+        {filteredLogs.length > 0 && (
+          <TablePagination
+            currentPage={safeCurrentPage}
+            pageSize={pageSize}
+            totalItems={filteredLogs.length}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[10, 20, 50, 100]}
+            itemName="audit events"
+          />
+        )}
       </Card>
     </div>
   );

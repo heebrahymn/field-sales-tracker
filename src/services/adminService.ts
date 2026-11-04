@@ -1,10 +1,74 @@
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/types/database.types';
+import { managementService } from '@/services/managementService';
 
 export type OldDeviceDisposition = Database['public']['Enums']['old_device_disposition'];
 export type ReplacementRequestStatus = Database['public']['Enums']['replacement_request_status'];
 export type DeviceInventoryStatus = Database['public']['Enums']['device_inventory_status'];
 export type BranchCategory = Database['public']['Enums']['branch_category'];
+
+export interface HqClientRecord {
+  id: string; // branch id
+  organisationId: string;
+  organisationName: string;
+  organisationTier: string;
+  branchName: string;
+  marketCode: 'NG' | 'ZM' | 'MW';
+  category: string;
+  streetAddress: string;
+  city: string;
+  switchboardPhone: string;
+  operatingStatus: 'active' | 'pending_approval' | 'location_pending' | 'rejected' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  creator?: {
+    id: string;
+    fullName: string;
+    email: string;
+  } | null;
+  primaryContact?: {
+    id: string;
+    fullName: string;
+    designation: string;
+    phoneNumber: string;
+    email: string | null;
+    isPrimary: boolean;
+  } | null;
+  locationPin?: {
+    id: string;
+    latitude: number;
+    longitude: number;
+    reportedAccuracyM: number;
+    premisesPhotoUrl: string | null;
+    premisesPhotoPath?: string | null;
+    status: 'pending_review' | 'pending_approval' | 'approved' | 'rejected' | 'superseded';
+    isActive: boolean;
+    proposedAt: string;
+    proposedBy: string;
+    reviewedAt?: string | null;
+    reviewedBy?: string | null;
+    reviewerName?: string | null;
+    decisionReason?: string | null;
+  } | null;
+}
+
+export interface EditClientPayload {
+  branchId: string;
+  organisationId: string;
+  organisationName: string;
+  branchName: string;
+  category: string;
+  streetAddress: string;
+  city: string;
+  switchboardPhone: string;
+  contactId?: string;
+  contactName: string;
+  contactRole: string;
+  contactPhone: string;
+  contactEmail?: string;
+  reason: string;
+}
 
 export interface HqOperationsMetrics {
   marketCode: 'NG' | 'ZM' | 'MW';
@@ -104,6 +168,7 @@ export interface HqDeviceRecord {
   supplier?: string;
   warrantyExpiryDate?: string;
   notes?: string;
+  batteryHealth?: number;
   assignedTo?: {
     salespersonId: string;
     fullName: string;
@@ -161,6 +226,22 @@ export interface HqMarketRuleRecord {
   dailyVisitTarget: number;
   effectiveFrom: string;
   effectiveTo: string | null;
+}
+
+export interface CommitMarketRuleParams {
+  marketCode: string;
+  geofenceRadiusM: number;
+  maxVisitGpsAccuracyM: number;
+  maxPinGpsAccuracyM: number;
+  minVisitDurationSeconds: number;
+  maxIdleGapMinutes: number;
+  dailyVisitTarget: number;
+  shiftGraceMinutes: number;
+  lateStartCutoffMinutes?: number;
+  workingHoursStart: string;
+  workingHoursEnd: string;
+  reason: string;
+  approvedBy?: string;
 }
 
 export interface HqAuditLogItem {
@@ -508,6 +589,42 @@ export const adminService = {
         return { success: false, error: new Error(error.message) };
       }
 
+      // If user is being deactivated, relinquish custody and mark any active company handset as pending inspection
+      if (updates.is_active === false) {
+        try {
+          const nowIso = new Date().toISOString();
+          const { data: activeAssignments } = await supabase
+            .from('device_assignments')
+            .select('id, device_id')
+            .eq('salesperson_id', userId)
+            .eq('is_current', true);
+
+          if (activeAssignments && activeAssignments.length > 0) {
+            for (const assign of activeAssignments) {
+              await supabase
+                .from('device_assignments')
+                .update({
+                  is_current: false,
+                  returned_at: nowIso,
+                  handover_reason: 'User account deactivated by HQ Admin — pending handset collection & inspection',
+                })
+                .eq('id', assign.id);
+
+              await supabase
+                .from('devices')
+                .update({
+                  inventory_status: 'pending_inspection',
+                  security_authorization: 'revoked',
+                  updated_at: nowIso,
+                })
+                .eq('id', assign.device_id);
+            }
+          }
+        } catch {
+          // non-blocking
+        }
+      }
+
       // Record in approval_audit
       try {
         const { data: sessionData } = await supabase.auth.getSession();
@@ -618,11 +735,42 @@ export const adminService = {
   },
 
   /**
-   * Deletes an employee user account, unlinking any assigned company handset back to available depot inventory.
+   * Deletes an employee user account if no operational history exists.
+   * If operational records (device assignments, attendance, visits, client branches, or pins) exist,
+   * returns hasHistory: true to protect relational audit integrity.
    */
-  async deleteUser(userId: string): Promise<{ success: boolean; error: Error | null }> {
+  async deleteUser(
+    userId: string
+  ): Promise<{ success: boolean; hasHistory?: boolean; error: Error | null }> {
     try {
       const nowIso = new Date().toISOString();
+
+      // Check operational history before deletion
+      const [
+        { count: daCount },
+        { count: attCount },
+        { count: vCount },
+        { count: brCount },
+        { count: pinCount },
+      ] = await Promise.all([
+        supabase.from('device_assignments').select('id', { count: 'exact', head: true }).eq('salesperson_id', userId),
+        supabase.from('attendance_days').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+        supabase.from('visits').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+        supabase.from('branches').select('id', { count: 'exact', head: true }).eq('created_by', userId),
+        supabase.from('branch_location_pins').select('id', { count: 'exact', head: true }).eq('proposed_by', userId),
+      ]);
+
+      const totalHistory = (daCount || 0) + (attCount || 0) + (vCount || 0) + (brCount || 0) + (pinCount || 0);
+
+      if (totalHistory > 0) {
+        return {
+          success: false,
+          hasHistory: true,
+          error: new Error(
+            'USER_HAS_OPERATIONAL_HISTORY: This employee account has associated field operational records (device assignments, attendance, visits, or client registrations) and cannot be permanently deleted. You can deactivate the account instead to immediately revoke access while preserving historical audit trails.'
+          ),
+        };
+      }
 
       // 1. Unlink any active device assignments
       const { data: activeAssignments } = await supabase
@@ -635,7 +783,7 @@ export const adminService = {
         for (const assign of activeAssignments) {
           await supabase
             .from('device_assignments')
-            .update({ is_current: false, returned_at: nowIso, handover_reason: 'User account removed by HQ Admin' })
+            .delete()
             .eq('id', assign.id);
 
           await supabase
@@ -648,7 +796,16 @@ export const adminService = {
       // 2. Delete from public.profiles
       const { error: profileErr } = await supabase.from('profiles').delete().eq('id', userId);
       if (profileErr) {
-        return { success: false, error: new Error(profileErr.message) };
+        const isFk = profileErr.code === '23503' || profileErr.message.includes('foreign key constraint');
+        return {
+          success: false,
+          hasHistory: isFk,
+          error: new Error(
+            isFk
+              ? 'USER_HAS_OPERATIONAL_HISTORY: This employee account has historical audit linkages and cannot be permanently deleted. Please deactivate the account instead.'
+              : profileErr.message
+          ),
+        };
       }
 
       // 3. Remove from auth.users via API endpoint
@@ -762,6 +919,7 @@ export const adminService = {
           supplier,
           warranty_expiry_date,
           notes,
+          battery_health,
           created_at,
           device_assignments (
             id,
@@ -809,6 +967,7 @@ export const adminService = {
           supplier: row.supplier || '',
           warrantyExpiryDate: row.warranty_expiry_date || '',
           notes: row.notes || '',
+          batteryHealth: row.battery_health ?? 95,
           assignedTo: activeAssignment?.profiles
             ? {
                 salespersonId: activeAssignment.profiles.id,
@@ -1062,12 +1221,20 @@ export const adminService = {
       if (existingActive && existingActive.device_id !== deviceId) {
         await supabase
           .from('device_assignments')
-          .update({ is_current: false, returned_at: nowIso })
+          .update({
+            is_current: false,
+            returned_at: nowIso,
+            handover_reason: 'Handset custody superseded — pending physical depot receipt & inspection',
+          })
           .eq('id', existingActive.id);
 
         await supabase
           .from('devices')
-          .update({ inventory_status: 'returned' })
+          .update({
+            inventory_status: 'pending_inspection',
+            security_authorization: 'quarantined',
+            updated_at: nowIso,
+          })
           .eq('id', existingActive.device_id);
       }
 
@@ -1529,7 +1696,7 @@ export const adminService = {
           const { data: matched } = await supabase
             .from('devices')
             .select('id')
-            .eq('asset_tag', resolvedDeviceId)
+            .or('asset_tag.eq.' + resolvedDeviceId + ',asset_id.eq.' + resolvedDeviceId + ',serial_number.eq.' + resolvedDeviceId)
             .limit(1);
           if (matched && matched.length > 0) {
             resolvedDeviceId = matched[0].id;
@@ -1561,10 +1728,14 @@ export const adminService = {
         }
       }
 
+      const failureDesc = params.supportingEvidenceUrl
+        ? `${params.issueDescription} [Evidence / Note: ${params.supportingEvidenceUrl}]`
+        : params.issueDescription;
+
       const { data, error } = await supabase.rpc('request_device_replacement', {
         p_current_device_id: resolvedDeviceId || '00000000-0000-0000-0000-000000000000',
         p_failure_type: params.issueCategory,
-        p_failure_description: params.issueDescription,
+        p_failure_description: failureDesc,
         p_incident_timestamp: new Date().toISOString(),
         p_incident_location: params.incidentLocation || 'Field Operations',
       });
@@ -1726,11 +1897,11 @@ export const adminService = {
             if (matched && matched.length > 0) {
               resolvedSpareId = matched[0].id;
             } else {
-              // Fall back to any available device in depot
+              // Fall back strictly to an available device cleared for issue in depot
               const { data: avail } = await supabase
                 .from('devices')
                 .select('id')
-                .in('inventory_status', ['available', 'returned', 'assigned'])
+                .eq('inventory_status', 'available')
                 .limit(1);
               if (avail && avail.length > 0) {
                 resolvedSpareId = avail[0].id;
@@ -1758,7 +1929,7 @@ export const adminService = {
 
   /**
    * HQ Admin confirms receipt and activation of the replacement handset, recording
-   * old device disposition (returned_to_depot, quarantined_e_waste, etc.).
+   * old device disposition (quarantined -> pending_inspection, returned_to_depot -> returned, revoked, lost_reported -> lost_stolen).
    * Calls RPC hq_confirm_replacement_activation(p_replacement_id, p_old_device_disposition).
    */
   async confirmReplacementActivation(params: {
@@ -1766,9 +1937,10 @@ export const adminService = {
     oldDeviceDisposition?: string;
   }): Promise<{ success: boolean; error: Error | null }> {
     try {
+      const effectiveDisposition = params.oldDeviceDisposition || 'quarantined';
       const { error } = await supabase.rpc('hq_confirm_replacement_activation', {
         p_replacement_id: params.replacementId,
-        p_old_device_disposition: (params.oldDeviceDisposition as any) || 'returned_to_depot',
+        p_old_device_disposition: effectiveDisposition as any,
       });
 
       if (error) {
@@ -1792,11 +1964,19 @@ export const adminService = {
             .eq('salesperson_id', vReq.salesperson_id)
             .eq('is_current', true);
 
-          // 2. Update old device
-          const newOldStatus = params.oldDeviceDisposition === 'returned_to_depot' ? 'returned' : 'revoked';
+          // 2. Update old device with distinct custody status
+          const newOldStatus =
+            effectiveDisposition === 'returned_to_depot'
+              ? 'returned'
+              : effectiveDisposition === 'quarantined'
+              ? 'pending_inspection'
+              : effectiveDisposition === 'lost_reported'
+              ? 'lost_stolen'
+              : 'revoked';
+          const newOldSec = effectiveDisposition === 'quarantined' ? 'quarantined' : 'revoked';
           await supabase
             .from('devices')
-            .update({ inventory_status: newOldStatus, security_authorization: 'revoked', updated_at: nowIso })
+            .update({ inventory_status: newOldStatus, security_authorization: newOldSec, updated_at: nowIso })
             .eq('id', vReq.company_device_id);
 
           // 3. Create new assignment
@@ -1823,7 +2003,7 @@ export const adminService = {
             .update({
               status: 'completed',
               activation_confirmed_at: nowIso,
-              old_device_disposition: (params.oldDeviceDisposition as any) || 'returned_to_depot',
+              old_device_disposition: effectiveDisposition as any,
               updated_at: nowIso,
             })
             .eq('id', params.replacementId);
@@ -1835,8 +2015,30 @@ export const adminService = {
             action: 'Confirm Activation in MDM',
             previous_status: 'dispatched',
             new_status: 'completed',
-            notes: 'Knox MDM activation confirmed. Old handset disposition: ' + (params.oldDeviceDisposition || 'returned_to_depot'),
+            notes: 'Knox MDM activation confirmed. Old handset disposition: ' + effectiveDisposition,
           });
+        }
+      } else if (effectiveDisposition === 'quarantined' || effectiveDisposition === 'lost_reported') {
+        // Reconcile old device inventory_status so quarantined maps to pending_inspection (not revoked)
+        // and lost_reported maps to lost_stolen while preserving 29-migration RPC compatibility
+        try {
+          const { data: vReq } = await supabase
+            .from('device_replacement_requests')
+            .select('company_device_id')
+            .eq('id', params.replacementId)
+            .maybeSingle();
+          if (vReq?.company_device_id) {
+            await supabase
+              .from('devices')
+              .update({
+                inventory_status: effectiveDisposition === 'quarantined' ? 'pending_inspection' : 'lost_stolen',
+                security_authorization: effectiveDisposition === 'quarantined' ? 'quarantined' : 'revoked',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', vReq.company_device_id);
+          }
+        } catch {
+          // non-blocking
         }
       }
 
@@ -1934,6 +2136,197 @@ export const adminService = {
       return { success: true, error: null };
     } catch (err: any) {
       return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Retrieves the currently active operational rule set for a given market code.
+   */
+  async getActiveMarketRule(marketCode: string): Promise<{ data: HqMarketRuleRecord | null; error: Error | null }> {
+    try {
+      const { data, error } = await supabase
+        .from('market_rules')
+        .select('*')
+        .eq('market_code', marketCode)
+        .eq('is_active', true)
+        .is('effective_to', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        return { data: null, error: new Error(error.message) };
+      }
+      if (!data) {
+        return { data: null, error: null };
+      }
+
+      const record: HqMarketRuleRecord = {
+        id: data.id,
+        marketCode: data.market_code,
+        versionTag: data.version_tag,
+        isActive: data.is_active,
+        workingHoursStart: data.working_hours_start,
+        workingHoursEnd: data.working_hours_end,
+        shiftGraceMinutes: data.shift_grace_minutes,
+        geofenceRadiusM: Number(data.geofence_radius_m),
+        maxVisitGpsAccuracyM: Number(data.max_visit_gps_accuracy_m),
+        maxPinGpsAccuracyM: Number(data.max_pin_gps_accuracy_m),
+        minVisitDurationSeconds: data.min_visit_duration_seconds,
+        maxIdleGapMinutes: data.max_idle_gap_minutes,
+        maxClockDriftMinutes: data.max_clock_drift_minutes,
+        dailyVisitTarget: data.daily_visit_target,
+        effectiveFrom: data.effective_from,
+        effectiveTo: data.effective_to,
+      };
+      return { data: record, error: null };
+    } catch (err: any) {
+      return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Commits a new versioned operational rule set for a market into public.market_rules.
+   * Adheres to PRD §11 strict immutability and non-retroactivity:
+   * 1. Archives the current active rule set by setting effective_to = now() and is_active = false.
+   * 2. Inserts a new immutable version record with effective_to = null and is_active = true.
+   * 3. Records an audit entry into public.approval_audit for governance.
+   */
+  async commitMarketRuleVersion(params: CommitMarketRuleParams): Promise<{
+    data: HqMarketRuleRecord | null;
+    newVersion: string | null;
+    error: Error | null;
+  }> {
+    try {
+      const {
+        marketCode,
+        geofenceRadiusM,
+        maxVisitGpsAccuracyM,
+        maxPinGpsAccuracyM,
+        minVisitDurationSeconds,
+        maxIdleGapMinutes,
+        dailyVisitTarget,
+        shiftGraceMinutes,
+        workingHoursStart,
+        workingHoursEnd,
+        reason,
+        approvedBy,
+      } = params;
+
+      // 1. Fetch current active rule for this market
+      const { data: currentRule, error: fetchErr } = await supabase
+        .from('market_rules')
+        .select('*')
+        .eq('market_code', marketCode)
+        .eq('is_active', true)
+        .is('effective_to', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (fetchErr) {
+        return { data: null, newVersion: null, error: new Error(fetchErr.message) };
+      }
+
+      // 2. Query total rule versions for this market to determine next version tag
+      const { count: ruleCount } = await supabase
+        .from('market_rules')
+        .select('*', { count: 'exact', head: true })
+        .eq('market_code', marketCode);
+
+      const nextNum = (ruleCount || 0) + 1;
+      const nextVersionTag = `v1.2.${String(nextNum).padStart(2, '0')}`;
+      const nowIso = new Date().toISOString();
+
+      // 3. Archive existing active rule if present
+      if (currentRule) {
+        const { error: archiveErr } = await supabase
+          .from('market_rules')
+          .update({ effective_to: nowIso, is_active: false })
+          .eq('id', currentRule.id);
+
+        if (archiveErr) {
+          return { data: null, newVersion: null, error: new Error(`Failed to archive current rule: ${archiveErr.message}`) };
+        }
+      }
+
+      // Resolve actor id
+      const { data: authData } = await supabase.auth.getUser();
+      const actorId = authData?.user?.id || '00000000-0000-0000-0000-000000000000';
+
+      // 4. Insert new versioned rule
+      const insertPayload: any = {
+        market_code: marketCode,
+        version_tag: nextVersionTag,
+        geofence_radius_m: geofenceRadiusM,
+        max_visit_gps_accuracy_m: maxVisitGpsAccuracyM,
+        max_pin_gps_accuracy_m: maxPinGpsAccuracyM,
+        min_visit_duration_seconds: minVisitDurationSeconds,
+        max_idle_gap_minutes: maxIdleGapMinutes,
+        daily_visit_target: dailyVisitTarget,
+        shift_grace_minutes: shiftGraceMinutes,
+        working_hours_start: workingHoursStart,
+        working_hours_end: workingHoursEnd,
+        max_clock_drift_minutes: 5,
+        effective_from: nowIso,
+        effective_to: null,
+        is_active: true,
+        created_by: actorId,
+      };
+
+      const { data: newRow, error: insertErr } = await supabase
+        .from('market_rules')
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (insertErr) {
+        // Rollback archive if possible
+        if (currentRule) {
+          await supabase.from('market_rules').update({ effective_to: null, is_active: true }).eq('id', currentRule.id);
+        }
+        return { data: null, newVersion: null, error: new Error(`Failed to insert new rule: ${insertErr.message}`) };
+      }
+
+      // 5. Insert approval / governance audit record
+      await supabase.from('approval_audit').insert({
+        entity_type: 'market_rules',
+        entity_id: newRow.id,
+        actor_id: actorId,
+        action: 'rule_version_published',
+        mandatory_reason: reason?.trim() || `Operational parameters adjusted: ${geofenceRadiusM}m geofence, ${maxVisitGpsAccuracyM}m GPS uncertainty limit.`,
+        new_state: JSON.stringify({
+          versionTag: nextVersionTag,
+          geofenceRadiusM,
+          maxVisitGpsAccuracyM,
+          maxPinGpsAccuracyM,
+          dailyVisitTarget,
+          approvedBy: approvedBy || 'HQ Administrator',
+        }),
+      });
+
+      const newRecord: HqMarketRuleRecord = {
+        id: newRow.id,
+        marketCode: newRow.market_code,
+        versionTag: newRow.version_tag,
+        isActive: newRow.is_active,
+        workingHoursStart: newRow.working_hours_start,
+        workingHoursEnd: newRow.working_hours_end,
+        shiftGraceMinutes: newRow.shift_grace_minutes,
+        geofenceRadiusM: Number(newRow.geofence_radius_m),
+        maxVisitGpsAccuracyM: Number(newRow.max_visit_gps_accuracy_m),
+        maxPinGpsAccuracyM: Number(newRow.max_pin_gps_accuracy_m),
+        minVisitDurationSeconds: newRow.min_visit_duration_seconds,
+        maxIdleGapMinutes: newRow.max_idle_gap_minutes,
+        maxClockDriftMinutes: newRow.max_clock_drift_minutes,
+        dailyVisitTarget: newRow.daily_visit_target,
+        effectiveFrom: newRow.effective_from,
+        effectiveTo: newRow.effective_to,
+      };
+
+      return { data: newRecord, newVersion: nextVersionTag, error: null };
+    } catch (err: any) {
+      return { data: null, newVersion: null, error: err instanceof Error ? err : new Error(String(err)) };
     }
   },
 
@@ -2196,6 +2589,374 @@ export const adminService = {
         errorRows: rows.length,
         errorDetails: [batchErr.message || 'Batch import failed'],
       };
+    }
+  },
+
+  /**
+   * Fetches full client & branch directory across Nigeria, Zambia, and Malawi.
+   */
+  async getAllClients(
+    marketCode?: string,
+    statusFilter?: string
+  ): Promise<{ data: HqClientRecord[]; error: Error | null }> {
+    try {
+      let query = supabase
+        .from('branches')
+        .select(`
+          id,
+          branch_name,
+          market_code,
+          category,
+          street_address,
+          city,
+          switchboard_phone,
+          operating_status,
+          created_at,
+          updated_at,
+          created_by,
+          creator:profiles!branches_created_by_fkey (
+            id,
+            full_name,
+            email
+          ),
+          organisations (
+            id,
+            name,
+            tier
+          ),
+          client_contacts (
+            id,
+            full_name,
+            designation,
+            phone_number,
+            email,
+            is_primary
+          ),
+          branch_location_pins (
+            id,
+            latitude,
+            longitude,
+            reported_accuracy_m,
+            premises_photo_url,
+            status,
+            is_active,
+            proposed_at,
+            proposed_by,
+            reviewed_at,
+            reviewed_by,
+            reviewer:profiles!branch_location_pins_reviewed_by_fkey (
+              id,
+              full_name
+            ),
+            decision_reason
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (marketCode && marketCode !== 'ALL') {
+        query = query.eq('market_code', marketCode);
+      }
+      if (statusFilter && statusFilter !== 'all') {
+        query = query.eq('operating_status', statusFilter as any);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        return { data: [], error: new Error(error.message) };
+      }
+
+      const records: HqClientRecord[] = await Promise.all(
+        (data || []).map(async (row: any) => {
+          const org = Array.isArray(row.organisations) ? row.organisations[0] : row.organisations;
+          const contacts = row.client_contacts || [];
+          const primaryContact = contacts.find((c: any) => c.is_primary) || contacts[0] || null;
+
+          const pins = row.branch_location_pins || [];
+          const sortedPins = [...pins].sort(
+            (a: any, b: any) => new Date(b.proposed_at).getTime() - new Date(a.proposed_at).getTime()
+          );
+          const pin =
+            sortedPins.find((p: any) => p.is_active) ||
+            sortedPins.find((p: any) => p.status === 'pending_review' || p.status === 'pending_approval') ||
+            sortedPins[0] ||
+            null;
+
+          let signedPhotoUrl: string | null = null;
+          if (pin?.premises_photo_url) {
+            const rawPhoto = pin.premises_photo_url;
+            if (
+              rawPhoto.startsWith('http') ||
+              rawPhoto.startsWith('blob:') ||
+              rawPhoto.startsWith('data:') ||
+              rawPhoto.startsWith('/')
+            ) {
+              signedPhotoUrl = rawPhoto;
+            } else {
+              signedPhotoUrl = await managementService.getPremisesPhotoSignedUrl(rawPhoto);
+            }
+          }
+
+          const creatorObj = Array.isArray(row.creator) ? row.creator[0] : row.creator;
+
+          return {
+            id: row.id,
+            organisationId: org?.id || '',
+            organisationName: org?.name || 'Unnamed Organisation',
+            organisationTier: org?.tier || 'standard',
+            branchName: row.branch_name,
+            marketCode: row.market_code as 'NG' | 'ZM' | 'MW',
+            category: row.category,
+            streetAddress: row.street_address,
+            city: row.city,
+            switchboardPhone: row.switchboard_phone,
+            operatingStatus: row.operating_status,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            createdBy: row.created_by,
+            creator: creatorObj
+              ? {
+                  id: creatorObj.id,
+                  fullName: creatorObj.full_name,
+                  email: creatorObj.email,
+                }
+              : null,
+            primaryContact: primaryContact
+              ? {
+                  id: primaryContact.id,
+                  fullName: primaryContact.full_name,
+                  designation: primaryContact.designation,
+                  phoneNumber: primaryContact.phone_number,
+                  email: primaryContact.email,
+                  isPrimary: primaryContact.is_primary,
+                }
+              : null,
+            locationPin: pin
+              ? {
+                  id: pin.id,
+                  latitude: Number(pin.latitude),
+                  longitude: Number(pin.longitude),
+                  reportedAccuracyM: Number(pin.reported_accuracy_m),
+                  premisesPhotoUrl: signedPhotoUrl,
+                  premisesPhotoPath: pin.premises_photo_url,
+                  status: pin.status,
+                  isActive: !!pin.is_active,
+                  proposedAt: pin.proposed_at,
+                  proposedBy: pin.proposed_by,
+                  reviewedAt: pin.reviewed_at,
+                  reviewedBy: pin.reviewed_by,
+                  reviewerName:
+                    (Array.isArray(pin.reviewer) ? pin.reviewer[0]?.full_name : pin.reviewer?.full_name) || null,
+                  decisionReason: pin.decision_reason,
+                }
+              : null,
+          };
+        })
+      );
+
+      return { data: records, error: null };
+    } catch (err: any) {
+      return { data: [], error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Updates company name, branch location details, and primary contact with mandatory audit log.
+   */
+  async updateClientBranch(
+    payload: EditClientPayload
+  ): Promise<{ success: boolean; error: Error | null }> {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (accessToken) {
+        const resp = await fetch('/api/admin/clients', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            action: 'update_client',
+            ...payload,
+          }),
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+          return { success: false, error: new Error(json.error || 'Failed to update client details') };
+        }
+        return { success: true, error: null };
+      }
+
+      // Fallback
+      const nowIso = new Date().toISOString();
+      if (payload.organisationId && payload.organisationName?.trim()) {
+        await supabase
+          .from('organisations')
+          .update({ name: payload.organisationName.trim() })
+          .eq('id', payload.organisationId);
+      }
+
+      await supabase
+        .from('branches')
+        .update({
+          branch_name: payload.branchName.trim(),
+          category: payload.category as any,
+          street_address: payload.streetAddress.trim(),
+          city: payload.city.trim(),
+          switchboard_phone: payload.switchboardPhone.trim(),
+          updated_at: nowIso,
+        })
+        .eq('id', payload.branchId);
+
+      if (payload.contactName?.trim()) {
+        if (payload.contactId) {
+          await supabase
+            .from('client_contacts')
+            .update({
+              full_name: payload.contactName.trim(),
+              designation: payload.contactRole.trim(),
+              phone_number: payload.contactPhone.trim(),
+              email: payload.contactEmail?.trim() || null,
+            })
+            .eq('id', payload.contactId);
+        } else {
+          await supabase.from('client_contacts').insert({
+            branch_id: payload.branchId,
+            organisation_id: payload.organisationId,
+            full_name: payload.contactName.trim(),
+            designation: payload.contactRole.trim(),
+            phone_number: payload.contactPhone.trim(),
+            email: payload.contactEmail?.trim() || null,
+            is_primary: true,
+          });
+        }
+      }
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Deletes a client branch if no operational history (visits/exceptions) exists.
+   */
+  async deleteClientBranch(
+    branchId: string,
+    reason?: string
+  ): Promise<{ success: boolean; hasHistory?: boolean; error: Error | null }> {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (accessToken) {
+        const resp = await fetch('/api/admin/clients', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            action: 'delete_branch',
+            branchId,
+            reason,
+          }),
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+          return {
+            success: false,
+            hasHistory: !!json.hasHistory,
+            error: new Error(json.error || 'Failed to delete client branch'),
+          };
+        }
+        return { success: true, error: null };
+      }
+
+      // Direct client fallback
+      const { count: vCount } = await supabase
+        .from('visits')
+        .select('id', { count: 'exact', head: true })
+        .eq('branch_id', branchId);
+      const { count: eCount } = await supabase
+        .from('exceptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('branch_id', branchId);
+
+      if ((vCount && vCount > 0) || (eCount && eCount > 0)) {
+        return {
+          success: false,
+          hasHistory: true,
+          error: new Error(
+            'BRANCH_HAS_OPERATIONAL_HISTORY: This client site has historical field visits or exceptions. It cannot be permanently deleted. You can mark it as Inactive instead.'
+          ),
+        };
+      }
+
+      const { error: delErr } = await supabase.from('branches').delete().eq('id', branchId);
+      if (delErr) {
+        return { success: false, error: new Error(delErr.message) };
+      }
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Marks a client branch as inactive/decommissioned when it has historical records.
+   */
+  async deactivateClientBranch(
+    branchId: string,
+    reason: string
+  ): Promise<{ success: boolean; error: Error | null }> {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (accessToken) {
+        const resp = await fetch('/api/admin/clients', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            action: 'deactivate_branch',
+            branchId,
+            reason,
+          }),
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+          return { success: false, error: new Error(json.error || 'Failed to deactivate client branch') };
+        }
+        return { success: true, error: null };
+      }
+
+      const { error } = await supabase
+        .from('branches')
+        .update({ operating_status: 'inactive', updated_at: new Date().toISOString() })
+        .eq('id', branchId);
+      if (error) {
+        return { success: false, error: new Error(error.message) };
+      }
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  /**
+   * Reviews and approves or rejects a branch location pin proposal with mandatory audit rationale.
+   */
+  async reviewBranchLocationPin(
+    pinId: string,
+    action: 'approved' | 'rejected',
+    reason: string
+  ): Promise<{ success: boolean; error: Error | null }> {
+    if (action === 'approved') {
+      return managementService.approveBranchLocationPin(pinId, reason);
+    } else {
+      return managementService.rejectBranchLocationPin(pinId, reason);
     }
   },
 };

@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { MarketCode } from '@/context/AuthContext';
 import { useAudit } from '@/context/AuditContext';
 import { managementService, RealAuditCallRecord } from '@/services/managementService';
@@ -40,12 +41,16 @@ export interface HqAuditCallRecord {
   gpsStatus: 'location_verified' | 'manager_approved_unverified';
 }
 
-export const HqClientAuditOversight: React.FC = () => {
+export interface HqClientAuditOversightProps {
+  initialAudits?: HqAuditCallRecord[];
+}
+
+export const HqClientAuditOversight: React.FC<HqClientAuditOversightProps> = ({ initialAudits }) => {
   const { audits: sharedAudits } = useAudit();
   const [realAudits, setRealAudits] = useState<RealAuditCallRecord[]>([]);
 
   useEffect(() => {
-    if (isTestEnv) return;
+    if (initialAudits || isTestEnv) return;
     managementService.getClientAuditRecords('ALL').then(({ data }) => {
       if (data && data.length > 0) {
         setRealAudits(data);
@@ -54,6 +59,7 @@ export const HqClientAuditOversight: React.FC = () => {
   }, []);
 
   const audits: HqAuditCallRecord[] = useMemo(() => {
+    if (initialAudits) return initialAudits;
     if (realAudits.length > 0) {
       return realAudits.map((r) => {
         const marketName =
@@ -63,7 +69,7 @@ export const HqClientAuditOversight: React.FC = () => {
             ? 'Zambia (Lusaka)'
             : 'Malawi (Blantyre)';
 
-        let mappedStatus: HqAuditCallRecord['callStatus'] = 'pending_call';
+        let mappedStatus: HqAuditCallRecord['callStatus'];
         if (r.auditOutcome === 'confirmed_valid') {
           mappedStatus = 'confirmed_meeting';
         } else if (r.auditOutcome === 'disputed_denied' || r.disputeStatus === 'under_investigation' || r.disputeStatus === 'resolved_violation') {
@@ -146,6 +152,24 @@ export const HqClientAuditOversight: React.FC = () => {
     });
   }, [audits, searchQuery, marketFilter, statusFilter, samplingFilter]);
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, marketFilter, statusFilter, samplingFilter]);
+
+  // Pagination bounds and slice
+  const totalPages = Math.max(1, Math.ceil(filteredAudits.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedAudits = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return filteredAudits.slice(startIndex, startIndex + pageSize);
+  }, [filteredAudits, safeCurrentPage, pageSize]);
+
   return (
     <div className="space-y-6 select-none">
       {/* Header Banner */}
@@ -168,7 +192,7 @@ export const HqClientAuditOversight: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <span className="text-[11px] bg-slate-800 border border-slate-700 px-3 py-1 rounded-md text-slate-200 font-mono font-semibold">
-            PRD §8.3 / AT-10 Sampling
+            Weekly 5% Audit Sampling
           </span>
         </div>
       </div>
@@ -330,12 +354,21 @@ export const HqClientAuditOversight: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredAudits.map((a) => (
+              {filteredAudits.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-slate-500 text-xs">
+                    No client audit records match the chosen filter criteria.
+                  </td>
+                </tr>
+              ) : (
+                paginatedAudits.map((a) => (
                 <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
                   {/* ID & Sampling */}
                   <td className="py-3 px-4">
                     <div>
-                      <p className="font-mono font-bold text-xs text-brand-blue">{a.id}</p>
+                      <p className="font-mono font-bold text-xs text-brand-blue">
+                        #{a.id.length > 12 ? a.id.slice(0, 8).toUpperCase() : a.id}
+                      </p>
                       <span
                         className={cn(
                           'text-[10px] font-semibold px-1.5 py-0.2 rounded inline-block mt-0.5',
@@ -411,10 +444,24 @@ export const HqClientAuditOversight: React.FC = () => {
                     </Button>
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>
+
+        {/* Table Pagination */}
+        {filteredAudits.length > 0 && (
+          <TablePagination
+            currentPage={safeCurrentPage}
+            pageSize={pageSize}
+            totalItems={filteredAudits.length}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[10, 20, 50, 100]}
+            itemName="audit records"
+          />
+        )}
       </Card>
 
       {/* AUDIT DETAILS DRAWER */}
@@ -426,7 +473,9 @@ export const HqClientAuditOversight: React.FC = () => {
                 <PhoneCall className="w-5 h-5 text-brand-blue" />
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">Client Verification Call Record</h3>
-                  <p className="text-[11px] font-mono text-slate-500">{selectedAudit.id}</p>
+                  <p className="text-[11px] font-mono text-slate-500">
+                    #{selectedAudit.id.length > 12 ? selectedAudit.id.slice(0, 8).toUpperCase() : selectedAudit.id}
+                  </p>
                 </div>
               </div>
               <button
@@ -476,7 +525,7 @@ export const HqClientAuditOversight: React.FC = () => {
               )}
 
               <div className="p-3 rounded-lg bg-blue-50/70 border border-blue-200 text-slate-700 text-[11px] leading-relaxed">
-                <strong>PRD Verification Standard:</strong> Client audit calls evaluate human meeting confirmation. Physical presence evidence remains indexed separately under GPS records.
+                <strong>Audit Verification Standard:</strong> Client audit calls evaluate human meeting confirmation. Physical presence evidence remains indexed separately under GPS records.
               </div>
             </div>
 

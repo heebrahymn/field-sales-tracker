@@ -4,6 +4,8 @@ import { useMarketConfig } from '@/context/MarketConfigContext';
 import { useAuthSafe } from '@/context/AuthContext';
 import { MeetingLogModal, MeetingLogSubmissionData } from '@/features/field/MeetingLogModal';
 import { RegisterBranchModal } from '@/features/field/RegisterBranchModal';
+import { CreateExceptionModal } from '@/features/field/CreateExceptionModal';
+import { supabase } from '@/lib/supabase';
 import {
   visitService,
   LiveGpsCoordinate,
@@ -32,6 +34,7 @@ import {
   Check,
   Video,
   SwitchCamera,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface VisitWorkflowViewProps {
@@ -40,6 +43,8 @@ interface VisitWorkflowViewProps {
   onNavigateToClients?: () => void;
   onNavigateToExceptions?: () => void;
 }
+
+const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
 
 export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   selectedBranchFromDirectory,
@@ -57,11 +62,12 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     setSimulatedGps,
     refreshBranches,
     workdayStatus,
+    setLiveGpsCoordinate,
   } = useFieldSession();
 
   const auth = useAuthSafe();
   const currentMarketCode = (auth?.currentUser?.marketCode || 'NG') as 'NG' | 'ZM' | 'MW';
-  const { getActiveMarketRules } = useMarketConfig();
+  const { getActiveMarketRules, refreshMarketRules } = useMarketConfig();
   const defaultMarketRules = getActiveMarketRules(currentMarketCode);
 
   const [dbMarketRules, setDbMarketRules] = useState<{
@@ -75,24 +81,65 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     visitService.getActiveMarketRules(currentMarketCode).then(({ data }) => {
       if (mounted && data) {
         setDbMarketRules({
-          geofenceRadiusM: Number(data.geofence_radius_m) || defaultMarketRules.defaultGeofenceRadiusMeters,
-          maxVisitGpsAccuracyM: Number(data.max_visit_gps_accuracy_m) || defaultMarketRules.maxVisitGpsAccuracyMeters,
-          versionTag: data.version_tag || defaultMarketRules.ruleVersion,
+          geofenceRadiusM: Number(data.geofence_radius_m),
+          maxVisitGpsAccuracyM: Number(data.max_visit_gps_accuracy_m),
+          versionTag: data.version_tag,
         });
       }
     });
+
+    const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+    let channel: any = null;
+
+    if (!isTestEnv && typeof supabase?.channel === 'function') {
+      try {
+        channel = supabase
+          .channel(`realtime:market_rules_vw_${currentMarketCode}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'market_rules',
+              filter: `market_code=eq.${currentMarketCode}`,
+            },
+            () => {
+              visitService.getActiveMarketRules(currentMarketCode).then(({ data }) => {
+                if (mounted && data) {
+                  setDbMarketRules({
+                    geofenceRadiusM: Number(data.geofence_radius_m),
+                    maxVisitGpsAccuracyM: Number(data.max_visit_gps_accuracy_m),
+                    versionTag: data.version_tag,
+                  });
+                }
+              });
+              refreshMarketRules();
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn('[VisitWorkflowView] Realtime channel setup skipped:', err);
+      }
+    }
+
     return () => {
       mounted = false;
+      if (channel && typeof supabase?.removeChannel === 'function') {
+        supabase.removeChannel(channel);
+      }
     };
-  }, [currentMarketCode, defaultMarketRules.defaultGeofenceRadiusMeters, defaultMarketRules.maxVisitGpsAccuracyMeters, defaultMarketRules.ruleVersion]);
+  }, [currentMarketCode, refreshMarketRules]);
 
   useEffect(() => {
     refreshBranches();
   }, [refreshBranches]);
 
-  const geofenceLimit = dbMarketRules?.geofenceRadiusM ?? defaultMarketRules.defaultGeofenceRadiusMeters;
-  const maxGpsLimit = dbMarketRules?.maxVisitGpsAccuracyM ?? defaultMarketRules.maxVisitGpsAccuracyMeters;
-  const activeRuleVersion = dbMarketRules?.versionTag ?? defaultMarketRules.ruleVersion;
+  const geofenceLimit = defaultMarketRules.defaultGeofenceRadiusMeters ?? dbMarketRules?.geofenceRadiusM ?? 200;
+  const maxGpsLimit = defaultMarketRules.maxVisitGpsAccuracyMeters ?? dbMarketRules?.maxVisitGpsAccuracyM ?? 100;
+  const activeRuleVersion = defaultMarketRules.ruleVersion ?? dbMarketRules?.versionTag ?? 'v1.2.01';
+
+  // Checkout outside geofence distance tracking
+  const [checkoutDistance, setCheckoutDistance] = useState<number>(simulatedGeofenceDistance);
 
   // ================= CLIENT & LOCATION SELECTION STATE =================
   // Strict requirement: No random or hardcoded default client preselection for new visits!
@@ -110,6 +157,9 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
 
   // Register New Client modal directly in Step 1 (Change 4)
   const [isRegisterClientModalOpen, setIsRegisterClientModalOpen] = useState(false);
+  const [proposePinBranch, setProposePinBranch] = useState<ClientBranch | null>(null);
+  const [isCreateExceptionModalOpen, setIsCreateExceptionModalOpen] = useState(false);
+  const [exceptionTargetBranchId, setExceptionTargetBranchId] = useState<string | undefined>(undefined);
 
   // Live Camera Viewfinder & Capture states (Front / Rear switchable)
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -125,6 +175,31 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   // Live Device Geolocation states
   const [isLocating, setIsLocating] = useState<boolean>(false);
   const [liveGps, setLiveGps] = useState<LiveGpsCoordinate | null>(null);
+
+  // Real GPS & Geofence metrics (active in real device/browser mode)
+  const currentDistanceMeters = useMemo<number | null>(() => {
+    if (!isTestEnv) {
+      if (liveGps && selectedBranch?.approvedGpsLat && selectedBranch?.approvedGpsLng) {
+        return Math.round(
+          calculateHaversineDistanceMeters(
+            liveGps.latitude,
+            liveGps.longitude,
+            selectedBranch.approvedGpsLat,
+            selectedBranch.approvedGpsLng
+          )
+        );
+      }
+      return null;
+    }
+    return simulatedGeofenceDistance;
+  }, [liveGps, selectedBranch?.approvedGpsLat, selectedBranch?.approvedGpsLng, simulatedGeofenceDistance]);
+
+  const currentGpsAccuracyMeters = useMemo(() => {
+    if (!isTestEnv && liveGps) {
+      return Math.round(liveGps.accuracy);
+    }
+    return simulatedGpsAccuracy;
+  }, [liveGps, simulatedGpsAccuracy]);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -135,13 +210,24 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   const [isMeetingLogOpen, setIsMeetingLogOpen] = useState<boolean>(false);
   const [checkoutOutsideWarning, setCheckoutOutsideWarning] = useState<boolean>(false);
 
+  // Automatically acquire real device GPS on view mount in non-test environment
+  useEffect(() => {
+    if (!isTestEnv) {
+      fetchLiveGps();
+    }
+  }, []);
+
   // Update if prop passed from Directory
   useEffect(() => {
     if (selectedBranchFromDirectory) {
       setSelectedClientName(selectedBranchFromDirectory.companyName);
       setSelectedBranch(selectedBranchFromDirectory);
-      setSimulatedGps(14, selectedBranchFromDirectory.distanceMeters);
       setHasCapturedPhoto(false);
+      if (isTestEnv) {
+        setSimulatedGps(14, selectedBranchFromDirectory.distanceMeters);
+      } else {
+        fetchLiveGps(selectedBranchFromDirectory);
+      }
     }
   }, [selectedBranchFromDirectory]);
 
@@ -159,7 +245,11 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   // Sync GPS distance specifically to selected location
   useEffect(() => {
     if (selectedBranch) {
-      setSimulatedGps(14, selectedBranch.distanceMeters);
+      if (isTestEnv) {
+        setSimulatedGps(14, selectedBranch.distanceMeters);
+      } else {
+        fetchLiveGps(selectedBranch);
+      }
     }
   }, [selectedBranch?.id]);
 
@@ -233,7 +323,11 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     if (clientBranches.length === 1) {
       // Auto-select location for single-location clients
       setSelectedBranch(clientBranches[0]);
-      setSimulatedGps(14, clientBranches[0].distanceMeters);
+      if (isTestEnv) {
+        setSimulatedGps(14, clientBranches[0].distanceMeters);
+      } else {
+        fetchLiveGps(clientBranches[0]);
+      }
     } else {
       // Prompt selection if multiple locations exist
       setSelectedBranch(null);
@@ -244,7 +338,11 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   const handleSelectLocation = (branch: ClientBranch) => {
     setSelectedBranch(branch);
     setHasCapturedPhoto(false);
-    setSimulatedGps(14, branch.distanceMeters);
+    if (isTestEnv) {
+      setSimulatedGps(14, branch.distanceMeters);
+    } else {
+      fetchLiveGps(branch);
+    }
   };
 
   // Handle Change Client action (clears state, resets GPS & photo)
@@ -266,7 +364,11 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     setHasCapturedPhoto(false);
     setPhotoBlob(null);
     setPhotoPreviewUrl(null);
-    setSimulatedGps(14, newlyCreatedBranch.distanceMeters);
+    if (isTestEnv) {
+      setSimulatedGps(14, newlyCreatedBranch.distanceMeters);
+    } else {
+      fetchLiveGps(newlyCreatedBranch);
+    }
     setIsDropdownOpen(false);
   };
 
@@ -424,26 +526,18 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   };
 
   // Acquire Live Device GPS
-  const fetchLiveGps = async () => {
+  const fetchLiveGps = async (_targetBranch?: ClientBranch | null) => {
     setIsLocating(true);
     setGpsError(null);
     try {
       const coords = await visitService.getCurrentLocation();
       setLiveGps(coords);
-      if (selectedBranch && selectedBranch.approvedGpsLat && selectedBranch.approvedGpsLng) {
-        const dist = calculateHaversineDistanceMeters(
-          coords.latitude,
-          coords.longitude,
-          selectedBranch.approvedGpsLat,
-          selectedBranch.approvedGpsLng
-        );
-        setSimulatedGps(coords.accuracy, dist);
-      } else {
-        setSimulatedGps(coords.accuracy, simulatedGeofenceDistance);
-      }
+      setLiveGpsCoordinate(coords);
+      return coords;
     } catch (err: any) {
       console.warn('[VisitWorkflow] Geolocation error:', err);
       setGpsError(err.message || 'Failed to acquire device location');
+      return null;
     } finally {
       setIsLocating(false);
     }
@@ -479,25 +573,42 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
         }
       }
 
+      let activeLiveGps = liveGps;
+      if (!isTestEnv && !activeLiveGps) {
+        activeLiveGps = await fetchLiveGps(selectedBranch);
+      }
+
+      const effectiveAccuracy = !isTestEnv && activeLiveGps ? Math.round(activeLiveGps.accuracy) : simulatedGpsAccuracy;
+      const effectiveDistance = !isTestEnv && activeLiveGps && selectedBranch.approvedGpsLat && selectedBranch.approvedGpsLng
+        ? calculateHaversineDistanceMeters(
+            activeLiveGps.latitude,
+            activeLiveGps.longitude,
+            selectedBranch.approvedGpsLat,
+            selectedBranch.approvedGpsLng
+          )
+        : simulatedGeofenceDistance;
+
       const isInside =
-        simulatedGeofenceDistance + simulatedGpsAccuracy <= geofenceLimit &&
-        simulatedGpsAccuracy <= maxGpsLimit;
+        effectiveDistance + effectiveAccuracy <= geofenceLimit &&
+        effectiveAccuracy <= maxGpsLimit;
 
       const success = await checkInVisit(
         selectedBranch,
         photoPreviewUrl || 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
-        simulatedGpsAccuracy,
-        simulatedGeofenceDistance,
+        effectiveAccuracy,
+        effectiveDistance,
         {
           photoBlob: effectivePhotoBlob || undefined,
-          liveGps: liveGps || undefined,
+          liveGps: activeLiveGps || undefined,
           verificationStatus:
             isInside && selectedBranch.status === 'approved' ? 'location_verified' : 'location_unverified',
           locationClassification: isInside
             ? 'inside_confident'
-            : simulatedGeofenceDistance <= geofenceLimit
+            : effectiveDistance <= geofenceLimit
             ? 'uncertain'
             : 'outside',
+          maxGeofenceRadiusM: geofenceLimit,
+          maxGpsAccuracyM: maxGpsLimit,
         }
       );
       if (success) {
@@ -508,8 +619,18 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
     }
   };
 
-  const handleInitiateCheckOut = () => {
-    if (simulatedGeofenceDistance > geofenceLimit) {
+  const handleInitiateCheckOut = async () => {
+    let checkoutGps = liveGps;
+    if (!isTestEnv) {
+      checkoutGps = await fetchLiveGps(selectedBranch);
+    }
+    const dist = !isTestEnv && checkoutGps && selectedBranch?.approvedGpsLat && selectedBranch?.approvedGpsLng
+      ? calculateHaversineDistanceMeters(checkoutGps.latitude, checkoutGps.longitude, selectedBranch.approvedGpsLat, selectedBranch.approvedGpsLng)
+      : simulatedGeofenceDistance;
+
+    setCheckoutDistance(dist);
+
+    if (dist > geofenceLimit) {
       setCheckoutOutsideWarning(true);
     } else {
       setIsMeetingLogOpen(true);
@@ -522,7 +643,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
   };
 
   const handleMeetingLogFinished = async (onTime: boolean, logData?: MeetingLogSubmissionData) => {
-    const isOutside = simulatedGeofenceDistance > geofenceLimit;
+    const isOutside = (currentDistanceMeters ?? 9999) > geofenceLimit;
     await checkOutVisit(
       isOutside,
       onTime ? (logData || { completed: true }) : undefined,
@@ -545,8 +666,9 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
 
   return (
     <div className="space-y-4 pb-28 max-w-lg mx-auto select-none relative">
-      {/* ================= SIMULATION CONTROLS FOR TESTING ================= */}
-      <div className="bg-slate-900 text-white p-3.5 rounded-xl text-xs space-y-2 border border-slate-800 shadow-sm">
+      {/* ================= SIMULATION CONTROLS FOR TESTING (HIDDEN IN REAL OPERATIONS) ================= */}
+      {isTestEnv && (
+        <div className="bg-slate-900 text-white p-3.5 rounded-xl text-xs space-y-2 border border-slate-800 shadow-sm">
         <div className="flex items-center justify-between">
           <span className="font-bold flex items-center gap-1.5 text-slate-200">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" /> GPS & Geofence Simulator (Test Controls)
@@ -597,6 +719,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
           </button>
         </div>
       </div>
+      )}
 
       {/* ================= ACTIVE VISIT IN PROGRESS VIEW (PRD §6.1 / AT-04) ================= */}
       {activeVisit ? (
@@ -652,7 +775,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
               {/* Single Normal Visit Rule Callout (AT-04) */}
               <div className="p-2.5 bg-white/80 border border-blue-200 rounded-lg text-[11px] text-slate-600 flex items-center gap-2">
                 <Info className="w-4 h-4 text-brand-blue shrink-0" />
-                <span>PRD AT-04: Only 1 active normal physical visit is permitted at a time. All other visits blocked until closure.</span>
+                <span>Only 1 active normal physical visit is permitted at a time. All other visits blocked until closure.</span>
               </div>
 
               {/* Action Buttons */}
@@ -695,7 +818,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
               <div className="space-y-1">
                 <p className="font-bold text-sm text-amber-950">Workday Not Started (Start Day Required)</p>
                 <p className="text-[11px] leading-relaxed text-amber-900">
-                  Per company policy (PRD §6.1 / AT-03), you must start your workday with an attendance selfie and GPS check on the Home screen before checking in to client visits.
+                  Per company policy, you must start your workday with an attendance selfie and GPS check on the Home screen before checking in to client visits.
                 </p>
               </div>
             </div>
@@ -967,8 +1090,8 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                         )}
                       </div>
 
-                      {/* Prominent Warning if Location is Pending Approval or Rejected */}
-                      {(isPendingApproval || isPinRejected) && (
+                      {/* Prominent Warning if Location is Pending Approval, Rejected, or Unpinned */}
+                      {(isPendingApproval || isPinRejected || !selectedBranch.approvedPinId) && (
                         <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 space-y-2 mt-2">
                           <div className="flex items-start gap-2">
                             <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
@@ -981,22 +1104,28 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={() => setIsRegisterClientModalOpen(true)}
-                              className="h-7 text-[10px] font-bold border-amber-300 bg-white text-amber-900 hover:bg-amber-100 px-2.5"
+                              onClick={() => {
+                                setProposePinBranch(selectedBranch);
+                                setIsRegisterClientModalOpen(true);
+                              }}
+                              className="h-7 text-[10px] font-bold border-amber-300 bg-white text-amber-900 hover:bg-amber-100 px-2.5 flex items-center gap-1"
                             >
-                              Propose GPS Pin (Stage 3E Queue)
+                              <MapPin className="w-3 h-3 text-amber-700" />
+                              Propose Physical GPS Pin
                             </Button>
-                            {onNavigateToExceptions && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={onNavigateToExceptions}
-                                className="h-7 text-[10px] font-bold border-amber-400 bg-amber-100/80 text-amber-950 hover:bg-amber-200 px-2.5"
-                              >
-                                File Visit Exception Instead
-                              </Button>
-                            )}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setExceptionTargetBranchId(selectedBranch.id);
+                                setIsCreateExceptionModalOpen(true);
+                              }}
+                              className="h-7 text-[10px] font-bold border-amber-400 bg-amber-100/80 text-amber-950 hover:bg-amber-200 px-2.5 flex items-center gap-1"
+                            >
+                              <ShieldCheck className="w-3 h-3 text-amber-800" />
+                              Record Meeting via Exception (Location-Unverified)
+                            </Button>
                           </div>
                         </div>
                       )}
@@ -1032,46 +1161,53 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-slate-700">Distance to Pin:</span>
-                    <span
-                      className={`font-mono font-bold ${
-                        simulatedGeofenceDistance <= geofenceLimit ? 'text-emerald-700' : 'text-amber-700'
-                      }`}
-                    >
-                      {simulatedGeofenceDistance} metres
-                    </span>
+                    {currentDistanceMeters === null ? (
+                      <span className="font-mono text-slate-500 flex items-center gap-1.5 font-medium">
+                        <RotateCw className="w-3 h-3 animate-spin text-brand-blue" />
+                        Acquiring GPS fix...
+                      </span>
+                    ) : (
+                      <span
+                        className={`font-mono font-bold ${
+                          currentDistanceMeters <= geofenceLimit ? 'text-emerald-700' : 'text-amber-700'
+                        }`}
+                      >
+                        {currentDistanceMeters} metres
+                      </span>
+                    )}
                   </div>
 
                   <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
                     <div
                       className={`h-full transition-all duration-300 rounded-full ${
-                        simulatedGeofenceDistance <= geofenceLimit ? 'bg-emerald-600' : 'bg-amber-500'
+                        (currentDistanceMeters ?? 9999) <= geofenceLimit ? 'bg-emerald-600' : 'bg-amber-500'
                       }`}
-                      style={{ width: `${Math.min(100, (simulatedGeofenceDistance / 400) * 100)}%` }}
+                      style={{ width: `${Math.min(100, ((currentDistanceMeters ?? 0) / (geofenceLimit * 2)) * 100)}%` }}
                     />
                   </div>
 
-                  {simulatedGpsAccuracy > maxGpsLimit ? (
+                  {currentGpsAccuracyMeters > maxGpsLimit ? (
                     <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-900 flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                       <div>
-                        <p className="font-bold">GPS Accuracy Degraded (±{simulatedGpsAccuracy}m)</p>
+                        <p className="font-bold">GPS Accuracy Degraded (±{currentGpsAccuracyMeters}m)</p>
                         <p className="text-[11px] text-red-800">
                           Accuracy exceeds {maxGpsLimit}m visit limit. Try moving outdoors, or submit a <strong>GPS Failure Exception</strong> if signal cannot be acquired.
                         </p>
                       </div>
                     </div>
-                  ) : simulatedGeofenceDistance <= geofenceLimit ? (
+                  ) : (currentDistanceMeters ?? 9999) <= geofenceLimit ? (
                     <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                       <span className="font-semibold text-[11px]">
-                        Inside Geofence ({simulatedGeofenceDistance}m / {geofenceLimit}m) • Accuracy: ±{simulatedGpsAccuracy}m
+                        Inside Geofence ({currentDistanceMeters ?? 0}m / {geofenceLimit}m) • Accuracy: ±{currentGpsAccuracyMeters}m
                       </span>
                     </div>
                   ) : (
                     <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                       <div>
-                        <p className="font-bold">Outside Geofence ({simulatedGeofenceDistance}m &gt; {geofenceLimit}m)</p>
+                        <p className="font-bold">Outside Geofence ({currentDistanceMeters ?? 0}m &gt; {geofenceLimit}m)</p>
                         <p className="text-[11px] text-amber-800">
                           Check-in will be marked as Location Unverified unless you are within {geofenceLimit}m of the registered pin.
                         </p>
@@ -1081,7 +1217,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
 
                   <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between pt-0.5">
                     <span>Approved Pin: {selectedBranch.approvedGpsLat}° N, {selectedBranch.approvedGpsLng}° E</span>
-                    <span>Fix Accuracy: ±{simulatedGpsAccuracy}m</span>
+                    <span>Fix Accuracy: ±{currentGpsAccuracyMeters}m</span>
                   </div>
 
                   {/* Live Device GPS acquisition */}
@@ -1095,7 +1231,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={fetchLiveGps}
+                      onClick={() => fetchLiveGps()}
                       disabled={isLocating}
                       className="h-7 text-[10px] px-2.5 font-bold border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1 shrink-0"
                     >
@@ -1313,7 +1449,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
             className="w-full h-12 min-h-[48px] font-bold text-xs bg-amber-100 text-amber-950 border border-amber-300 shadow-xs flex items-center justify-center gap-2 cursor-not-allowed"
           >
             <Lock className="w-4 h-4 text-amber-800 shrink-0" />
-            Start Workday on Home Screen Required First (PRD §6.1)
+            Start Workday on Home Screen Required First
           </Button>
         ) : !hasCapturedPhoto ? (
           <Button
@@ -1326,7 +1462,7 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
             <Camera className="w-4 h-4 shrink-0" />
             {isCapturing ? 'Capturing Shutter Preview...' : 'Capture Live Premises Photo'}
           </Button>
-        ) : simulatedGpsAccuracy <= maxGpsLimit ? (
+        ) : currentGpsAccuracyMeters <= maxGpsLimit ? (
           <Button
             id="sticky-btn-checkin"
             type="button"
@@ -1381,10 +1517,10 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
 
             <div className="text-center space-y-1.5">
               <h3 id="outside-geofence-modal-title" className="font-bold text-base text-slate-900">
-                Checkout Outside Geofence ({simulatedGeofenceDistance}m &gt; {geofenceLimit}m)
+                Checkout Outside Geofence ({checkoutDistance}m &gt; {geofenceLimit}m)
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                PRD §7.2 & AT-05 Rule: Check-out outside the geofence is <strong>permitted</strong>, but will raise an audit flag (<span className="font-semibold text-amber-900">Checkout Outside Geofence</span>) for Country Sales Head review.
+                Check-out outside the geofence is <strong>permitted</strong>, but will raise an audit flag (<span className="font-semibold text-amber-900">Checkout Outside Geofence</span>) for Country Sales Head review.
               </p>
             </div>
 
@@ -1426,12 +1562,36 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
         onSubmitted={handleMeetingLogFinished}
       />
 
-      {/* ================= ADD NEW CLIENT MODAL DIRECTLY IN STEP 1 ================= */}
+      {/* ================= ADD NEW CLIENT / PROPOSE PIN MODAL ================= */}
       <RegisterBranchModal
         isOpen={isRegisterClientModalOpen}
-        onClose={() => setIsRegisterClientModalOpen(false)}
-        onSuccess={handleClientRegistered}
+        onClose={() => {
+          setIsRegisterClientModalOpen(false);
+          setProposePinBranch(null);
+        }}
+        onSuccess={(branch) => {
+          handleClientRegistered(branch);
+          setProposePinBranch(null);
+        }}
         defaultCompanyName={selectedClientName || undefined}
+        defaultBranch={proposePinBranch}
+        mode={proposePinBranch ? 'propose_pin' : 'register'}
+      />
+
+      {/* ================= RECORD MEETING VIA EXCEPTION MODAL ================= */}
+      <CreateExceptionModal
+        isOpen={isCreateExceptionModalOpen}
+        onClose={() => {
+          setIsCreateExceptionModalOpen(false);
+          setExceptionTargetBranchId(undefined);
+        }}
+        defaultBranchId={exceptionTargetBranchId || selectedBranch?.id}
+        initialReason={
+          selectedBranch && (!selectedBranch.approvedPinId || selectedBranch.status === 'pending_approval')
+            ? `First client meeting at unpinned / pending ERP location (${selectedBranch.companyName} - ${selectedBranch.branchName}) prior to GPS pin approval.`
+            : undefined
+        }
+        initialType="gps_failure"
       />
     </div>
   );

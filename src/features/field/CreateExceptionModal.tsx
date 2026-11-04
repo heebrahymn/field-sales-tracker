@@ -16,32 +16,57 @@ import {
 interface CreateExceptionModalProps {
   isOpen: boolean;
   onClose: () => void;
+  defaultBranchId?: string;
+  initialReason?: string;
+  initialType?: FieldExceptionRecord['type'];
 }
 
-export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({ isOpen, onClose }) => {
+export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
+  isOpen,
+  onClose,
+  defaultBranchId,
+  initialReason,
+  initialType,
+}) => {
   const { currentUser } = useAuth();
   const { branches, submitException } = useFieldSession();
 
-  const [type, setType] = useState<FieldExceptionRecord['type']>('gps_failure');
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(branches[0]?.id || '');
-  const [branchName, setBranchName] = useState<string>(branches[0]?.branchName || 'Apex Heavy Logistics Fleet Depot');
+  const [type, setType] = useState<FieldExceptionRecord['type']>(initialType || 'gps_failure');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(defaultBranchId || branches[0]?.id || '');
+  const [branchName, setBranchName] = useState<string>(
+    branches.find((b) => b.id === defaultBranchId)?.branchName || branches[0]?.branchName || 'Apex Heavy Logistics Fleet Depot'
+  );
   const [claimedDate, setClaimedDate] = useState<string>(() => getMarketWorkDate(currentUser?.marketCode));
   const [claimedTime, setClaimedTime] = useState<string>('13:40 - 14:15 WAT');
   const [reason, setReason] = useState<string>(
-    'Client facility workshop is located in an underground basement loading bay; severe concrete attenuation prevented satellite acquisition (GPS accuracy degraded beyond 140m).'
+    initialReason ||
+      'Client facility workshop is located in an underground basement loading bay; severe concrete attenuation prevented satellite acquisition (GPS accuracy degraded beyond 140m).'
   );
   const [evidenceNote, setEvidenceNote] = useState<string>(
     'Signage photographed at facility gate; stamped manual visitor log entry signed by Workshop Superintendent.'
   );
 
   useEffect(() => {
+    if (defaultBranchId && branches && branches.length > 0) {
+      const match = branches.find((b) => b.id === defaultBranchId);
+      if (match) {
+        setSelectedBranchId(match.id);
+        setBranchName(match.branchName);
+        return;
+      }
+    }
     if (branches && branches.length > 0) {
       if (!selectedBranchId || !branches.some((b) => b.id === selectedBranchId)) {
         setSelectedBranchId(branches[0].id);
         setBranchName(branches[0].branchName);
       }
     }
-  }, [branches, selectedBranchId]);
+  }, [branches, selectedBranchId, defaultBranchId]);
+
+  useEffect(() => {
+    if (initialReason) setReason(initialReason);
+    if (initialType) setType(initialType);
+  }, [initialReason, initialType]);
 
   if (!isOpen) return null;
 
@@ -75,7 +100,7 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({ isOp
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                PRD §7.4 Salesperson-Originated Exception
+                Salesperson-Originated Exception
               </span>
             </div>
             <h3 className="font-bold text-slate-900 text-base mt-1">

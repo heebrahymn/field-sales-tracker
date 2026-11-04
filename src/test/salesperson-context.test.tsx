@@ -48,7 +48,7 @@ describe('Salesperson Context-Aware Field Rules & Fictional Data (AT-04 / PRD §
     fireEvent.click(endDayTile);
 
     expect(screen.getByText(/End Day Blocked: Active Visit Open/i)).toBeInTheDocument();
-    expect(screen.getByText(/PRD §6.1 and Rule AT-03/i)).toBeInTheDocument();
+    expect(screen.getByText(/cannot end your workday while a physical visit session remains open/i)).toBeInTheDocument();
   });
 
   it('supports multiple branches sharing the same company phone number (PRD §4.2)', () => {
@@ -61,7 +61,7 @@ describe('Salesperson Context-Aware Field Rules & Fictional Data (AT-04 / PRD §
     );
 
     // Verifies that shared company phone badge exists and notes PRD §4.2 compliance
-    expect(screen.getAllByText(/PRD §4.2 Approved/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Approved/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/\+234 1 270 5000/i).length).toBeGreaterThan(0);
   });
 
@@ -91,7 +91,7 @@ describe('Salesperson Context-Aware Field Rules & Fictional Data (AT-04 / PRD §
 
     // Verifies offline resilience elements
     expect(screen.getByText(/Offline Queue & Sync/i)).toBeInTheDocument();
-    expect(screen.getByText(/PRD §9 Integrity Contract/i)).toBeInTheDocument();
+    expect(screen.getByText(/Offline Integrity Contract/i)).toBeInTheDocument();
     expect(screen.getByText(/UUID: evt-8f4b-2291-a10c/i)).toBeInTheDocument();
   });
 });

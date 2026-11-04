@@ -3,8 +3,8 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
-**Last Updated:** October 30, 2026  
-**Current Milestone:** Stage 3F Completed, Supabase SSoT, Admin Governance & Country Review/Sync Governance Completed (Controlled Field Pilot Prepared; Business Rollout Awaiting Authorization)  
+**Last Updated:** November 4, 2026  
+**Current Milestone:** Release Candidate 1.0.0 (`rc-1.0.0-uat-verified`) Approved & Promoted to GitHub & Controlled Vercel Staging (DEF-001–DEF-019 Formally Accepted by Project Owner; 288/288 Vitest Tests Passing; Ready for Physical Handset Field Pilot)  
 
 ---
 
@@ -34,7 +34,13 @@
 [✓] Reassign/Sync — HQ Admin Device Reassignment Supersession, Spare Allocation RPC Alignment & Central Inventory Governance (ADR 0018)
 [✓] Brand/Favicon — Authentic Carbon Brand Favicon Suite & Web App Manifest Upgrade (ADR 0019)
 [✓] MVP Audit & UAT Prep — Final MVP Completeness Audit & Full Role-Based Manual UAT Preparation
-[ ] Manual UAT Execution — Full Stakeholder Role-Based UAT across Salesperson, Country Sales Head & HQ Admin
+[✓] ERP Import & Pin Governance — ERP Client Master Import Without GPS Coordinates & Field Pin Proposal Governance (ADR 0020)
+[✓] Market Rules & Dynamic GPS — Live Market Rules Persistence, Prospective Immutability & Dynamic Attendance GPS (ADR 0021)
+[✓] HQ Client Directory & Parity — Central Multi-Market Directory, Managerial Parity & Correction Governance (ADR 0022)
+[✓] UAT Baseline Corrections — Credential Sanitization, Five-Tier Verification Separation, Canonical Schema Reconciliation & Device Custody Status Integrity
+[✓] Post-UAT RC Verification — Defect Consolidation DEF-001–DEF-019, In-App Simulator Scoping, Multi-View Table Pagination, Non-Visit Auth Fix, 3-State Device Custody Reconciliation, Live Supabase Parity (288/288 Vitest, 13/13 API RLS, 0 TS Errors, 0 ESLint Errors)
+[✓] Stakeholder Retest Sign-Off — Formal Project Owner Acceptance Retest for Corrected Workflows DEF-001–DEF-019 (19/19 Retests Passed; Formally Accepted by Project Owner)
+[✓] Release Candidate 1.0.0 — Final Verified RC Baseline (`rc-1.0.0-uat-verified`) Promoted to GitHub & Controlled Vercel Staging (`https://field-sales-tracker-b6l7.vercel.app/`)
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
 ```
@@ -58,7 +64,7 @@
 - Hosted Supabase development database initialized (`[SUPABASE_PROJECT_ID]`).
 - 25 applied SQL migrations establishing 24 canonical tables, enums, indexes, and RPC procedures.
 - Comprehensive PostgreSQL Row-Level Security (RLS) enforcing strict country sandboxing (`NG`, `ZM`, `MW`).
-- Private storage buckets (`attendance-selfies`, `premises-photos`, `meeting-cards`, `exception-evidence`) with path-based RLS (`auth.uid()`).
+- Private storage buckets (`attendance-selfies`, `visit-premises-photos`, `business-cards`, `exception-evidence`, `device-issue-photos`, `client-master-imports`, `export-reports`) with `public = false` and path-based RLS (`auth.uid()`).
 
 ### Pre-Stage 3: Product Audit & Usability Fixes
 - Independent live deployment audit (`scripts/audit_live_site.py`).

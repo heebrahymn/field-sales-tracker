@@ -31,7 +31,7 @@ export const DemoDataBanner: React.FC<DemoDataBannerProps> = ({ onLogout }) => {
 
         {/* Supabase Development SSoT / Demo Field Data Indicator */}
         <span className="inline-flex items-center gap-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold px-2 py-0.5 rounded text-[10px] tracking-wide uppercase">
-          Supabase Dev SSoT
+          Live Production SSoT
         </span>
         {isTestEnv && (
           <span className="inline-flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold px-2 py-0.5 rounded text-[10px] tracking-wide uppercase">
@@ -56,7 +56,7 @@ export const DemoDataBanner: React.FC<DemoDataBannerProps> = ({ onLogout }) => {
 
       {/* Center: SSoT Notice */}
       <div className="hidden lg:flex items-center text-slate-400 text-[11px]">
-        <span>Connected to Live Supabase DB: <span className="text-emerald-400 font-semibold ml-1">(Single Source of Truth)</span></span>
+        <span>Connected to Central Live DB: <span className="text-emerald-400 font-semibold ml-1">(Single Source of Truth)</span></span>
       </div>
 
       {/* Right: Actions */}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 import { managementService, RealVisitVerificationRecord } from '@/services/managementService';
 import {
   MapPin,
@@ -17,7 +18,6 @@ import {
   X,
   RefreshCw,
   Loader2,
-  Database as DatabaseIcon,
   CreditCard,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -58,10 +58,11 @@ export interface VerifiedVisitRecord {
   isRealRecord?: boolean;
 }
 
-const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
 
 export const ClientVisitVerification: React.FC = () => {
   const { currentUser } = useAuth();
+  const { getActiveMarketRules } = useMarketConfig();
+  const geofenceLimit = getActiveMarketRules((currentUser?.marketCode || 'NG') as any).defaultGeofenceRadiusMeters ?? 200;
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLocationStatus, setFilterLocationStatus] = useState<'all' | 'verified' | 'unverified_approved'>('all');
   const [filterLogStatus, setFilterLogStatus] = useState<'all' | 'complete' | 'missing'>('all');
@@ -79,7 +80,6 @@ export const ClientVisitVerification: React.FC = () => {
   const [cardLoadError, setCardLoadError] = useState<string | null>(null);
 
   const loadRealVisits = useCallback(async () => {
-    if (isTestEnv) return;
     setIsLoadingReal(true);
     try {
       const market = currentUser?.marketCode || 'NG';
@@ -179,7 +179,7 @@ export const ClientVisitVerification: React.FC = () => {
         locationStatus: isVerified ? 'location_verified' : isApprovedUnverified ? 'manager_approved_unverified' : 'unverified',
         geofenceResult: {
           distanceMeters: v.distanceMeters || 0,
-          thresholdMeters: v.geofenceRadiusM || 200,
+          thresholdMeters: v.geofenceRadiusM || geofenceLimit,
           passed: v.withinGeofence,
           accuracyMeters: Math.round(v.checkInAccuracyM),
           checkInCoords: `${v.checkInLatitude?.toFixed(4)}° N, ${v.checkInLongitude?.toFixed(4)}° E`,
@@ -258,7 +258,7 @@ export const ClientVisitVerification: React.FC = () => {
           <div className="text-xs">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-900 text-sm">
-                Visit Verification &amp; Meeting Log Inspection (PRD §7.4 &amp; §8.1)
+                Visit Verification &amp; Meeting Log Inspection
               </h3>
               <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-blue-200">
                 Market: {currentUser?.marketCode || 'NG'}
@@ -282,7 +282,7 @@ export const ClientVisitVerification: React.FC = () => {
             Refresh
           </Button>
           <span className="text-xs font-bold px-2.5 py-1 rounded bg-white border border-blue-200 text-brand-blue">
-            Geofence Limit: 200m
+            Geofence Limit: {geofenceLimit}m
           </span>
           <span className="text-xs font-bold px-2.5 py-1 rounded bg-white border border-blue-200 text-brand-blue">
             Log SLA: 2 Hours
@@ -440,13 +440,9 @@ export const ClientVisitVerification: React.FC = () => {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                      {visit.id}
+                      #{visit.id.length > 12 ? visit.id.slice(0, 8).toUpperCase() : visit.id}
                     </span>
-                    {visit.isRealRecord && (
-                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
-                        <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Visit
-                      </span>
-                    )}
+
                     <span className="text-xs text-slate-600 font-medium">
                       Salesperson: <strong className="text-slate-900">{visit.repName}</strong>
                     </span>
@@ -521,11 +517,17 @@ export const ClientVisitVerification: React.FC = () => {
                         className={`text-[10px] font-extrabold px-2 py-0.5 rounded uppercase ${
                           visit.geofenceResult.passed
                             ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
-                            : 'bg-amber-100 text-amber-900 border border-amber-200'
+                            : visit.geofenceResult.distanceMeters > 0
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                            : 'bg-slate-100 text-slate-800 border border-slate-300'
                         }`}
                       >
                         {visit.geofenceResult.passed
-                          ? `Passed (${visit.geofenceResult.distanceMeters}m ≤ 200m)`
+                          ? `Passed (${visit.geofenceResult.distanceMeters}m ≤ ${visit.geofenceResult.thresholdMeters || geofenceLimit}m)`
+                          : visit.geofenceResult.distanceMeters > 0
+                          ? `Outside Geofence (${visit.geofenceResult.distanceMeters.toLocaleString()}m > ${visit.geofenceResult.thresholdMeters || geofenceLimit}m)`
+                          : visit.geofenceResult.pinCoords === 'No Pin'
+                          ? 'No Branch Pin'
                           : 'No Geofence (Exception)'}
                       </span>
                     </div>
@@ -539,6 +541,22 @@ export const ClientVisitVerification: React.FC = () => {
                             : 'N/A'}
                         </span>
                       </div>
+                      {visit.geofenceResult.distanceMeters > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Live GPS Distance:</span>
+                          <span
+                            className={`font-mono font-bold ${
+                              visit.geofenceResult.passed ? 'text-emerald-800' : 'text-amber-800'
+                            }`}
+                          >
+                            {visit.geofenceResult.distanceMeters.toLocaleString()}m
+                            <span className="text-slate-500 font-normal ml-1">
+                              ({visit.geofenceResult.passed ? 'within' : 'exceeds'}{' '}
+                              {visit.geofenceResult.thresholdMeters || geofenceLimit}m limit)
+                            </span>
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between">
                         <span className="text-slate-500">Check-in Coords:</span>
                         <span className="font-mono text-slate-700">{visit.geofenceResult.checkInCoords}</span>
@@ -680,7 +698,7 @@ export const ClientVisitVerification: React.FC = () => {
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div>
                 <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">
-                  Audit Inspection • {selectedVisitForModal.id}
+                  Audit Inspection • #{selectedVisitForModal.id.length > 12 ? selectedVisitForModal.id.slice(0, 8).toUpperCase() : selectedVisitForModal.id}
                 </span>
                 <h3 className="text-base font-bold text-slate-900">
                   {selectedVisitForModal.clientName}
@@ -704,13 +722,66 @@ export const ClientVisitVerification: React.FC = () => {
                   <div className="font-bold text-slate-900 text-sm mt-0.5">
                     {selectedVisitForModal.locationStatus === 'location_verified'
                       ? 'Location Verified (GPS + Live Photo)'
-                      : 'Manager Approved — Location Unverified'}
+                      : selectedVisitForModal.locationStatus === 'manager_approved_unverified'
+                      ? 'Manager Approved — Location Unverified'
+                      : 'Location Unverified (Outside Geofence)'}
                   </div>
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] uppercase font-bold text-slate-500">Salesperson</span>
                   <div className="font-bold text-brand-blue text-sm mt-0.5">
                     {selectedVisitForModal.repName}
+                  </div>
+                </div>
+              </div>
+
+              {/* PostGIS Geofence Inspection */}
+              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-brand-blue" />
+                    Authoritative PostGIS Geofence Audit
+                  </span>
+                  <span
+                    className={`text-[10px] font-extrabold px-2 py-0.5 rounded uppercase ${
+                      selectedVisitForModal.geofenceResult.passed
+                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                        : selectedVisitForModal.geofenceResult.distanceMeters > 0
+                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                        : 'bg-slate-100 text-slate-800 border border-slate-300'
+                    }`}
+                  >
+                    {selectedVisitForModal.geofenceResult.passed
+                      ? `Passed (${selectedVisitForModal.geofenceResult.distanceMeters}m ≤ ${selectedVisitForModal.geofenceResult.thresholdMeters || geofenceLimit}m)`
+                      : selectedVisitForModal.geofenceResult.distanceMeters > 0
+                      ? `Outside Geofence (${selectedVisitForModal.geofenceResult.distanceMeters.toLocaleString()}m > ${selectedVisitForModal.geofenceResult.thresholdMeters || geofenceLimit}m)`
+                      : 'No Geofence Pin'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700 pt-1">
+                  <div>
+                    <span className="text-slate-500 block">Check-in Accuracy:</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      {selectedVisitForModal.geofenceResult.accuracyMeters > 0
+                        ? `±${selectedVisitForModal.geofenceResult.accuracyMeters}m`
+                        : 'N/A'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Live Distance:</span>
+                    <span className={`font-mono font-bold ${selectedVisitForModal.geofenceResult.passed ? 'text-emerald-800' : 'text-amber-800'}`}>
+                      {selectedVisitForModal.geofenceResult.distanceMeters > 0
+                        ? `${selectedVisitForModal.geofenceResult.distanceMeters.toLocaleString()}m`
+                        : 'N/A'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Check-in Coords:</span>
+                    <span className="font-mono text-slate-800">{selectedVisitForModal.geofenceResult.checkInCoords}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Approved Pin Coords:</span>
+                    <span className="font-mono text-slate-800">{selectedVisitForModal.geofenceResult.pinCoords}</span>
                   </div>
                 </div>
               </div>

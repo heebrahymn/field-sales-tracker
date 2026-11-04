@@ -184,7 +184,7 @@ export const HqReportingExport: React.FC = () => {
         <div className="space-y-1 leading-relaxed">
           <span className="font-bold text-brand-blue">CWE-1236 Formula Injection Defense Standards</span>
           <p className="text-slate-600">
-            Per PRD §10, all generated spreadsheet extracts automatically neutralize dynamic execution characters (<code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, tab, and carriage return) by prepending a single quote before RFC-4180 quotation.
+            All generated spreadsheet extracts automatically neutralize dynamic execution characters (<code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, tab, and carriage return) by prepending a single quote before RFC-4180 quotation.
             Reports do <strong>NOT</strong> include commercial sales quotas, quotation monetary values, or pipeline metrics.
           </p>
         </div>

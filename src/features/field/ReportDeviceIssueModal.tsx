@@ -7,6 +7,7 @@ import {
   X,
   Send,
   CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface ReportDeviceIssueModalProps {
@@ -28,6 +29,7 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
   const [supportingEvidence, setSupportingEvidence] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -39,6 +41,7 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
     if (!description.trim()) return;
 
     setIsSubmitting(true);
+    setErrorMessage(null);
 
     try {
       await submitReplacementRequest({
@@ -63,6 +66,7 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
       onSuccess?.();
     } catch (err: any) {
       console.error('Failed to submit replacement request:', err);
+      setErrorMessage(err?.message || 'Failed to submit replacement request. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -129,9 +133,16 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Custodian Rep:</span>
-                <span className="font-semibold text-slate-800">{currentUser.name} ({currentUser.employeeId})</span>
+                <span className="font-semibold text-slate-800">{currentUser.name}</span>
               </div>
             </div>
+
+            {errorMessage && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">

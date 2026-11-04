@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,6 +12,7 @@ import {
   Save,
   X,
   Compass,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketCode } from '@/context/AuthContext';
@@ -45,32 +46,50 @@ export const HqMarketConfiguration: React.FC = () => {
 
   const [activeMarket, setActiveMarket] = useState<MarketCode>('NG');
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [editConfig, setEditConfig] = useState<MarketRuleConfig>(marketRules[activeMarket]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Sync editConfig when switching active market
+  // Sync editConfig when switching active market or when marketRules updates from Supabase
   const handleSelectMarket = (code: MarketCode) => {
     setActiveMarket(code);
     setEditConfig(marketRules[code]);
     setIsEditing(false);
     setSuccessMessage(null);
+    setErrorMessage(null);
   };
+
+  useEffect(() => {
+    if (!isEditing && marketRules[activeMarket]) {
+      setEditConfig(marketRules[activeMarket]);
+    }
+  }, [marketRules, activeMarket, isEditing]);
 
   const currentConfig = marketRules[activeMarket];
 
-  const handleSaveConfig = (e: React.FormEvent) => {
+  const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSaving(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
 
-    const res = updateMarketRules(
-      activeMarket,
-      editConfig,
-      `Operational thresholds adjusted by HQ Admin: ${editConfig.defaultGeofenceRadiusMeters}m geofence, ${editConfig.maxVisitGpsAccuracyMeters}m accuracy limit, ${editConfig.dailyVisitTarget} daily visit target.`
-    );
+    try {
+      const res = await updateMarketRules(
+        activeMarket,
+        editConfig,
+        `Operational thresholds adjusted by HQ Admin: ${editConfig.defaultGeofenceRadiusMeters}m geofence, ${editConfig.maxVisitGpsAccuracyMeters}m accuracy limit, ${editConfig.dailyVisitTarget} daily visit target.`
+      );
 
-    setIsEditing(false);
-    setSuccessMessage(
-      `Rule set updated for ${currentConfig.countryName} (Version: ${res.newVersion}). Rule changes apply prospectively from ${new Date().toISOString().slice(0, 10)}. Historical visit verifications remain immutable.`
-    );
+      setIsEditing(false);
+      setSuccessMessage(
+        `Rule set updated for ${currentConfig.countryName} (Version: ${res.newVersion}). Operational rule changes apply prospectively from ${new Date().toISOString().slice(0, 10)}. Historical visit verifications remain immutable.`
+      );
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to persist rule set to database');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -109,7 +128,7 @@ export const HqMarketConfiguration: React.FC = () => {
               Strict Rule Immutability & Non-Retroactivity Mandate
             </span>
             <span className="text-[10px] bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded font-mono font-bold">
-              PRD §11 Governance
+              Rule Governance
             </span>
           </div>
           <p className="text-amber-900">
@@ -126,6 +145,18 @@ export const HqMarketConfiguration: React.FC = () => {
             <span>{successMessage}</span>
           </div>
           <button onClick={() => setSuccessMessage(null)} className="text-emerald-700 hover:text-emerald-900">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-300 text-red-900 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button onClick={() => setErrorMessage(null)} className="text-red-700 hover:text-red-900">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -173,7 +204,7 @@ export const HqMarketConfiguration: React.FC = () => {
               size="sm"
               className="text-xs bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 font-semibold h-8"
             >
-              Simulate Rule Update
+              Edit Operational Rules
             </Button>
           ) : (
             <Button
@@ -309,12 +340,25 @@ export const HqMarketConfiguration: React.FC = () => {
               <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 text-emerald-950 space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-bold">Branch Geofence Radius</span>
-                  <span className="font-mono font-black text-emerald-800 text-sm">
-                    {isEditing ? `${editConfig.defaultGeofenceRadiusMeters}m` : `${currentConfig.defaultGeofenceRadiusMeters}m`}
-                  </span>
+                  {isEditing ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        id="input-default-geofence-radius"
+                        type="number"
+                        value={editConfig.defaultGeofenceRadiusMeters}
+                        onChange={(e) => setEditConfig({ ...editConfig, defaultGeofenceRadiusMeters: Number(e.target.value) })}
+                        className="w-20 p-1 border border-emerald-300 rounded text-xs font-mono font-bold text-right bg-white text-emerald-950"
+                      />
+                      <span className="font-bold text-emerald-900 text-xs">m</span>
+                    </div>
+                  ) : (
+                    <span className="font-mono font-black text-emerald-800 text-sm">
+                      {currentConfig.defaultGeofenceRadiusMeters}m
+                    </span>
+                  )}
                 </div>
                 <p className="text-[10px] text-emerald-800 leading-relaxed">
-                  Canonical default: 200m per PRD §7. Rep check-ins within this circle count toward location verification.
+                  Canonical default: 200m. Rep check-ins within this circle count toward location verification.
                 </p>
               </div>
 
@@ -445,15 +489,16 @@ export const HqMarketConfiguration: React.FC = () => {
 
         {/* Submit Button if Editing */}
         {isEditing && (
-          <div className="p-4 bg-white rounded-xl border border-blue-200 shadow-sm flex items-center justify-between">
+          <div className="p-4 bg-white rounded-xl border border-blue-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="text-xs text-slate-700">
-              <strong>Simulating Configuration Changes:</strong> Clicking save will generate a new immutable version record for <strong>{currentConfig.countryName}</strong>.
+              <strong>Production Rule Governance:</strong> Committing this rule set will archive the current active configuration and immediately activate a new immutable rule version for <strong>{currentConfig.countryName}</strong>. Future visits and attendance checks will adhere to these parameters prospectively.
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={isSaving}
                 onClick={() => setIsEditing(false)}
                 className="text-xs"
               >
@@ -462,10 +507,20 @@ export const HqMarketConfiguration: React.FC = () => {
               <Button
                 type="submit"
                 size="sm"
+                disabled={isSaving}
                 className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5"
               >
-                <Save className="w-3.5 h-3.5" />
-                Commit Rule Version
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Committing rule set...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    Commit Rule Version
+                  </>
+                )}
               </Button>
             </div>
           </div>

@@ -20,7 +20,6 @@ import {
   X,
   RefreshCw,
   Loader2,
-  Database as DatabaseIcon,
   Sparkles,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -159,7 +158,7 @@ export const ClientAuditWorkbench: React.FC = () => {
         disputeFindings: a.disputeNotes || undefined,
         auditedBy: a.attempts.length > 0 ? a.attempts[a.attempts.length - 1].auditorName : undefined,
         auditedAt: a.attempts.length > 0 ? new Date(a.attempts[a.attempts.length - 1].dialedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : undefined,
-        resolvedBy: a.resolvedBy || undefined,
+        resolvedBy: a.resolvedBy && !/^[0-9a-f-]{36}$/i.test(a.resolvedBy) ? a.resolvedBy : (a.resolvedBy ? 'Country Sales Head' : undefined),
         resolvedAt: a.resolvedAt ? new Date(a.resolvedAt).toLocaleDateString() : undefined,
         isRealRecord: true,
       };
@@ -214,7 +213,8 @@ export const ClientAuditWorkbench: React.FC = () => {
             ? 'Disputed — Pending Human Review (Audit Dispute Flag Raised)'
             : 'Client Unavailable (Re-queued)';
 
-        setToastMessage(`Audit call [${activeCallItem.id}] saved to Supabase: "${statusLabel}".`);
+        const shortCallId = activeCallItem.id.length > 8 ? activeCallItem.id.slice(0, 8).toUpperCase() : activeCallItem.id;
+        setToastMessage(`Audit call #${shortCallId} saved: "${statusLabel}".`);
       } catch (err: any) {
         setToastMessage(`Audit call recording failed: ${err.message}`);
       }
@@ -242,7 +242,8 @@ export const ClientAuditWorkbench: React.FC = () => {
           ? 'Disputed — Pending Human Review'
           : `Client Unavailable (Re-queued)`;
 
-      setToastMessage(`Audit call [${activeCallItem.id}] recorded as: "${statusLabel}".`);
+      const shortCallId = activeCallItem.id.length > 8 ? activeCallItem.id.slice(0, 8).toUpperCase() : activeCallItem.id;
+      setToastMessage(`Audit call #${shortCallId} recorded as: "${statusLabel}".`);
     }
 
     setActiveCallItem(null);
@@ -272,7 +273,8 @@ export const ClientAuditWorkbench: React.FC = () => {
             ? 'Dispute Cleared (Secondary Witness Validated)'
             : 'Confirmed Violation (Escalated to HQ Admin/HR)';
 
-        setToastMessage(`Dispute for [${activeDisputeItem.id}] resolved in Supabase: "${resolutionLabel}".`);
+        const shortDisputeId = activeDisputeItem.id.length > 8 ? activeDisputeItem.id.slice(0, 8).toUpperCase() : activeDisputeItem.id;
+        setToastMessage(`Dispute for #${shortDisputeId} resolved: "${resolutionLabel}".`);
       } catch (err: any) {
         setToastMessage(`Failed to resolve dispute: ${err.message}`);
       }
@@ -289,7 +291,8 @@ export const ClientAuditWorkbench: React.FC = () => {
           ? 'Dispute Cleared (Secondary Witness Validated)'
           : 'Confirmed Violation (Escalated to HQ Admin/HR)';
 
-      setToastMessage(`Dispute for [${activeDisputeItem.id}] resolved: "${resolutionLabel}".`);
+      const shortDisputeId = activeDisputeItem.id.length > 8 ? activeDisputeItem.id.slice(0, 8).toUpperCase() : activeDisputeItem.id;
+      setToastMessage(`Dispute for #${shortDisputeId} resolved: "${resolutionLabel}".`);
     }
 
     setActiveDisputeItem(null);
@@ -346,7 +349,7 @@ export const ClientAuditWorkbench: React.FC = () => {
           <div className="text-xs">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-900 text-sm">
-                Client Audit Phone Call Workbench (PRD §8.3 &amp; AT-10)
+                Client Audit Phone Call Workbench
               </h3>
               <span className="text-[11px] font-mono font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-emerald-200">
                 Market: {currentUser?.marketCode || 'NG'}
@@ -534,14 +537,10 @@ export const ClientAuditWorkbench: React.FC = () => {
                     </span>
 
                     <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                      {item.id}
+                      #{item.id.length > 12 ? item.id.slice(0, 8).toUpperCase() : item.id}
                     </span>
 
-                    {item.isRealRecord && (
-                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
-                        <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Audit
-                      </span>
-                    )}
+
 
                     <span className="text-xs text-slate-700 font-semibold">
                       Claimed Rep: <strong className="text-slate-900">{item.repName}</strong>
@@ -627,7 +626,7 @@ export const ClientAuditWorkbench: React.FC = () => {
                           </p>
                         )}
                         <p className="text-[10px] text-slate-500 pt-1 border-t border-blue-100">
-                          Resolved by {item.resolvedBy} • {item.resolvedAt}
+                          Resolved by {item.resolvedBy && !/^[0-9a-f-]{36}$/i.test(item.resolvedBy) ? item.resolvedBy : 'Country Sales Head'} • {item.resolvedAt}
                         </p>
                       </div>
                     )}
@@ -707,7 +706,7 @@ export const ClientAuditWorkbench: React.FC = () => {
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div>
                 <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">
-                  Client Audit Workbench • {activeCallItem.id} (Attempt #{activeCallItem.callAttempts + 1})
+                  Client Audit Workbench • #{activeCallItem.id.length > 12 ? activeCallItem.id.slice(0, 8).toUpperCase() : activeCallItem.id} (Attempt #{activeCallItem.callAttempts + 1})
                 </span>
                 <h3 className="text-base font-bold text-slate-900">
                   Call Verification: {activeCallItem.contactName}
@@ -833,7 +832,7 @@ export const ClientAuditWorkbench: React.FC = () => {
               {clientMetInPerson === 'no' && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-[11px]">
                   <strong>Warning:</strong> Client denial will immediately transition visit to{' '}
-                  <span className="font-bold">Disputed — Pending Review</span> and raise an automated audit dispute flag in Supabase.
+                  <span className="font-bold">Disputed — Pending Review</span> and raise an automated audit dispute flag in the verification ledger.
                 </div>
               )}
             </div>
@@ -869,7 +868,7 @@ export const ClientAuditWorkbench: React.FC = () => {
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-rose-50/60">
               <div>
                 <span className="text-[10px] font-mono font-bold text-rose-900 uppercase">
-                  Management Dispute Inquiry • {activeDisputeItem.id} ({activeDisputeItem.visitId})
+                  Management Dispute Inquiry • #{activeDisputeItem.id.length > 12 ? activeDisputeItem.id.slice(0, 8).toUpperCase() : activeDisputeItem.id} (#{activeDisputeItem.visitId.length > 12 ? activeDisputeItem.visitId.slice(0, 8).toUpperCase() : activeDisputeItem.visitId})
                 </span>
                 <h3 className="text-base font-bold text-slate-900">
                   Dispute Investigation: {activeDisputeItem.repName}

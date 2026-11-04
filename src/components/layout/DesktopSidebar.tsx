@@ -20,6 +20,7 @@ import {
   LogOut,
   X,
   Users,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -63,14 +64,16 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     async function loadCounts() {
       try {
         if (currentUser.role === 'hq_admin') {
-          const [{ count: excCount }, { count: devCount }] = await Promise.all([
+          const [{ count: excCount }, { count: devCount }, { count: pendingPinsCount }] = await Promise.all([
             supabase.from('exceptions').select('id', { count: 'exact', head: true }).eq('status', 'pending_review'),
             supabase.from('device_replacement_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending_review'),
+            supabase.from('branches').select('id', { count: 'exact', head: true }).eq('operating_status', 'pending_approval'),
           ]);
           if (active) {
             setLiveBadges({
               exceptions: excCount ?? 0,
               devices: devCount ?? 0,
+              clients: pendingPinsCount ?? 0,
             });
           }
         } else {
@@ -119,8 +122,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           ],
         },
         {
-          group: 'Data & Imports',
+          group: 'Clients & Master Data',
           items: [
+            { id: 'clients' as DesktopNavSection, label: 'Clients & Sites Directory', icon: Building2 },
             { id: 'import' as DesktopNavSection, label: 'Client Master Import', icon: UploadCloud },
             { id: 'exports' as DesktopNavSection, label: 'Reporting & Data Exports', icon: FileSpreadsheet },
           ],

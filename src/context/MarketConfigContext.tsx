@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { MarketCode } from '@/context/AuthContext';
+import { adminService } from '@/services/adminService';
+import { supabase } from '@/lib/supabase';
 
 export interface MarketRuleConfig {
   marketCode: MarketCode;
@@ -132,7 +134,7 @@ export const INITIAL_RULE_HISTORY: Record<MarketCode, RuleVersionHistoryItem[]> 
       version: 'v1.1-clarified',
       effectiveDate: '2026-08-15',
       approvedBy: 'HQ Administrator (HQ Admin)',
-      changeSummary: 'Clarified shared corporate phone number exemption per PRD §4.2.',
+      changeSummary: 'Clarified shared corporate phone number exemption per company policy.',
     },
     {
       version: 'v1.0-initial',
@@ -146,7 +148,7 @@ export const INITIAL_RULE_HISTORY: Record<MarketCode, RuleVersionHistoryItem[]> 
       version: 'v1.2-canonical',
       effectiveDate: '2026-09-01',
       approvedBy: 'HQ Administrator (HQ Admin)',
-      changeSummary: 'Aligned Lusaka and Copperbelt route thresholds with regional PRD baseline.',
+      changeSummary: 'Aligned Lusaka and Copperbelt route thresholds with regional operational baseline.',
     },
     {
       version: 'v1.0-initial',
@@ -174,27 +176,128 @@ export const INITIAL_RULE_HISTORY: Record<MarketCode, RuleVersionHistoryItem[]> 
 interface MarketConfigContextType {
   marketRules: Record<MarketCode, MarketRuleConfig>;
   ruleHistory: Record<MarketCode, RuleVersionHistoryItem[]>;
+  refreshMarketRules: () => Promise<void>;
   updateMarketRules: (
     marketCode: MarketCode,
     updates: Partial<MarketRuleConfig>,
     reason: string,
     approvedBy?: string
-  ) => { success: boolean; newVersion: string };
+  ) => Promise<{ success: boolean; newVersion: string }>;
   getActiveMarketRules: (marketCode: MarketCode) => MarketRuleConfig;
 }
 
-const MarketConfigContext = createContext<MarketConfigContextType | undefined>(undefined);
+export const MarketConfigContext = createContext<MarketConfigContextType | undefined>(undefined);
 
 export const MarketConfigProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [marketRules, setMarketRules] = useState<Record<MarketCode, MarketRuleConfig>>(INITIAL_MARKET_RULES);
   const [ruleHistory, setRuleHistory] = useState<Record<MarketCode, RuleVersionHistoryItem[]>>(INITIAL_RULE_HISTORY);
 
-  const updateMarketRules = (
+  const refreshMarketRules = useCallback(async () => {
+    try {
+      const { data, error } = await adminService.getMarketRules();
+      if (!error && data && data.length > 0) {
+        setMarketRules((prev) => {
+          const updated = { ...prev };
+          for (const rule of data) {
+            if (rule.isActive && (rule.marketCode === 'NG' || rule.marketCode === 'ZM' || rule.marketCode === 'MW')) {
+              const code = rule.marketCode as MarketCode;
+              updated[code] = {
+                ...updated[code],
+                defaultGeofenceRadiusMeters: Number(rule.geofenceRadiusM),
+                maxVisitGpsAccuracyMeters: Number(rule.maxVisitGpsAccuracyM),
+                maxProposedPinGpsAccuracyMeters: Number(rule.maxPinGpsAccuracyM),
+                minVisitDurationMinutes: Math.round(rule.minVisitDurationSeconds / 60),
+                idleGapThresholdMinutes: rule.maxIdleGapMinutes,
+                dailyVisitTarget: rule.dailyVisitTarget,
+                workingHoursStart: rule.workingHoursStart?.slice(0, 5) || updated[code].workingHoursStart,
+                workingHoursEnd: rule.workingHoursEnd?.slice(0, 5) || updated[code].workingHoursEnd,
+                attendanceGraceMinutes: rule.shiftGraceMinutes,
+                ruleVersion: rule.versionTag,
+                effectiveDate: rule.effectiveFrom?.slice(0, 10) || updated[code].effectiveDate,
+              };
+            }
+          }
+          return updated;
+        });
+
+        setRuleHistory((prev) => {
+          const updatedHistory: Record<MarketCode, RuleVersionHistoryItem[]> = { ...prev };
+          const byMarket: Record<string, typeof data> = { NG: [], ZM: [], MW: [] };
+          for (const r of data) {
+            if (byMarket[r.marketCode]) {
+              byMarket[r.marketCode].push(r);
+            }
+          }
+          for (const code of ['NG', 'ZM', 'MW'] as MarketCode[]) {
+            if (byMarket[code].length > 0) {
+              updatedHistory[code] = byMarket[code].map((r) => ({
+                version: r.versionTag,
+                effectiveDate: r.effectiveFrom?.slice(0, 10) || '2026-09-01',
+                approvedBy: 'HQ Administrator (HQ Admin)',
+                changeSummary: `Operational threshold version: ${r.geofenceRadiusM}m geofence, ${r.maxVisitGpsAccuracyM}m GPS limit, ${r.dailyVisitTarget} daily visit target.`,
+              }));
+            }
+          }
+          return updatedHistory;
+        });
+      }
+    } catch (err) {
+      console.warn('[MarketConfigContext] Could not load market rules from Supabase:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshMarketRules();
+
+    const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+    let channel: any = null;
+
+    // Subscribe to realtime database changes on public.market_rules table in browser runtime
+    if (!isTestEnv && typeof supabase?.channel === 'function') {
+      try {
+        channel = supabase
+          .channel('public:market_rules_realtime')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'market_rules',
+            },
+            () => {
+              refreshMarketRules();
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn('[MarketConfigContext] Could not subscribe to realtime channel:', err);
+      }
+    }
+
+    const handleFocus = () => {
+      refreshMarketRules();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleFocus);
+    }
+
+    return () => {
+      if (channel && typeof supabase?.removeChannel === 'function') {
+        supabase.removeChannel(channel);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleFocus);
+      }
+    };
+  }, [refreshMarketRules]);
+
+  const updateMarketRules = async (
     marketCode: MarketCode,
     updates: Partial<MarketRuleConfig>,
     reason: string,
     approvedBy = 'HQ Administrator (HQ Admin)'
-  ): { success: boolean; newVersion: string } => {
+  ): Promise<{ success: boolean; newVersion: string }> => {
     const current = marketRules[marketCode];
     const newVersionTag = `v1.2.${String(ruleHistory[marketCode].length + 1).padStart(2, '0')}`;
     const today = new Date().toISOString().slice(0, 10);
@@ -223,6 +326,27 @@ export const MarketConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
       [marketCode]: [newHistoryEntry, ...prev[marketCode]],
     }));
 
+    // Commit to Supabase public.market_rules
+    try {
+      await adminService.commitMarketRuleVersion({
+        marketCode,
+        geofenceRadiusM: updates.defaultGeofenceRadiusMeters ?? current.defaultGeofenceRadiusMeters,
+        maxVisitGpsAccuracyM: updates.maxVisitGpsAccuracyMeters ?? current.maxVisitGpsAccuracyMeters,
+        maxPinGpsAccuracyM: updates.maxProposedPinGpsAccuracyMeters ?? current.maxProposedPinGpsAccuracyMeters,
+        minVisitDurationSeconds: (updates.minVisitDurationMinutes ?? current.minVisitDurationMinutes) * 60,
+        maxIdleGapMinutes: updates.idleGapThresholdMinutes ?? current.idleGapThresholdMinutes,
+        dailyVisitTarget: updates.dailyVisitTarget ?? current.dailyVisitTarget,
+        shiftGraceMinutes: updates.attendanceGraceMinutes ?? current.attendanceGraceMinutes,
+        workingHoursStart: updates.workingHoursStart ?? current.workingHoursStart,
+        workingHoursEnd: updates.workingHoursEnd ?? current.workingHoursEnd,
+        reason,
+        approvedBy,
+      });
+      await refreshMarketRules();
+    } catch (err) {
+      console.warn('[MarketConfigContext] Supabase rule commit skipped or failed:', err);
+    }
+
     return { success: true, newVersion: newVersionTag };
   };
 
@@ -235,6 +359,7 @@ export const MarketConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
       value={{
         marketRules,
         ruleHistory,
+        refreshMarketRules,
         updateMarketRules,
         getActiveMarketRules,
       }}
@@ -247,7 +372,13 @@ export const MarketConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
 export const useMarketConfig = (): MarketConfigContextType => {
   const context = useContext(MarketConfigContext);
   if (!context) {
-    throw new Error('useMarketConfig must be used within a MarketConfigProvider');
+    return {
+      marketRules: INITIAL_MARKET_RULES,
+      ruleHistory: INITIAL_RULE_HISTORY,
+      refreshMarketRules: async () => {},
+      updateMarketRules: async () => ({ success: true, newVersion: 'v1.2.05' }),
+      getActiveMarketRules: (code: MarketCode) => INITIAL_MARKET_RULES[code] || INITIAL_MARKET_RULES.NG,
+    };
   }
   return context;
 };

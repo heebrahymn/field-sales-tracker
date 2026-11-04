@@ -29,6 +29,8 @@ import {
   MapPin,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import { calculateAttendanceBattery, getBatteryStatus } from '@/utils/battery';
 
 export interface SalesRepAttendance {
   repId: string;
@@ -216,6 +218,13 @@ export const TeamAttendanceReview: React.FC = () => {
       else if (rec.status === 'approved_non_visit') mappedStatus = 'non_visit_day';
       else if (rec.status === 'approved_leave') mappedStatus = 'approved_leave';
 
+      const dynamicBattery = calculateAttendanceBattery({
+        startedAt: rec.started_at,
+        endedAt: rec.ended_at,
+        visitsCount: (rec as any).visits?.length || 0,
+        deviceBatteryHealth: rec.devices?.battery_health,
+      });
+
       return {
         repId: repEmpId,
         repName: repFullName,
@@ -223,7 +232,7 @@ export const TeamAttendanceReview: React.FC = () => {
         phone: rec.profiles?.phone_number || '—',
         assignedTerritory: `${rec.market_code} Commercial Territory`,
         deviceId: rec.devices?.asset_tag || 'Assigned Handset',
-        batteryLevel: 88,
+        batteryLevel: dynamicBattery,
         todayStatus: mappedStatus,
         startDayTime: formatMarketTime(rec.started_at, rec.market_code),
         endDayTime: rec.ended_at ? formatMarketTime(rec.ended_at, rec.market_code) : undefined,
@@ -420,7 +429,7 @@ export const TeamAttendanceReview: React.FC = () => {
           <CalendarDays className="w-5 h-5 text-brand-blue shrink-0 mt-0.5" />
           <div className="text-xs">
             <h3 className="font-bold text-slate-900 text-sm">
-              Team Attendance &amp; Non-Visit Day Governance (PRD §6.2 &amp; §7.6)
+              Team Attendance &amp; Non-Visit Day Governance
             </h3>
             <p className="text-slate-700 font-medium mt-0.5">
               Inspect daily Start Day / End Day telemetry, live front-camera selfie check-ins, and company device bindings. Authorised non-visit workdays (training/office) count toward team attendance, but{' '}
@@ -447,7 +456,7 @@ export const TeamAttendanceReview: React.FC = () => {
             onClick={() => loadSupabaseData()}
             disabled={isLoadingData}
             className="text-xs font-semibold border-slate-300 bg-white"
-            title="Refresh from Supabase"
+            title="Refresh Attendance Records"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoadingData ? 'animate-spin' : ''}`} />
           </Button>
@@ -474,7 +483,7 @@ export const TeamAttendanceReview: React.FC = () => {
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-purple-700" />
               <h4 className="text-xs font-bold text-purple-950 uppercase tracking-wide">
-                Live Salesperson Non-Visit Requests (Supabase Authorization Queue)
+                Live Salesperson Non-Visit Requests (Authorization Queue)
               </h4>
             </div>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-200 text-purple-900">
@@ -555,7 +564,7 @@ export const TeamAttendanceReview: React.FC = () => {
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900">{r.repName} ({r.repId})</span>
+                      <span className="font-bold text-slate-900">{r.repName}</span>
                       <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-100 text-brand-blue">
                         Activity: {r.nonVisitRequest?.activityType.replace('_', ' ')}
                       </span>
@@ -677,14 +686,10 @@ export const TeamAttendanceReview: React.FC = () => {
                     <td className="py-3.5 px-4">
                       <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                         {rep.repName}
-                        {rep.isRealRecord && (
-                          <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-semibold border border-emerald-300">
-                            Live Supabase
-                          </span>
-                        )}
+
                       </div>
-                      <div className="text-[11px] text-slate-500 font-mono">
-                        {rep.repId} • {rep.phone}
+                      <div className="text-[11px] text-slate-500">
+                        {rep.phone}
                       </div>
                     </td>
 
@@ -730,8 +735,10 @@ export const TeamAttendanceReview: React.FC = () => {
                         {rep.deviceId}
                       </div>
                       <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                        <Battery className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{rep.batteryLevel}% Battery</span>
+                        <Battery className={cn("w-3.5 h-3.5", getBatteryStatus(rep.batteryLevel).statusColor)} />
+                        <span className={cn("font-medium font-mono", getBatteryStatus(rep.batteryLevel).statusColor)}>
+                          {rep.batteryLevel}% Battery
+                        </span>
                       </div>
                     </td>
 
@@ -771,7 +778,7 @@ export const TeamAttendanceReview: React.FC = () => {
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div>
                 <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">
-                  Attendance Telemetry • {selectedRepForInspection.repId}
+                  Attendance Telemetry • {selectedRepForInspection.repName}
                 </span>
                 <h3 className="text-base font-bold text-slate-900">
                   {selectedRepForInspection.repName}
@@ -814,7 +821,7 @@ export const TeamAttendanceReview: React.FC = () => {
                         Front-Camera Selfie Evidence
                       </span>
                       <span className="text-[10px] text-slate-400 block mt-1">
-                        Time: {selectedRepForInspection.startDayTime || 'N/A'} • No Automated Biometrics Claimed (PRD §12)
+                        Time: {selectedRepForInspection.startDayTime || 'N/A'} • Front-Camera Visual Audit Only
                       </span>
                     </div>
                   )}
@@ -863,8 +870,8 @@ export const TeamAttendanceReview: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px]">Battery Level:</span>
-                    <span className="font-mono font-bold text-emerald-700">
-                      {selectedRepForInspection.batteryLevel}% (Healthy)
+                    <span className={cn("font-mono font-bold", getBatteryStatus(selectedRepForInspection.batteryLevel).statusColor)}>
+                      {selectedRepForInspection.batteryLevel}% ({getBatteryStatus(selectedRepForInspection.batteryLevel).statusLabel})
                     </span>
                   </div>
                 </div>
@@ -960,7 +967,7 @@ export const TeamAttendanceReview: React.FC = () => {
                 >
                   {mergedReps.map((r) => (
                     <option key={r.repId} value={r.repId}>
-                      {r.repName} ({r.repId})
+                      {r.repName}
                     </option>
                   ))}
                 </select>

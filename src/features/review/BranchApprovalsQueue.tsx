@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 import { useFieldSession } from '@/context/FieldSessionContext';
 import { useAuth } from '@/context/AuthContext';
 import { managementService, RealBranchPinProposal } from '@/services/managementService';
@@ -17,7 +18,6 @@ import {
   Check,
   RefreshCw,
   Loader2,
-  Database as DatabaseIcon,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -47,6 +47,9 @@ const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 't
 
 export const BranchApprovalsQueue: React.FC = () => {
   const { currentUser } = useAuth();
+  const { getActiveMarketRules } = useMarketConfig();
+  const activeRules = getActiveMarketRules(currentUser.marketCode);
+  const maxPinThreshold = activeRules?.maxProposedPinGpsAccuracyMeters || 50;
   const { branches, approveBranchPin, rejectBranchPin } = useFieldSession();
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -124,12 +127,13 @@ export const BranchApprovalsQueue: React.FC = () => {
           ' WAT'
         : 'Pending',
       rawDate: p.proposedAt ? p.proposedAt.slice(0, 10) : '',
-      accuracy: `±${Math.round(p.reportedAccuracyM)}m (Threshold: ≤50m)`,
-      evidenceNote: `Field GPS fix captured with ±${Math.round(p.reportedAccuracyM)}m reported accuracy. Premises photo registered in Supabase.`,
-      sharedPhoneWarning: false,
-      contactName: 'Site Facility Lead',
-      contactRole: 'Site Operations',
-      contactPhone: '+234 1 270 5000',
+      accuracy: `±${Math.round(p.reportedAccuracyM)}m (Threshold: ≤${maxPinThreshold}m)`,
+      evidenceNote: `Field GPS fix captured with ±${Math.round(p.reportedAccuracyM)}m reported accuracy. Premises photo registered on file.`,
+      sharedPhoneWarning: Boolean(p.hasSharedPhone),
+      sharedPhone: p.switchboardPhone,
+      contactName: p.contactName || 'Site Contact',
+      contactRole: p.contactRole || 'Site Operations',
+      contactPhone: p.contactPhone || p.switchboardPhone || '+234 1 270 5000',
       coordsText: `${p.latitude.toFixed(4)}° N, ${p.longitude.toFixed(4)}° E`,
       premisesPhotoUrl: p.premisesPhotoUrl || p.premisesPhotoPath,
       status:
@@ -199,11 +203,11 @@ export const BranchApprovalsQueue: React.FC = () => {
         if (decision === 'approved') {
           const { error } = await managementService.approveBranchLocationPin(itemId, reason);
           if (error) throw error;
-          setToastMessage(`Branch Location Pin approved in Supabase. Versioned pin activated.`);
+          setToastMessage(`Branch Location Pin approved. Versioned pin activated.`);
         } else if (decision === 'rejected') {
           const { error } = await managementService.rejectBranchLocationPin(itemId, reason);
           if (error) throw error;
-          setToastMessage(`Branch Location Pin rejected in Supabase. Reason recorded to audit ledger.`);
+          setToastMessage(`Branch Location Pin rejected. Reason recorded to audit ledger.`);
         }
         await loadRealPins();
       } catch (err: any) {
@@ -216,7 +220,8 @@ export const BranchApprovalsQueue: React.FC = () => {
       } else if (decision === 'rejected') {
         rejectBranchPin(itemId, reason, 'Country Sales Head');
       }
-      setToastMessage(`Decision logged for ${itemId}: ${decision.toUpperCase()}. Recorded to demonstration audit log.`);
+      const shortId = itemId.length > 8 ? itemId.slice(0, 8).toUpperCase() : itemId;
+      setToastMessage(`Decision logged for #${shortId}: ${decision.toUpperCase()}. Recorded to audit log.`);
     }
   };
 
@@ -270,7 +275,7 @@ export const BranchApprovalsQueue: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
-                PRD §4.2 & §7.1 Pin Governance
+                Location Pin Governance
               </span>
               <span className="text-[11px] font-mono font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
                 Market: {currentUser?.marketCode || 'NG'}
@@ -280,7 +285,7 @@ export const BranchApprovalsQueue: React.FC = () => {
               Client Registration & GPS Location Approvals
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              Review field-proposed client locations and GPS pins against reported GPS uncertainty (Threshold: ≤50m) and premises photographs.
+              Review field-proposed client locations and GPS pins against reported GPS uncertainty (Threshold: ≤${maxPinThreshold}m) and premises photographs.
             </p>
           </div>
 
@@ -432,11 +437,7 @@ export const BranchApprovalsQueue: React.FC = () => {
                     <span className="text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
                       {item.category}
                     </span>
-                    {item.isRealRecord && (
-                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded flex items-center gap-1">
-                        <DatabaseIcon className="w-2.5 h-2.5" /> Supabase Pin
-                      </span>
-                    )}
+
                   </div>
                   <h3 className="text-base font-bold text-slate-900 mt-0.5">{item.title}</h3>
                   <p className="text-xs text-slate-600 flex items-center gap-1.5 mt-1 font-medium">
@@ -478,7 +479,7 @@ export const BranchApprovalsQueue: React.FC = () => {
                     </span>
                   </div>
                   <span className="text-[10px] font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
-                    PRD §4.2 Compliant
+                    Policy Compliant
                   </span>
                 </div>
               )}
@@ -494,7 +495,7 @@ export const BranchApprovalsQueue: React.FC = () => {
                   <p className="text-[11px] font-semibold text-emerald-800">
                     Fix Accuracy: {item.accuracy}
                   </p>
-                  <span className="text-[10px] text-slate-500">Threshold: ≤ 50m required</span>
+                  <span className="text-[10px] text-slate-500">Threshold: ≤ {maxPinThreshold}m required</span>
                 </div>
 
                 {/* 2. Primary Site Contact */}

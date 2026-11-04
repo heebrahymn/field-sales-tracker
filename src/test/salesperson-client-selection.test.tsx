@@ -225,7 +225,7 @@ describe('Salesperson Client Selection & Add Client Improvements (Changes 1 - 7)
 
       // Modal is open
       expect(screen.getByText(/Register Client & Propose Location Pin/i)).toBeInTheDocument();
-      expect(screen.getByText(/PRD §4\.2 Client Registration/i)).toBeInTheDocument();
+      expect(screen.getByText(/Client Registration/i)).toBeInTheDocument();
 
       // Fill in new client details
       const companyInput = screen.getByPlaceholderText(/e\.g\. Saharan Haulage & Energy Logistics/i);
@@ -261,7 +261,7 @@ describe('Salesperson Client Selection & Add Client Improvements (Changes 1 - 7)
       expect(screen.getByText('Visit Session In Progress')).toBeInTheDocument();
       expect(screen.getByText('Apex Heavy Logistics Ltd')).toBeInTheDocument();
       expect(screen.getByText('Apex Heavy Logistics Fleet Depot')).toBeInTheDocument();
-      expect(screen.getByText(/PRD AT-04: Only 1 active normal physical visit is permitted/i)).toBeInTheDocument();
+      expect(screen.getByText(/Only 1 active normal physical visit is permitted/i)).toBeInTheDocument();
 
       // There is NO "Change Client" or client dropdown during active visit
       expect(screen.queryByPlaceholderText(/Search business by name/i)).toBeNull();

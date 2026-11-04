@@ -582,7 +582,7 @@ describe('Stage 1D — HQ Admin Interface Business Rules & Governance', () => {
       const assignDevice = (assetId: string, repId: string, repName: string) => {
         const dev = devices.find((d) => d.assetId === assetId);
         if (!dev) return { success: false, error: 'Device not found' };
-        if (dev.inventoryStatus !== 'Available' && dev.inventoryStatus !== 'Returned') {
+        if (dev.inventoryStatus !== 'Available') {
           return { success: false, error: 'Device not available for assignment' };
         }
 

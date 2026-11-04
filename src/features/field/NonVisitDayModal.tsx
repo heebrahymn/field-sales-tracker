@@ -87,7 +87,7 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-bold text-purple-700 uppercase tracking-wider bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-                PRD §2 &amp; §6.1 Non-Visit Workday
+                Authorized Non-Visit Workday
               </span>
             </div>
             <h3 className="font-bold text-slate-900 text-base mt-1">
@@ -114,7 +114,7 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
             </div>
             <h4 className="font-bold text-slate-900 text-base">Request Submitted as Pending</h4>
             <p className="text-xs text-slate-600 max-w-xs mx-auto leading-relaxed">
-              Your non-visit workday request has been recorded in the Supabase authorization queue for your Country Sales Head.
+              Your non-visit workday request has been submitted for Country Sales Head review.
             </p>
             <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-[11px] text-purple-950 text-left">
               <strong>Attendance Note:</strong> If approved, this workday will credit daily attendance but strictly <strong>zero</strong> physical-visit targets.
@@ -137,7 +137,7 @@ export const NonVisitDayModal: React.FC<NonVisitDayModalProps> = ({ isOpen, onCl
             <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-purple-800 shrink-0 mt-0.5" />
               <div className="text-[11px] text-purple-950 leading-relaxed">
-                <strong>PRD Rule:</strong> An authorised non-visit working day counts toward <strong>attendance</strong>, but strictly <strong>zero</strong> physical-visit targets. Country Sales Head approval is required.
+                <strong>Attendance Policy:</strong> An authorised non-visit working day counts toward <strong>attendance</strong>, but strictly <strong>zero</strong> physical-visit targets. Country Sales Head approval is required.
               </div>
             </div>
 

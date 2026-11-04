@@ -145,7 +145,8 @@ async function runComprehensiveSecurityVerification() {
   }
 
   try {
-    hq = await authAs('hq.admin@carboncarcare.com');
+    const hqEmail = process.env.VITE_TEST_HQ_ADMIN_EMAIL || process.env.HQ_ADMIN_EMAIL || 'hq.admin@carboncarcare.com';
+    hq = await authAs(hqEmail);
     recordTest('Auth', 'AUTH-07', 'Authenticate HQ Administrator (HQ Administrator)', !!hq.user);
   } catch (err: any) {
     recordTest('Auth', 'AUTH-07', 'Authenticate HQ Administrator', false, err.message);

@@ -91,7 +91,7 @@ export const NonVisitDaysView: React.FC<NonVisitDaysViewProps> = ({ onNavigateHo
               Non-Visit Workday Authorizations
             </h2>
             <p className="text-[11px] text-slate-500">
-              PRD §7.6 • Office, training &amp; authorized non-field working days
+              Office, training &amp; authorized non-field working days
             </p>
           </div>
         </div>
@@ -121,7 +121,7 @@ export const NonVisitDaysView: React.FC<NonVisitDaysViewProps> = ({ onNavigateHo
 
       {/* Info Notice Box */}
       <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-slate-700 leading-relaxed">
-        <strong className="text-brand-blue font-semibold block mb-0.5">Manager Approval Policy (PRD §6.2 &amp; §7.6):</strong>
+        <strong className="text-brand-blue font-semibold block mb-0.5">Manager Approval Policy:</strong>
         Approved non-visit days provide full daily attendance credit without penalizing daily physical client visit quotas. All requests require prior authorization from your Country Sales Head.
       </div>
 

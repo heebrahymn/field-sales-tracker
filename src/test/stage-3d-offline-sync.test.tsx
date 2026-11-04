@@ -879,7 +879,7 @@ describe('Stage 3D — Durable Offline IndexedDB Journal, Media Queue & Dependen
     });
 
     expect(endDayAttempt.error).not.toBeNull();
-    expect(endDayAttempt.error?.message).toMatch(/AT-03/i);
+    expect(endDayAttempt.error?.message).toMatch(/active visit is open/i);
   });
 
   // =========================================================================

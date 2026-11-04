@@ -127,7 +127,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
         <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0 bg-slate-50 rounded-t-2xl">
           <div>
             <span className="text-[10px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-              PRD §7.3 Meeting Documentation
+              Meeting Documentation
             </span>
             <h3 className="font-bold text-slate-900 text-base mt-1">
               Document Visit Outcome
@@ -278,7 +278,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
                 <Camera className="w-3.5 h-3.5 text-brand-blue" />
                 Business Card Photograph (Optional)
               </span>
-              <span className="text-[10px] text-slate-500 font-medium">PRD §7.3 Supporting Asset</span>
+              <span className="text-[10px] text-slate-500 font-medium">Supporting Asset</span>
             </div>
 
             <input

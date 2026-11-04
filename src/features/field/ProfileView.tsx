@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   useDeviceReplacement,
@@ -6,6 +6,7 @@ import {
   ReplacementRequestStatus,
 } from '@/context/DeviceReplacementContext';
 import { ReportDeviceIssueModal } from './ReportDeviceIssueModal';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getLiveDeviceBattery, LiveBatteryInfo } from '@/utils/battery';
 
 interface ProfileViewProps {
   onNavigateTab?: (tab: 'home' | 'clients' | 'visit' | 'exceptions' | 'sync') => void;
@@ -42,6 +44,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
   const [selectedRequestForHistory, setSelectedRequestForHistory] =
     useState<DeviceReplacementRequest | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'RESOLVED'>('ALL');
+  const [liveBattery, setLiveBattery] = useState<LiveBatteryInfo | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    getLiveDeviceBattery(currentUser?.assignedDevice?.batteryHealth).then((info) => {
+      if (isMounted) setLiveBattery(info);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser?.assignedDevice?.batteryHealth]);
+
+  const formatTimestamp = (ts: string) => {
+    if (!ts) return 'Recorded';
+    try {
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return ts;
+      return `${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+    } catch {
+      return ts;
+    }
+  };
 
   const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'CC-DEV-LOS-001';
   const assignedDeviceModel =
@@ -70,6 +94,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
     }
     return true;
   });
+
+  // Pagination State (Default 5, options 10, 20, 50)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const paginatedRequests = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredRequests.slice(start, start + pageSize);
+  }, [filteredRequests, safePage, pageSize]);
 
   const getStatusBadge = (status: ReplacementRequestStatus) => {
     switch (status) {
@@ -233,9 +274,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
               </span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Battery Health:</span>
-              <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                <BatteryCharging className="w-3 h-3 text-emerald-600" /> 94% (Good)
+              <span className="text-slate-500 font-medium">Battery Status:</span>
+              <span className={cn("font-semibold flex items-center gap-1", liveBattery?.statusColor || "text-emerald-700")}>
+                <BatteryCharging className="w-3.5 h-3.5" />
+                {liveBattery
+                  ? `${liveBattery.level}% (${liveBattery.charging ? 'Charging' : liveBattery.statusLabel})`
+                  : `${currentUser?.assignedDevice?.batteryHealth ?? 95}% (Healthy)`}
               </span>
             </div>
           </div>
@@ -333,7 +377,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredRequests.map((req) => (
+            {paginatedRequests.map((req) => (
               <div
                 key={req.id}
                 className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-3 text-xs"
@@ -342,13 +386,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
                 <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-slate-900 text-xs">{req.id}</span>
+                      <span className="font-mono font-bold text-slate-900 text-xs">
+                        #{req.id.length > 12 ? req.id.slice(0, 8).toUpperCase() : req.id}
+                      </span>
                       <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
                         {getCategoryLabel(req.issueCategory)}
                       </span>
                     </div>
                     <span className="text-[10px] text-slate-400 font-mono block">
-                      Submitted: {req.submittedAt}
+                      Submitted: {formatTimestamp(req.submittedAt)}
                     </span>
                   </div>
                   <div>{getStatusBadge(req.status)}</div>
@@ -459,6 +505,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
                 </div>
               </div>
             ))}
+
+            {filteredRequests.length > 0 && (
+              <TablePagination
+                currentPage={safePage}
+                pageSize={pageSize}
+                totalItems={filteredRequests.length}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+                pageSizeOptions={[5, 10, 20, 50]}
+                itemName="requests"
+                className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs mt-2"
+              />
+            )}
           </div>
         )}
       </div>
@@ -501,7 +560,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">
-                    {selectedRequestForHistory.id} History
+                    #{selectedRequestForHistory.id.length > 12 ? selectedRequestForHistory.id.slice(0, 8).toUpperCase() : selectedRequestForHistory.id} History
                   </h3>
                   <p className="text-[11px] text-slate-500">Append-Only Audit Log</p>
                 </div>

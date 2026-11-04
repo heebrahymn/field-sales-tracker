@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   attendanceService,
@@ -15,6 +15,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { BranchApprovalsQueue } from '@/features/review/BranchApprovalsQueue';
 import { ExceptionReviewWorkbench } from '@/features/review/ExceptionReviewWorkbench';
 import { ClientVisitVerification } from '@/features/review/ClientVisitVerification';
@@ -78,7 +79,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
       const market = currentUser?.marketCode || 'NG';
       const todayStr = getMarketWorkDate(market);
       const [vRes, pRes, eRes, fRes, repRes, attRes, absRes] = await Promise.all([
-        managementService.getCountryVisits(market),
+        managementService.getCountryVisits(market, undefined, 200),
         managementService.getCountryPendingPins(market),
         managementService.getCountryExceptions(market, 'pending_review'),
         managementService.getCountryVerificationFlags(market, 'open'),
@@ -107,6 +108,106 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     loadDashboardData();
   }, [loadDashboardData, currentSection]);
 
+  // Summary Scope dynamic labels and date boundaries
+  const now = useMemo(() => new Date(), []);
+
+  const isoWeekNumber = useMemo(() => {
+    const target = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    const dayNr = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - dayNr);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    return Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  }, [now]);
+
+  const currentQuarter = useMemo(() => Math.floor(now.getMonth() / 3) + 1, [now]);
+
+  const dailyPillLabel = useMemo(() => {
+    const formattedDate = now.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+    return `Daily (${formattedDate})`;
+  }, [now]);
+
+  const weeklyPillLabel = useMemo(() => `Weekly Rollup (W${isoWeekNumber})`, [isoWeekNumber]);
+
+  const quarterlyPillLabel = useMemo(
+    () => `Quarterly (Q${currentQuarter} ${now.getFullYear()})`,
+    [currentQuarter, now]
+  );
+
+  const todayStr = useMemo(
+    () => getMarketWorkDate(currentUser?.marketCode || 'NG'),
+    [currentUser?.marketCode]
+  );
+  const oneWeekAgoStr = useMemo(() => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), []);
+  const quarterStartStr = useMemo(
+    () => new Date(now.getFullYear(), (currentQuarter - 1) * 3, 1).toISOString().slice(0, 10),
+    [now, currentQuarter]
+  );
+
+  const scopedVisits = useMemo(() => {
+    return liveVisits.filter((v) => {
+      const vDate = v.workDate || (v.checkInAt ? v.checkInAt.slice(0, 10) : '');
+      if (!vDate) return false;
+      if (summaryTimeframe === 'daily') {
+        return vDate === todayStr;
+      }
+      if (summaryTimeframe === 'weekly') {
+        return vDate >= oneWeekAgoStr;
+      }
+      if (summaryTimeframe === 'quarterly') {
+        return vDate >= quarterStartStr;
+      }
+      return true;
+    });
+  }, [liveVisits, summaryTimeframe, todayStr, oneWeekAgoStr, quarterStartStr]);
+
+  const scopedFlags = useMemo(() => {
+    return liveFlags.filter((f) => {
+      const fDate = f.createdAt ? f.createdAt.slice(0, 10) : '';
+      if (!fDate) return true;
+      if (summaryTimeframe === 'daily') {
+        return fDate === todayStr;
+      }
+      if (summaryTimeframe === 'weekly') {
+        return fDate >= oneWeekAgoStr;
+      }
+      if (summaryTimeframe === 'quarterly') {
+        return fDate >= quarterStartStr;
+      }
+      return true;
+    });
+  }, [liveFlags, summaryTimeframe, todayStr, oneWeekAgoStr, quarterStartStr]);
+
+  const scopedActiveRepsCount = useMemo(() => {
+    if (summaryTimeframe === 'daily') {
+      return activeRepsCount;
+    }
+    const activeRepIds = new Set<string>();
+    scopedVisits.forEach((v) => {
+      if (v.repId) activeRepIds.add(v.repId);
+    });
+    return Math.max(activeRepsCount, activeRepIds.size);
+  }, [summaryTimeframe, activeRepsCount, scopedVisits]);
+
+  const locationVerifiedCount = useMemo(() => {
+    return scopedVisits.filter((v) => v.verificationStatus === 'location_verified').length;
+  }, [scopedVisits]);
+
+  const approvedUnverifiedCount = useMemo(() => {
+    return scopedVisits.filter((v) => v.verificationStatus === 'manager_approved_unverified').length;
+  }, [scopedVisits]);
+
+  const missingLogsCount = useMemo(() => {
+    return scopedVisits.filter((v) => !v.meetingLog).length;
+  }, [scopedVisits]);
+
+  const urgentFlagsCount = useMemo(() => {
+    return scopedFlags.length;
+  }, [scopedFlags]);
+
   // Real items for overview dashboard
   const pendingPins: ApprovalItem[] = livePins.map((p) => ({
     id: p.id,
@@ -118,7 +219,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     claimedTime: p.proposedAt ? new Date(p.proposedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Pending',
     accuracy: `±${Math.round(p.reportedAccuracyM)}m (Passes ≤50m threshold)`,
     evidenceNote: 'GPS pin submitted by field salesperson. Verified against on-site premises photo.',
-    sharedPhoneWarning: false,
+    sharedPhoneWarning: Boolean(p.hasSharedPhone),
   }));
 
   const pendingExceptions: ApprovalItem[] = liveExceptions.map((e) => ({
@@ -133,6 +234,27 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     evidenceNote: e.failureReason,
   }));
 
+  // Pagination state for pending pins and exceptions preview cards (default to 5 items)
+  const [pinsPage, setPinsPage] = useState(1);
+  const [pinsPageSize, setPinsPageSize] = useState(5);
+
+  const [exceptionsPage, setExceptionsPage] = useState(1);
+  const [exceptionsPageSize, setExceptionsPageSize] = useState(5);
+
+  const totalPinsPages = Math.max(1, Math.ceil(pendingPins.length / pinsPageSize));
+  const safePinsPage = Math.min(Math.max(1, pinsPage), totalPinsPages);
+  const paginatedPins = useMemo(() => {
+    const start = (safePinsPage - 1) * pinsPageSize;
+    return pendingPins.slice(start, start + pinsPageSize);
+  }, [pendingPins, safePinsPage, pinsPageSize]);
+
+  const totalExceptionsPages = Math.max(1, Math.ceil(pendingExceptions.length / exceptionsPageSize));
+  const safeExceptionsPage = Math.min(Math.max(1, exceptionsPage), totalExceptionsPages);
+  const paginatedExceptions = useMemo(() => {
+    const start = (safeExceptionsPage - 1) * exceptionsPageSize;
+    return pendingExceptions.slice(start, start + exceptionsPageSize);
+  }, [pendingExceptions, safeExceptionsPage, exceptionsPageSize]);
+
   const handleOpenReview = (item: ApprovalItem) => {
     setSelectedReviewItem(item);
     setReviewModalOpen(true);
@@ -143,8 +265,9 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     decision: 'approved' | 'rejected' | 'escalated',
     reason: string
   ) => {
+    const shortId = itemId.length > 8 ? itemId.slice(0, 8).toUpperCase() : itemId;
     setFeedbackMessage(
-      `Decision for [${itemId}] ${selectedReviewItem?.title}: ${decision.toUpperCase()}. Rationale: "${reason.slice(0, 35)}..." Logged to immutable approval_audit.`
+      `Decision for #${shortId} (${selectedReviewItem?.title || 'Review Item'}): ${decision.toUpperCase()}. Rationale: "${reason.slice(0, 35)}..." Logged to immutable audit ledger.`
     );
   };
 
@@ -318,38 +441,42 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               <span className="text-xs font-semibold text-slate-500">Summary Scope:</span>
               <button
                 onClick={() => setSummaryTimeframe('daily')}
-                className={`text-xs px-2.5 py-1 rounded-md font-bold ${
+                className={`text-xs px-2.5 py-1 rounded-md font-bold transition-all ${
                   summaryTimeframe === 'daily'
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-slate-900 text-white shadow-xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                Daily (19 Oct 2026)
+                {dailyPillLabel}
               </button>
               <button
                 onClick={() => setSummaryTimeframe('weekly')}
-                className={`text-xs px-2.5 py-1 rounded-md font-bold ${
+                className={`text-xs px-2.5 py-1 rounded-md font-bold transition-all ${
                   summaryTimeframe === 'weekly'
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-slate-900 text-white shadow-xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                Weekly Rollup (W42)
+                {weeklyPillLabel}
               </button>
               <button
                 onClick={() => setSummaryTimeframe('quarterly')}
-                className={`text-xs px-2.5 py-1 rounded-md font-bold ${
+                className={`text-xs px-2.5 py-1 rounded-md font-bold transition-all ${
                   summaryTimeframe === 'quarterly'
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-slate-900 text-white shadow-xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                Quarterly (Q4 2026)
+                {quarterlyPillLabel}
               </button>
             </div>
 
             <span className="text-[11px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200 hidden sm:inline-block">
-              Provisional live events • Cutoff at 19:00 WAT
+              {summaryTimeframe === 'daily'
+                ? 'Provisional live events • Cutoff at 19:00 WAT'
+                : summaryTimeframe === 'weekly'
+                ? 'Workweek Rollup (Last 7 Days) • Updated live'
+                : 'Quarter to Date • Updated live'}
             </span>
           </div>
 
@@ -370,18 +497,26 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               </div>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-black text-slate-900 tracking-tight">{activeRepsCount}</span>
-                  <span className="text-xs font-semibold text-slate-500">/ {totalRepsCount || activeRepsCount}</span>
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">{scopedActiveRepsCount}</span>
+                  <span className="text-xs font-semibold text-slate-500">/ {totalRepsCount || scopedActiveRepsCount}</span>
                 </div>
                 <div className="mt-1">
                   <span className="inline-block text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200/70 px-1.5 py-0.5 rounded">
-                    {totalRepsCount > 0 ? `${Math.round((activeRepsCount / totalRepsCount) * 100)}% Present` : '100% Present'}
+                    {summaryTimeframe === 'daily'
+                      ? (totalRepsCount > 0 ? `${Math.round((scopedActiveRepsCount / totalRepsCount) * 100)}% Present` : '100% Present')
+                      : (totalRepsCount > 0 ? `${Math.round((scopedActiveRepsCount / totalRepsCount) * 100)}% Active` : '100% Active')}
                   </span>
                 </div>
               </div>
               <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                <span>Field active reps</span>
+                <span>
+                  {summaryTimeframe === 'daily'
+                    ? 'Field active reps'
+                    : summaryTimeframe === 'weekly'
+                    ? 'Active reps this week'
+                    : 'Active reps this quarter'}
+                </span>
               </div>
             </div>
 
@@ -401,13 +536,17 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-black text-slate-900 tracking-tight">
-                    {liveVisits.filter((v) => v.verificationStatus === 'location_verified').length}
+                    {locationVerifiedCount}
                   </span>
                   <span className="text-xs font-semibold text-slate-500">visits</span>
                 </div>
                 <div className="mt-1">
                   <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/70 px-1.5 py-0.5 rounded">
-                    Provisional (Live)
+                    {summaryTimeframe === 'daily'
+                      ? 'Provisional (Live)'
+                      : summaryTimeframe === 'weekly'
+                      ? `Weekly Rollup (W${isoWeekNumber})`
+                      : 'Quarter to Date'}
                   </span>
                 </div>
               </div>
@@ -436,13 +575,17 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-black text-slate-900 tracking-tight">
-                    {liveVisits.filter((v) => v.verificationStatus === 'manager_approved_unverified').length}
+                    {approvedUnverifiedCount}
                   </span>
                   <span className="text-xs font-semibold text-slate-500">exceptions</span>
                 </div>
                 <div className="mt-1">
                   <span className="inline-block text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/70 px-1.5 py-0.5 rounded">
-                    Separate Audit
+                    {summaryTimeframe === 'daily'
+                      ? 'Separate Audit'
+                      : summaryTimeframe === 'weekly'
+                      ? 'Weekly Sign-offs'
+                      : 'Quarterly Total'}
                   </span>
                 </div>
               </div>
@@ -465,13 +608,17 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-black text-slate-900 tracking-tight">
-                    {liveVisits.filter((v) => !v.meetingLog).length}
+                    {missingLogsCount}
                   </span>
                   <span className="text-xs font-semibold text-slate-500">flagged</span>
                 </div>
                 <div className="mt-1">
                   <span className="inline-block text-[10px] font-bold text-orange-800 bg-orange-50 border border-orange-200/70 px-1.5 py-0.5 rounded">
-                    &gt;2h SLA Overdue
+                    {summaryTimeframe === 'daily'
+                      ? '>2h SLA Overdue'
+                      : summaryTimeframe === 'weekly'
+                      ? 'Unlogged (Week)'
+                      : 'Unlogged (Quarter)'}
                   </span>
                 </div>
               </div>
@@ -496,12 +643,16 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               </div>
               <div className="my-1.5">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-black text-slate-900 tracking-tight">{liveFlags.length}</span>
+                  <span className="text-2xl font-black text-slate-900 tracking-tight">{urgentFlagsCount}</span>
                   <span className="text-xs font-semibold text-slate-500">open</span>
                 </div>
                 <div className="mt-1">
                   <span className="inline-block text-[10px] font-bold text-rose-800 bg-rose-50 border border-rose-200/70 px-1.5 py-0.5 rounded">
-                    Action Required
+                    {summaryTimeframe === 'daily'
+                      ? 'Action Required'
+                      : summaryTimeframe === 'weekly'
+                      ? 'Open This Week'
+                      : 'Quarterly Backlog'}
                   </span>
                 </div>
               </div>
@@ -532,7 +683,12 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               </CardHeader>
 
               <CardContent className="space-y-3.5 pt-3.5">
-                {pendingPins.map((item) => (
+                {pendingPins.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-500 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    No pending client location pins awaiting manager verification.
+                  </div>
+                ) : (
+                  paginatedPins.map((item) => (
                   <div key={item.id} className="p-4 sm:p-5 pt-4 sm:pt-5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-3">
                     <div className="flex items-start justify-between">
                       <div>
@@ -552,7 +708,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
 
                     {item.sharedPhoneWarning && (
                       <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-brand-blue font-semibold">
-                        Note: Shared company telephone detected with Apapa location (Permitted under PRD §4.2).
+                        Note: Shared company telephone detected with Apapa location (Permitted under company policy).
                       </div>
                     )}
 
@@ -580,7 +736,21 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
                       </div>
                     </div>
                   </div>
-                ))}
+                ))
+              )}
+
+                {pendingPins.length > 0 && (
+                  <TablePagination
+                    currentPage={safePinsPage}
+                    pageSize={pinsPageSize}
+                    totalItems={pendingPins.length}
+                    onPageChange={setPinsPage}
+                    onPageSizeChange={setPinsPageSize}
+                    pageSizeOptions={[5, 10, 20]}
+                    itemName="approvals"
+                    className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs mt-3"
+                  />
+                )}
               </CardContent>
             </Card>
 
@@ -602,7 +772,12 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
               </CardHeader>
 
               <CardContent className="space-y-3.5 pt-3.5">
-                {pendingExceptions.map((item) => (
+                {pendingExceptions.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-500 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    No pending field exceptions awaiting manager review.
+                  </div>
+                ) : (
+                  paginatedExceptions.map((item) => (
                   <div key={item.id} className="p-4 sm:p-5 pt-4 sm:pt-5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-3">
                     <div className="flex items-start justify-between">
                       <div>
@@ -645,7 +820,21 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
                       </div>
                     </div>
                   </div>
-                ))}
+                ))
+              )}
+
+                {pendingExceptions.length > 0 && (
+                  <TablePagination
+                    currentPage={safeExceptionsPage}
+                    pageSize={exceptionsPageSize}
+                    totalItems={pendingExceptions.length}
+                    onPageChange={setExceptionsPage}
+                    onPageSizeChange={setExceptionsPageSize}
+                    pageSizeOptions={[5, 10, 20]}
+                    itemName="exceptions"
+                    className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs mt-3"
+                  />
+                )}
               </CardContent>
             </Card>
           </div>

@@ -20,6 +20,8 @@ import {
   RotateCcw,
 } from 'lucide-react';
 
+const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
+
 export const OfflineSyncView: React.FC = () => {
   const {
     isOnline,
@@ -57,7 +59,7 @@ export const OfflineSyncView: React.FC = () => {
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
         <div>
           <span className="text-[11px] font-bold text-brand-blue uppercase tracking-wider">
-            PRD §9 Data Resilience
+            Data Resilience &amp; Offline Queue
           </span>
           <h2 className="text-lg font-bold text-slate-900 leading-tight">
             Offline Queue &amp; Sync
@@ -67,15 +69,14 @@ export const OfflineSyncView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          id="btn-toggle-network-mode"
-          onClick={toggleOnline}
+        <div
+          id="network-connection-indicator"
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors shadow-2xs ${
             isOnline
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-              : 'bg-red-50 text-red-800 border-red-300 hover:bg-red-100'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+              : 'bg-red-50 text-red-800 border-red-300'
           }`}
-          title="Toggle Network Simulator"
+          title={isOnline ? 'Device connection: Online' : 'Device connection: Offline'}
         >
           {isOnline ? (
             <>
@@ -88,7 +89,7 @@ export const OfflineSyncView: React.FC = () => {
               <span>Offline</span>
             </>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Sync Health & Telemetry Card */}
@@ -217,7 +218,7 @@ export const OfflineSyncView: React.FC = () => {
         <Info className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
         <div className="text-[11px] text-slate-700 leading-relaxed space-y-1">
           <div>
-            <strong className="text-slate-900 font-semibold">PRD §9 Integrity Contract:</strong> Every offline event is assigned a client-generated UUID idempotency key, local monotonic sequence counter, and device timestamp. Upon upload, server rejects duplicates and validates dependency order.
+            <strong className="text-slate-900 font-semibold">Offline Integrity Contract:</strong> Every offline event is assigned a client-generated UUID idempotency key, local monotonic sequence counter, and device timestamp. Upon upload, server rejects duplicates and validates dependency order.
           </div>
           <div className="pt-1 border-t border-blue-200/60 flex flex-wrap gap-2.5 text-[10px]">
             <span className="inline-flex items-center gap-1 font-semibold text-amber-900">
@@ -226,7 +227,7 @@ export const OfflineSyncView: React.FC = () => {
             </span>
             <span className="inline-flex items-center gap-1 font-semibold text-emerald-900">
               <CheckCircle2 className="w-3 h-3 text-emerald-700" />
-              Saved to Supabase = Authoritative
+              Synced to Server = Authoritative
             </span>
           </div>
         </div>
@@ -319,7 +320,7 @@ export const OfflineSyncView: React.FC = () => {
                       >
                         {isSynced ? (
                           <>
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Saved to Supabase
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Synced to Server
                           </>
                         ) : ev.syncStatus === 'syncing' ? (
                           <>
@@ -444,29 +445,31 @@ export const OfflineSyncView: React.FC = () => {
         </div>
       </div>
 
-      {/* Network Simulator Card */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="font-bold text-slate-900 flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-brand-blue" /> Offline Simulator Controls
-          </span>
-          <span className="text-[10px] text-slate-500 font-mono">Manual toggle</span>
+      {/* Network Simulator Card (Only rendered in automated test environments) */}
+      {isTestEnv && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-slate-900 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-brand-blue" /> Offline Simulator Controls
+            </span>
+            <span className="text-[10px] text-slate-500 font-mono">Test environment only</span>
+          </div>
+          <p className="text-[11px] text-slate-600">
+            Simulate losing mobile data connection in remote rural depots or port container terminals.
+          </p>
+          <Button
+            id="btn-simulate-offline-toggle"
+            variant="outline"
+            size="sm"
+            onClick={toggleOnline}
+            className="text-xs font-bold border-slate-300 w-full h-9 bg-white"
+          >
+            {isOnline
+              ? 'Simulate Going Offline (Airplane Mode)'
+              : 'Simulate Reconnecting to Cellular Network'}
+          </Button>
         </div>
-        <p className="text-[11px] text-slate-600">
-          Simulate losing mobile data connection in remote rural depots or port container terminals.
-        </p>
-        <Button
-          id="btn-simulate-offline-toggle"
-          variant="outline"
-          size="sm"
-          onClick={toggleOnline}
-          className="text-xs font-bold border-slate-300 w-full h-9 bg-white"
-        >
-          {isOnline
-            ? 'Simulate Going Offline (Airplane Mode)'
-            : 'Simulate Reconnecting to Cellular Network'}
-        </Button>
-      </div>
+      )}
     </div>
   );
 };

@@ -11,7 +11,8 @@ interface PersistentStatusStripProps {
 export const PersistentStatusStrip: React.FC<PersistentStatusStripProps> = ({ onNavigateTab }) => {
   const { currentUser, attendanceStatus } = useAuth();
   const {
-    simulatedGpsAccuracy,
+    liveGpsCoordinate,
+    attendanceRecord,
     isOnline,
     syncQueue,
     queueTelemetry,
@@ -19,7 +20,12 @@ export const PersistentStatusStrip: React.FC<PersistentStatusStripProps> = ({ on
     activeVisit,
   } = useFieldSession();
 
-  const gpsAccuracyMeters = simulatedGpsAccuracy;
+  // Prefer authentic hardware GPS accuracy from live fix, active visit check-in, or today's attendance start
+  const realGpsAccuracy: number | null =
+    liveGpsCoordinate?.accuracy ??
+    activeVisit?.gpsAccuracyMeters ??
+    (attendanceRecord as any)?.accuracy ??
+    null;
   const idbUnsyncedCount =
     queueTelemetry.pendingCount +
     queueTelemetry.syncingCount +
@@ -49,20 +55,30 @@ export const PersistentStatusStrip: React.FC<PersistentStatusStripProps> = ({ on
           size="sm"
         />
 
-        {/* GPS Fix & Accuracy */}
-        <div
-          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[11px] font-semibold tracking-tight ${
-            gpsAccuracyMeters <= 50
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-              : gpsAccuracyMeters <= 100
-              ? 'bg-blue-50 text-brand-blue border-blue-300'
-              : 'bg-amber-50 text-amber-900 border-amber-300'
-          }`}
-          title={`GPS Fix: Horizontal Uncertainty ±${gpsAccuracyMeters}m (Threshold: ≤100m for visits, ≤50m for pins)`}
-        >
-          <MapPin className="w-3 h-3 shrink-0 text-emerald-700" />
-          <span>GPS: ±{gpsAccuracyMeters}m</span>
-        </div>
+        {/* GPS Fix & Live Telemetry (PRD §6.1 / AT-03) */}
+        {realGpsAccuracy !== null ? (
+          <div
+            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[11px] font-semibold tracking-tight ${
+              realGpsAccuracy <= 50
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                : realGpsAccuracy <= 100
+                ? 'bg-blue-50 text-brand-blue border-blue-300'
+                : 'bg-amber-50 text-amber-900 border-amber-300'
+            }`}
+            title={`GPS Hardware Fix: Uncertainty ±${Math.round(realGpsAccuracy)}m (Max allowed: ≤100m for visits, ≤50m for pins)`}
+          >
+            <MapPin className="w-3 h-3 shrink-0 text-emerald-700" />
+            <span>GPS: ±{Math.round(realGpsAccuracy)}m</span>
+          </div>
+        ) : (
+          <div
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[11px] font-semibold tracking-tight bg-slate-50 text-slate-700 border-slate-300"
+            title="GPS: Hardware location sensor standby (Acquires fresh lock upon Start Day and Visit Check-in)"
+          >
+            <MapPin className="w-3 h-3 shrink-0 text-slate-500" />
+            <span>GPS Ready</span>
+          </div>
+        )}
 
         {/* Sync Queue State - Accessible and Clickable Button (Fix P1 + Stage 3D IndexedDB Telemetry) */}
         <button

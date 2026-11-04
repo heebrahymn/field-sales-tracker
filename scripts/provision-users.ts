@@ -77,11 +77,19 @@ const SEED_USERS: UserDefinition[] = [
   },
   {
     id: '33333333-3333-4333-a333-333333333333',
-    email: 'hq.admin@carboncarcare.com',
-    fullName: 'HQ Administrator',
+    email: process.env.HQ_ADMIN_EMAIL || 'hq.admin@carboncarcare.com',
+    fullName: process.env.HQ_ADMIN_NAME || 'HQ Administrator',
     role: 'hq_admin',
     marketCode: undefined,
     phoneNumber: '+2348011122334',
+  },
+  {
+    id: 'c7a7c506-7df7-41ab-8fd2-4fed917e7f23',
+    email: process.env.PILOT_SALES_EMAIL || 'pilot.rep@carboncarcare.com',
+    fullName: 'Merusha Kisten',
+    role: 'salesperson',
+    marketCode: 'NG',
+    phoneNumber: '+2348035559988',
   },
 ];
 
@@ -168,19 +176,22 @@ async function main() {
   }
 
   const existingUsersByEmail = new Map<string, any>();
+  const existingUsersById = new Map<string, any>();
   for (const u of userList.users) {
     if (u.email) existingUsersByEmail.set(u.email.toLowerCase(), u);
+    if (u.id) existingUsersById.set(u.id, u);
   }
 
   console.log(`Found ${userList.users.length} existing Auth users in project.\n`);
 
   for (const seed of SEED_USERS) {
-    const existing = existingUsersByEmail.get(seed.email.toLowerCase());
+    const existing = (seed.id && existingUsersById.get(seed.id)) || existingUsersByEmail.get(seed.email.toLowerCase());
     let userId: string;
 
     if (existing) {
       console.log(`Updating existing user: ${seed.email} (${seed.role} / ${seed.marketCode || 'Global'})`);
       const { data: updated, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
+        email: seed.email,
         password: provisionPassword,
         email_confirm: true,
         user_metadata: {

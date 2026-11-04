@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useFieldSession } from '@/context/FieldSessionContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -60,7 +61,29 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
   const [isMeetingLogOpen, setIsMeetingLogOpen] = useState(false);
 
   const verifiedVisitsCount = completedVisits.filter((v) => v.verificationStatus === 'location_verified').length;
-  const unverifiedVisitsCount = completedVisits.filter((v) => v.verificationStatus === 'manager_approved_unverified').length;
+  const unverifiedVisitsCount = completedVisits.filter(
+    (v) =>
+      v.verificationStatus === 'location_unverified' ||
+      v.verificationStatus === 'manager_approved_unverified'
+  ).length;
+
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todayExceptionsCount = exceptions.filter((e) => {
+    const rawIso = e.submittedAtIso || e.claimedAtIso;
+    if (rawIso && rawIso.startsWith(todayDateStr)) return true;
+    try {
+      const parsedDate = new Date(e.submittedAt || e.claimedDate);
+      if (!isNaN(parsedDate.getTime())) {
+        return (
+          parsedDate.toISOString().split('T')[0] === todayDateStr ||
+          parsedDate.toDateString() === new Date().toDateString()
+        );
+      }
+    } catch {}
+    return false;
+  }).length;
+  const { getActiveMarketRules } = useMarketConfig();
+  const geofenceLimit = getActiveMarketRules((currentUser?.marketCode || 'NG') as any).defaultGeofenceRadiusMeters ?? 200;
 
   const handleStartEndDayClick = () => {
     if (workdayStatus === 'started') {
@@ -115,7 +138,7 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
             Hello, {currentUser.name.split(' ')[0]}
           </h2>
           <p className="text-xs text-slate-600 font-medium">
-            {currentUser.marketName} • ID: {currentUser.employeeId}
+            {currentUser.marketName}
           </p>
         </div>
 
@@ -288,12 +311,12 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
               {activeVisit.verificationStatus === 'pending_sync' ? (
                 <span className="text-amber-800 font-semibold flex items-center gap-1 text-[11px]">
                   <Clock className="w-3.5 h-3.5 text-amber-700" />
-                  Provisional Geofence ({activeVisit.geofenceDistanceMeters}m / 200m — Pending Server Sync)
+                  Provisional Geofence ({activeVisit.geofenceDistanceMeters}m / {geofenceLimit}m — Pending Server Sync)
                 </span>
               ) : (
                 <span className="text-emerald-800 font-semibold flex items-center gap-1 text-[11px]">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                  Within Geofence ({activeVisit.geofenceDistanceMeters}m / 200m)
+                  Within Geofence ({activeVisit.geofenceDistanceMeters}m / {geofenceLimit}m)
                 </span>
               )}
               <span className="text-slate-600 font-medium text-[11px]">
@@ -391,7 +414,7 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
 
             <span className="text-[11px] text-slate-600 font-medium mt-0.5 leading-tight">
               {activeVisit && workdayStatus === 'started'
-                ? 'Active visit must close first (PRD §6.1)'
+                ? 'Active visit must close first'
                 : workdayStatus === 'started'
                 ? 'Capture final GPS & close'
                 : workdayStatus === 'ended'
@@ -501,12 +524,17 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
             </div>
             <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
               <p className="text-xs text-slate-600 font-semibold">Exceptions</p>
-              <p className="text-xl font-bold text-purple-800">{exceptions.length}</p>
+              <p className="text-xl font-bold text-purple-800">{todayExceptionsCount}</p>
             </div>
           </div>
 
           <div className="text-xs text-slate-600 space-y-1.5 pt-1 border-t border-slate-200">
-            {completedVisits.map((record) => (
+            {completedVisits.length === 0 ? (
+              <div className="text-center py-4 text-slate-400 text-xs italic">
+                No client visits completed yet today.
+              </div>
+            ) : (
+              completedVisits.map((record) => (
               <div key={record.id} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
                 <div className="space-y-0.5">
                   <p className="text-slate-900 font-bold truncate max-w-[210px]">{record.branchName}</p>
@@ -517,7 +545,7 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
                 </div>
                 <StatusBadge status={record.verificationStatus} size="sm" />
               </div>
-            ))}
+            )))}
           </div>
         </CardContent>
       </Card>

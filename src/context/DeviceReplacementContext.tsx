@@ -203,7 +203,7 @@ export const mapHqDeviceToCompanyDevice = (d: HqDeviceRecord): CompanyDevice => 
       ? 'Zambia (Lusaka Hub)'
       : 'Malawi (Blantyre Hub)';
 
-  let inventoryStatus: DeviceInventoryStatus = 'Available';
+  let inventoryStatus: DeviceInventoryStatus;
   if (d.inventoryStatus === 'assigned') inventoryStatus = 'Assigned';
   else if (d.inventoryStatus === 'active') inventoryStatus = 'Active';
   else if (d.inventoryStatus === 'under_maintenance') inventoryStatus = 'Under Maintenance';
@@ -252,7 +252,7 @@ export const mapHqReplacementToContextRequest = (r: HqDeviceReplacementItem): De
       ? 'Zambia (Lusaka)'
       : 'Malawi (Blantyre)';
 
-  let status: ReplacementRequestStatus = 'Pending Review';
+  let status: ReplacementRequestStatus;
   if (r.status === 'approved') status = 'Approved';
   else if (r.status === 'rejected') status = 'Rejected';
   else if (r.status === 'awaiting_spare') status = 'Awaiting Spare';
@@ -309,7 +309,7 @@ interface DeviceReplacementContextType {
     issueCategory: DeviceIssueCategory;
     issueDescription: string;
     supportingEvidence?: string;
-  }) => DeviceReplacementRequest;
+  }) => Promise<DeviceReplacementRequest>;
   approveRequest: (requestId: string, approvalReason: string) => void;
   rejectRequest: (requestId: string, rejectionReason: string) => void;
   assignSpareDevice: (requestId: string, spareAssetId: string) => void;
@@ -322,7 +322,7 @@ interface DeviceReplacementContextType {
   getRequestsForSalesperson: (salespersonId: string) => DeviceReplacementRequest[];
 }
 
-const DeviceReplacementContext = createContext<DeviceReplacementContextType | undefined>(undefined);
+export const DeviceReplacementContext = createContext<DeviceReplacementContextType | undefined>(undefined);
 
 export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [devices, setDevices] = useState<CompanyDevice[]>(() => isTestEnv ? TEST_COMPANY_DEVICES : []);
@@ -332,7 +332,7 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
     if (isTestEnv) return;
     try {
       const { data } = await adminService.getHqDevices();
-      if (data && data.length > 0) {
+      if (data) {
         setDevices(data.map(mapHqDeviceToCompanyDevice));
       }
     } catch (err) {
@@ -344,7 +344,7 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
     if (isTestEnv) return;
     try {
       const { data } = await adminService.getHqDeviceReplacements();
-      if (data && data.length > 0) {
+      if (data) {
         setReplacementRequests(data.map(mapHqReplacementToContextRequest));
       }
     } catch (err) {
@@ -357,9 +357,9 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
     refreshRequests();
   }, [refreshDevices, refreshRequests]);
 
-  // Derived Spare Inventory from Available / Returned Company Devices
+  // Derived Spare Inventory strictly from Available Company Devices cleared for issue
   const spareInventory: SpareDevice[] = devices
-    .filter((d) => d.inventoryStatus === 'Available' || d.inventoryStatus === 'Returned')
+    .filter((d) => d.inventoryStatus === 'Available')
     .map((d) => ({
       assetId: d.assetId,
       imei: d.imei || '358941098999000',
@@ -482,10 +482,10 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
       return { success: false, error: `Device with Asset ID ${assetId} not found.` };
     }
 
-    if (targetDevice.inventoryStatus !== 'Available' && targetDevice.inventoryStatus !== 'Returned') {
+    if (targetDevice.inventoryStatus !== 'Available') {
       return {
         success: false,
-        error: `Device cannot be assigned: Current status is '${targetDevice.inventoryStatus}'. Only 'Available' or 'Returned' devices can be assigned.`,
+        error: `Device cannot be assigned: Current status is '${targetDevice.inventoryStatus}'. Only 'Available' devices cleared by IT Depot can be assigned.`,
       };
     }
 
@@ -507,11 +507,12 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
 
     setDevices((prev) =>
       prev.map((d) => {
-        // If superseding existing active device, return it to depot
+        // If superseding existing active device, mark custody relinquished & Pending Inspection (never falsely Returned)
         if (existingActiveDevice && d.assetId === existingActiveDevice.assetId) {
           return {
             ...d,
-            inventoryStatus: 'Returned',
+            inventoryStatus: 'Pending Inspection',
+            securityAuthorization: 'Quarantined',
             assignedSalespersonId: undefined,
             assignedSalespersonName: undefined,
             history: [
@@ -519,12 +520,12 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
               {
                 id: `hist-${Date.now()}-superseded`,
                 timestamp,
-                action: 'Handset Custody Superseded & Returned to Depot',
+                action: 'Handset Custody Superseded — Pending Depot Inspection',
                 actorName: 'HQ Administrator',
                 actorRole: 'HQ Administrator',
                 previousStatus: d.inventoryStatus,
-                newStatus: 'Returned',
-                reason: `Custody superseded by assignment of company handset ${assetId} to ${salespersonName}.`,
+                newStatus: 'Pending Inspection',
+                reason: `Custody superseded by assignment of company handset ${assetId} to ${salespersonName}. Pending physical depot receipt and IT inspection.`,
               },
             ],
           };
@@ -580,10 +581,38 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
     }
 
     const previousSalesperson = targetDevice.assignedSalespersonName || 'Unassigned';
+    const existingOtherActive = devices.find(
+      (d) =>
+        d.assetId !== assetId &&
+        d.assignedSalespersonId === newSalespersonId &&
+        (d.inventoryStatus === 'Active' || d.inventoryStatus === 'Assigned')
+    );
     const timestamp = `${new Date().toISOString().replace('T', ' ').slice(0, 16)} WAT`;
 
     setDevices((prev) =>
       prev.map((d) => {
+        if (existingOtherActive && d.assetId === existingOtherActive.assetId) {
+          return {
+            ...d,
+            inventoryStatus: 'Pending Inspection',
+            securityAuthorization: 'Quarantined',
+            assignedSalespersonId: undefined,
+            assignedSalespersonName: undefined,
+            history: [
+              ...d.history,
+              {
+                id: `hist-${Date.now()}-reassign-superseded`,
+                timestamp,
+                action: 'Handset Custody Superseded — Pending Depot Inspection',
+                actorName: 'HQ Administrator',
+                actorRole: 'HQ Administrator',
+                previousStatus: d.inventoryStatus,
+                newStatus: 'Pending Inspection',
+                reason: `Custody superseded by reassignment of company handset ${assetId} to ${newSalespersonName}. Pending physical depot receipt and IT inspection.`,
+              },
+            ],
+          };
+        }
         if (d.assetId === assetId) {
           return {
             ...d,
@@ -649,13 +678,13 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
             ...d,
             inventoryStatus: newStatus,
             securityAuthorization: newSecurityStatus,
-            // If retired, lost/stolen, available, or returned, clear active assignee
+            // If transitioned out of custodial states (Active / Assigned), clear active assignee
             assignedSalespersonId:
-              newStatus === 'Retired' || newStatus === 'Lost/Stolen' || newStatus === 'Available' || newStatus === 'Returned'
+              newStatus !== 'Active' && newStatus !== 'Assigned'
                 ? undefined
                 : d.assignedSalespersonId,
             assignedSalespersonName:
-              newStatus === 'Retired' || newStatus === 'Lost/Stolen' || newStatus === 'Available' || newStatus === 'Returned'
+              newStatus !== 'Active' && newStatus !== 'Assigned'
                 ? undefined
                 : d.assignedSalespersonName,
             history: [
@@ -682,7 +711,7 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
   };
 
   // 5. Salesperson submits directly to HQ Admin
-  const submitReplacementRequest = (data: {
+  const submitReplacementRequest = async (data: {
     salespersonId: string;
     salespersonName: string;
     marketCode: MarketCode;
@@ -692,10 +721,62 @@ export const DeviceReplacementProvider: React.FC<{ children: React.ReactNode }> 
     issueCategory: DeviceIssueCategory;
     issueDescription: string;
     supportingEvidence?: string;
-  }): DeviceReplacementRequest => {
-    const newId = `REQ-REP-2026-0${replacementRequests.length + 1}`;
+  }): Promise<DeviceReplacementRequest> => {
     const timestamp = `${new Date().toISOString().replace('T', ' ').slice(0, 16)} Local`;
 
+    if (!isTestEnv) {
+      try {
+        const { data: newRequestId, error } = await adminService.submitDeviceReplacementRequest({
+          salespersonId: data.salespersonId,
+          companyDeviceId: data.companyDeviceAssetId,
+          issueCategory: data.issueCategory,
+          issueDescription: data.issueDescription,
+          supportingEvidenceUrl: data.supportingEvidence,
+        });
+
+        if (error) {
+          console.error('[DeviceReplacementContext] Failed to submit device replacement:', error);
+          throw error;
+        }
+
+        const createdRequest: DeviceReplacementRequest = {
+          id: newRequestId || `REQ-REP-${Date.now()}`,
+          salespersonId: data.salespersonId,
+          salespersonName: data.salespersonName,
+          marketCode: data.marketCode,
+          marketName: data.marketName,
+          companyDeviceAssetId: data.companyDeviceAssetId,
+          deviceModel: data.deviceModel,
+          issueCategory: data.issueCategory,
+          issueDescription: data.issueDescription,
+          submittedAt: new Date().toISOString(),
+          supportingEvidence: data.supportingEvidence,
+          status: 'Pending Review',
+          history: [
+            {
+              timestamp,
+              action: 'Request Submitted Directly to HQ Admin',
+              actorName: data.salespersonName,
+              actorRole: 'Salesperson',
+              notes: 'Direct submission from salesperson mobile interface.',
+            },
+          ],
+        };
+
+        // Immediately update state so salesperson sees it without any latency
+        setReplacementRequests((prev) => [createdRequest, ...prev.filter((r) => r.id !== createdRequest.id)]);
+
+        // Refresh authoritative list from database
+        await refreshRequests();
+
+        return createdRequest;
+      } catch (err) {
+        console.error('[DeviceReplacementContext] submitReplacementRequest error:', err);
+        throw err;
+      }
+    }
+
+    const newId = `REQ-REP-2026-0${replacementRequests.length + 1}`;
     const newRequest: DeviceReplacementRequest = {
       id: newId,
       salespersonId: data.salespersonId,

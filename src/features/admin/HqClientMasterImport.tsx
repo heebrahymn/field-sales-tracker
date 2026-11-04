@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -9,10 +9,13 @@ import {
   ArrowRight,
   Check,
   Layers,
+  Download,
+  FolderOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketCode } from '@/context/AuthContext';
 import { adminService } from '@/services/adminService';
+import { TablePagination } from '@/components/ui/table-pagination';
 
 export interface CsvClientRow {
   rowIndex: number;
@@ -42,6 +45,127 @@ export interface ImportBatchSummary {
   status: 'Validated & Merged' | 'Requires Branch Pin Verification';
 }
 
+
+/**
+ * RFC-4180 Compliant CSV Parser for Client Master ERP imports.
+ * Latitude and Longitude are strictly OPTIONAL.
+ * Records without coordinates are marked as 'warning_location_pending'.
+ */
+export function parseClientMasterCsv(csvText: string): CsvClientRow[] {
+  const lines = csvText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const parseLine = (line: string): string[] => {
+    const result: string[] = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(cur.trim().replace(/^"|"$/g, '').trim());
+        cur = '';
+      } else {
+        cur += char;
+      }
+    }
+    result.push(cur.trim().replace(/^"|"$/g, '').trim());
+    return result;
+  };
+
+  const headers = parseLine(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+  const colIndex = {
+    company: headers.findIndex((h) => h.includes('company') || h.includes('org') || h.includes('client')),
+    branch: headers.findIndex((h) => h.includes('branch') || h.includes('location') || h.includes('facility') || h.includes('site')),
+    category: headers.findIndex((h) => h.includes('cat') || h.includes('type') || h.includes('industry')),
+    address: headers.findIndex((h) => h.includes('address') || h.includes('street')),
+    city: headers.findIndex((h) => h.includes('city') || h.includes('state') || h.includes('town')),
+    contact: headers.findIndex((h) => h.includes('contact') || h.includes('person') || h.includes('name')),
+    role: headers.findIndex((h) => h.includes('role') || h.includes('designation') || h.includes('title')),
+    phone: headers.findIndex((h) => h.includes('phone') || h.includes('tel') || h.includes('mobile')),
+    lat: headers.findIndex((h) => h.includes('lat')),
+    lng: headers.findIndex((h) => h.includes('lng') || h.includes('lon') || h.includes('long')),
+  };
+
+  const rows: CsvClientRow[] = [];
+  const phoneToCompanyMap = new Map<string, string>();
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseLine(lines[i]);
+    if (cols.length === 0 || cols.every((c) => !c)) continue;
+
+    const companyName = (colIndex.company >= 0 ? cols[colIndex.company] : cols[0]) || '';
+    const branchName = (colIndex.branch >= 0 ? cols[colIndex.branch] : cols[1]) || '';
+    const category = (colIndex.category >= 0 ? cols[colIndex.category] : cols[2]) || 'Commercial Haulage & Fleet';
+    const address = (colIndex.address >= 0 ? cols[colIndex.address] : cols[3]) || 'Site Address';
+    const contactPerson = (colIndex.contact >= 0 ? cols[colIndex.contact] : cols[4]) || 'Operations Lead';
+    const contactRole = (colIndex.role >= 0 ? cols[colIndex.role] : cols[5]) || 'Site Lead';
+    const telephone = (colIndex.phone >= 0 ? cols[colIndex.phone] : cols[6]) || '+234 1 000 0000';
+
+    const rawLat = colIndex.lat >= 0 ? cols[colIndex.lat] : undefined;
+    const rawLng = colIndex.lng >= 0 ? cols[colIndex.lng] : undefined;
+
+    const lat = rawLat && !isNaN(parseFloat(rawLat)) ? parseFloat(rawLat) : undefined;
+    const lng = rawLng && !isNaN(parseFloat(rawLng)) ? parseFloat(rawLng) : undefined;
+    const hasCoordinates = lat !== undefined && lng !== undefined;
+
+    let status: CsvClientRow['status'] = 'valid';
+    let validationMessage = 'Valid record with GPS coordinates (verified within 50m accuracy)';
+
+    if (!companyName.trim() || !branchName.trim()) {
+      status = 'error';
+      validationMessage = 'Fatal Error: Missing mandatory Company Name or Branch Name. Record cannot be imported.';
+    } else if (!hasCoordinates) {
+      status = 'warning_location_pending';
+      validationMessage = 'Location Pending: Missing GPS pin. Rep must propose physical pin during first visit.';
+    } else if (telephone) {
+      const cleanPhone = telephone.replace(/[^0-9+]/g, '');
+      if (cleanPhone && phoneToCompanyMap.has(cleanPhone)) {
+        status = 'warning_shared_phone';
+        validationMessage = 'Policy Compliant: Shares switchboard telephone with existing branch. Allowed.';
+      } else if (cleanPhone) {
+        phoneToCompanyMap.set(cleanPhone, companyName);
+      }
+    }
+
+    rows.push({
+      rowIndex: i,
+      companyName: companyName.trim(),
+      branchName: branchName.trim(),
+      category: category.trim(),
+      address: address.trim(),
+      contactPerson: contactPerson.trim(),
+      contactRole: contactRole.trim(),
+      telephone: telephone.trim(),
+      latitude: lat,
+      longitude: lng,
+      status,
+      validationMessage,
+    });
+  }
+
+  return rows;
+}
+
+/**
+ * Generates RFC-4180 ERP Client Master template with GPS coordinates explicitly optional.
+ */
+export function generateErpClientMasterTemplate(marketCode: MarketCode): string {
+  const isNg = marketCode === 'NG';
+  const isZm = marketCode === 'ZM';
+  return `Company Name,Branch Name,Category,Street Address,City,Contact Person,Contact Role,Telephone,Latitude,Longitude
+Apex Heavy Logistics Ltd,Apapa Port Terminal Hub,Haulage & Logistics,"Wharf Road, Port Gate 2",${isNg ? 'Lagos' : isZm ? 'Lusaka' : 'Blantyre'},Capt. Ibrahim Danjuma,Fleet Director,+234 1 270 5000,6.4474,3.3591
+Apex Heavy Logistics Ltd,Ikeja Freight Depot,Haulage & Logistics,"Plot 12 Commercial Ave",${isNg ? 'Lagos' : isZm ? 'Lusaka' : 'Blantyre'},Folake Adeleke,Depot Operations Manager,+234 1 270 5000,,
+Lekki Transit Commercial Fleets,Admiralty Way Hub,Transit & Fleet,"Admiralty Way, Lekki Phase 1",${isNg ? 'Lagos' : isZm ? 'Lusaka' : 'Blantyre'},Emeka Nwachukwu,Maintenance Supt,+234 803 445 6677,,
+Bua Haulage & Cement Logistics,Epe Weighbridge Depot,Mining & Heavy Transport,"Km 42 Lekki-Epe Expressway",${isNg ? 'Lagos' : isZm ? 'Lusaka' : 'Blantyre'},Alhaji Musa Bello,Dispatch Supervisor,+234 809 332 1100,6.5841,3.9832
+`;
+}
+
 const SAMPLE_CSV_DATA_NIGERIA: CsvClientRow[] = [
   {
     rowIndex: 1,
@@ -65,11 +189,11 @@ const SAMPLE_CSV_DATA_NIGERIA: CsvClientRow[] = [
     address: 'Plot 12 Commercial Avenue, Ikeja, Lagos',
     contactPerson: 'Folake Adeleke',
     contactRole: 'Depot Operations Manager',
-    telephone: '+234 1 270 5000', // SAME TELEPHONE AS ROW 1 - PRD §4.2 Rule!
+    telephone: '+234 1 270 5000', // SAME TELEPHONE AS ROW 1 - Allowed shared company phone rule
     latitude: 6.5982,
     longitude: 3.3541,
     status: 'warning_shared_phone',
-    validationMessage: 'PRD §4.2 Compliant: Shares switchboard telephone with Apapa branch. Allowed.',
+    validationMessage: 'Policy Compliant: Shares switchboard telephone with Apapa branch. Allowed.',
   },
   {
     rowIndex: 3,
@@ -140,6 +264,18 @@ export const HqClientMasterImport: React.FC = () => {
   const [fileName, setFileName] = useState<string | null>(null);
   const [parsedRows, setParsedRows] = useState<CsvClientRow[]>([]);
   const [batches, setBatches] = useState<ImportBatchSummary[]>(() => (isTestEnv ? TEST_BATCHES : []));
+
+  // Historical Import Batches Pagination
+  const [batchPage, setBatchPage] = useState<number>(1);
+  const [batchPageSize, setBatchPageSize] = useState<number>(10);
+
+  const totalBatchPages = Math.max(1, Math.ceil(batches.length / batchPageSize));
+  const safeBatchPage = Math.min(Math.max(1, batchPage), totalBatchPages);
+
+  const paginatedBatches = useMemo(() => {
+    const startIndex = (safeBatchPage - 1) * batchPageSize;
+    return batches.slice(startIndex, startIndex + batchPageSize);
+  }, [batches, safeBatchPage, batchPageSize]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
 
@@ -169,6 +305,37 @@ export const HqClientMasterImport: React.FC = () => {
       }
     });
   }, []);
+
+  // Load Demonstration Sample CSV
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // File Upload Handler (Real RFC-4180 CSV)
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (text) {
+        const rows = parseClientMasterCsv(text);
+        setParsedRows(rows);
+        setStep(2);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDownloadTemplate = () => {
+    const content = generateErpClientMasterTemplate(selectedMarket);
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `carbon_erp_client_master_${selectedMarket.toLowerCase()}_template.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Load Demonstration Sample CSV
   const handleLoadSampleData = () => {
@@ -271,7 +438,7 @@ export const HqClientMasterImport: React.FC = () => {
         <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-950 text-xs flex items-start gap-3">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
           <div className="space-y-1 leading-relaxed">
-            <span className="font-bold text-emerald-900">PRD §4.2 Rule: Shared Corporate Telephones Permitted</span>
+            <span className="font-bold text-emerald-900">Shared Corporate Telephones Permitted</span>
             <p className="text-emerald-800">
               Multiple physical locations belonging to the same parent organization sharing a switchboard phone number are <strong>explicitly allowed</strong>.
               The parser never automatically rejects valid locations for sharing phone credentials.
@@ -377,14 +544,43 @@ export const HqClientMasterImport: React.FC = () => {
                       Accepts standard RFC-4180 CSV files with company, branch, contact, and GPS fields
                     </p>
                   </div>
+                  {/* Hidden Real File Input */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept=".csv,text/csv"
+                    className="hidden"
+                    id="client-master-csv-input"
+                  />
+
                   <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
                     <Button
-                      onClick={handleLoadSampleData}
-                      className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold h-8 shadow-xs"
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-bold h-9 px-4 shadow-sm flex items-center gap-1.5"
                     >
-                      Load Fictional B2B Sample CSV ({selectedMarket})
+                      <FolderOpen className="w-3.5 h-3.5" /> Choose CSV File
                     </Button>
-                    <span className="text-xs text-slate-400 font-medium">or drop file here</span>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleLoadSampleData}
+                      className="text-xs font-semibold h-9 px-3 border-slate-300 text-slate-700 hover:bg-slate-100"
+                    >
+                      Load Sample ERP Data ({selectedMarket})
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={handleDownloadTemplate}
+                      className="text-xs font-semibold text-brand-blue hover:text-blue-800 hover:bg-blue-50 h-9 px-3 flex items-center gap-1.5"
+                      title="Download ERP Client Master CSV template with optional GPS columns"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Download Template
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -480,7 +676,7 @@ export const HqClientMasterImport: React.FC = () => {
                   </p>
                 </div>
                 <div className="p-3 rounded-xl bg-blue-50 border border-blue-200">
-                  <p className="text-[10px] font-bold text-brand-blue uppercase">PRD Compliant / Pending</p>
+                  <p className="text-[10px] font-bold text-brand-blue uppercase">Verified / Pending</p>
                   <p className="text-xl font-black text-brand-blue">
                     {parsedRows.filter((r) => r.status === 'warning_location_pending' || r.status === 'warning_shared_phone').length}
                   </p>
@@ -642,7 +838,14 @@ export const HqClientMasterImport: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {batches.map((b) => (
+                {batches.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-slate-500 text-xs">
+                      No historical client master import batches recorded.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedBatches.map((b) => (
                   <tr key={b.batchId} className="hover:bg-slate-50/70">
                     <td className="py-3 px-4">
                       <div>
@@ -670,10 +873,24 @@ export const HqClientMasterImport: React.FC = () => {
                       {b.timestamp}
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
+
+          {/* Table Pagination */}
+          {batches.length > 0 && (
+            <TablePagination
+              currentPage={safeBatchPage}
+              pageSize={batchPageSize}
+              totalItems={batches.length}
+              onPageChange={setBatchPage}
+              onPageSizeChange={setBatchPageSize}
+              pageSizeOptions={[10, 20, 50, 100]}
+              itemName="import batches"
+            />
+          )}
         </CardContent>
       </Card>
     </div>

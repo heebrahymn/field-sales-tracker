@@ -252,3 +252,38 @@ Following the resolution of the P0 user provisioning defect, manual testing iden
     - Clicked "Retake": live video stream restored seamlessly.
     - Recaptured photo: confirmed GPS telemetry (accuracy ≤ 100m) and selfie capture valid.
 - **Evidence:** 13 verification screenshots recorded in artifacts (`p1_hotfix_01_*.png` through `p1_hotfix_13_*.png`).
+
+---
+
+## 7. Post-UAT Defect Consolidation & Release Candidate Verification Addendum (2026-11-04)
+
+Following the initial manual User Acceptance Testing (UAT) conducted by the project owner across Salesperson, Country Sales Head, and HQ Administrator user roles, 19 operational and cosmetic defects were recorded and resolved (DEF-001 through DEF-019).
+
+### 7.1 Consolidated Defect Resolution & Formal Acceptance Summary
+
+| Severity Level | Total Discovered | Resolved in Code | Formally Accepted (Retest Passed) | Retest Required | Open Defects |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **P0 (Blocker)** | 0 | 0 | 0 | 0 | **0** |
+| **P1 (Critical)** | 7 | 7 | 7 (DEF-001, 003, 004, 006, 013, 016, 017) | 0 | **0** |
+| **P2 (Major)** | 9 | 9 | 9 (DEF-002, 007, 008, 010, 011, 014, 015, 018, 019) | 0 | **0** |
+| **P3 (Minor)** | 3 | 3 | 3 (DEF-005, 009, 012) | 0 | **0** |
+| **Total** | **19** | **19** | **19 (100%)** | **0** | **0** |
+
+All 19 defects are documented in detail in [`docs/testing/UAT_DEFECT_REGISTER.md`](UAT_DEFECT_REGISTER.md). The project owner formally confirmed that full manual UAT was completed, all 19 defects were corrected, and all 19 targeted manual retests PASSED with zero further UAT retesting required. Every item is marked `ACCEPTED — PROJECT OWNER RETEST PASSED`.
+
+### 7.2 Post-UAT Enhancements & Stabilisation
+1. **Elimination of In-App Simulated Telemetry (DEF-019):** Removed all static ±14m telemetry and "Simulated Hardware GPS" tooltips; bound PersistentStatusStrip directly to dynamic hardware GPS accuracy (`liveGpsCoordinate`, `activeVisit.gpsAccuracyMeters`, or `GPS Ready`); scoped offline simulator controls strictly to test mode (`isTestEnv`).
+2. **Comprehensive Table Pagination (DEF-011, DEF-014, DEF-015):** Integrated reusable `TablePagination` component across Country Reporting, HQ Exception Oversight, HQ Client Audit Oversight, HQ System Audit Log, HQ Client Master Import, Profile Replacement Requests, and Risk Flags.
+3. **Salesperson Non-Visit Cancellation Authorization (DEF-013):** Updated `/api/attendance/cancel-non-visit.ts` to allow requesting salespeople to cancel their own pending non-visit workday requests without 403 Forbidden errors.
+4. **Terminology Alignment (DEF-012):** Replaced "Unique Branches" with operational "Locations visited" across all reporting views.
+5. **Dashboard Layout Density (DEF-009):** Sliced Sales Head preview cards to top 5 items with dynamic `"View All (N)"` navigation.
+6. **3-State Device Custody & Depot Availability Reconciliation (DEF-003, DEF-007):** Superseded, replaced, and deactivated-user handsets transition to `pending_inspection` (`quarantined`), keeping physical depot receipt (`returned`) and assignable spare stock (`available`) strictly distinct.
+
+### 7.3 Automated Regression Verification Status
+- **Vitest Unit & Integration:** **288 / 288 tests passing** across 30 test files.
+- **Direct Supabase API & RLS:** **13 / 13 security tests passing** (100%) against live Supabase dev project; 29 migrations & 7 private Storage buckets (`public = false`) verified.
+- **TypeScript Static Typing:** **0 errors** (`npx tsc -b`).
+- **ESLint Code Quality:** **0 errors**, 5 non-blocking warnings (`no-empty`).
+- **Production Vite Build:** Clean compilation (JS: 1,615.8 kB, CSS: 91.1 kB; zero simulator strings or credentials).
+- **Physical Handset Testing:** **NOT TESTED (Physical Handset Required)** on Samsung Galaxy A15 / Nokia G22; remains an outstanding prerequisite for Field Pilot.
+- **Release Recommendation:** **CONDITIONAL GO — RC 1.0.0 (`rc-1.0.0-uat-verified`) PROMOTED TO STAGING** (Project owner manual UAT & 19/19 retest sign-off formally granted; awaiting on-site physical handset pilot execution).

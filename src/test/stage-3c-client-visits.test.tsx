@@ -394,7 +394,7 @@ describe('Stage 3C: Client Visits, Geofencing, Photo Evidence & Meeting Logs', (
       await waitFor(() => {
         expect(screen.getByText(/Visit Session In Progress/i)).toBeInTheDocument();
         expect(screen.getByText(/Apex Heavy Logistics Fleet Depot/i)).toBeInTheDocument();
-        expect(screen.getByText(/PRD AT-04: Only 1 active normal physical visit is permitted/i)).toBeInTheDocument();
+        expect(screen.getByText(/Only 1 active normal physical visit is permitted/i)).toBeInTheDocument();
       });
     });
 

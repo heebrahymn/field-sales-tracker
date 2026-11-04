@@ -21,6 +21,7 @@ import {
 } from '@/services/offlineSyncService';
 import { managementService } from '@/services/managementService';
 import { supabase } from '@/lib/supabase';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 
 export interface BranchContact {
   id?: string;
@@ -108,6 +109,8 @@ export interface FieldExceptionRecord {
   reason: string;
   evidenceNote: string;
   submittedAt: string;
+  submittedAtIso?: string;
+  claimedAtIso?: string;
   status: 'pending_review' | 'approved_unverified' | 'rejected' | 'escalated';
   managerComment?: string;
   decisionDate?: string;
@@ -158,6 +161,7 @@ interface FieldSessionContextType {
     accuracy: number;
     selfieBlob: Blob;
     submissionId?: string;
+    maxAccuracy?: number;
   }) => Promise<{ success: boolean; error?: string; record?: any }>;
   enqueueOfflineEndDay: (params: {
     latitude?: number;
@@ -177,6 +181,8 @@ interface FieldSessionContextType {
       liveGps?: LiveGpsCoordinate;
       verificationStatus?: VisitVerificationStatus;
       locationClassification?: LocationClassification;
+      maxGeofenceRadiusM?: number;
+      maxGpsAccuracyM?: number;
     }
   ) => Promise<boolean | void>;
   checkOutVisit: (
@@ -227,6 +233,10 @@ interface FieldSessionContextType {
   retryFailedEvent: (eventId: string) => Promise<void>;
   triggerSyncNow: () => Promise<void>;
 
+  // Real Hardware Geolocation Telemetry
+  liveGpsCoordinate: LiveGpsCoordinate | null;
+  setLiveGpsCoordinate: (coords: LiveGpsCoordinate | null) => void;
+
   // Simulation Controls for Testing
   simulatedGpsAccuracy: number;
   simulatedGeofenceDistance: number;
@@ -237,7 +247,7 @@ interface FieldSessionContextType {
   setSessionNotice: (msg: string | null) => void;
 }
 
-const FieldSessionContext = createContext<FieldSessionContextType | undefined>(undefined);
+export const FieldSessionContext = createContext<FieldSessionContextType | undefined>(undefined);
 
 export interface FieldSessionProviderProps {
   children: React.ReactNode;
@@ -250,6 +260,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
 }) => {
   const auth = useAuthSafe();
   const currentUser = auth?.currentUser;
+  const { getActiveMarketRules } = useMarketConfig();
+  const activeMarketRules = getActiveMarketRules((currentUser?.marketCode || 'NG') as any);
 
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -521,11 +533,15 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
               : undefined;
             const pin = approvedPin || latestPin;
 
-            let branchStatus: 'approved' | 'pending_approval' | 'rejected' = 'pending_approval';
-            if (approvedPin || (b as any).operating_status === 'active') {
+            let branchStatus: 'approved' | 'pending_approval' | 'rejected';
+            if ((b as any).operating_status === 'location_pending') {
+              branchStatus = 'pending_approval';
+            } else if (approvedPin || (b as any).operating_status === 'active') {
               branchStatus = 'approved';
             } else if (rejectedPin && !approvedPin) {
               branchStatus = 'rejected';
+            } else {
+              branchStatus = 'pending_approval';
             }
 
             const decisionPin = (rejectedPin as any) || (approvedPin as any);
@@ -615,6 +631,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
             submissionLag: '15 mins',
             status: e.status === 'approved' ? 'approved_unverified' : e.status === 'rejected' ? 'rejected' : 'pending_review',
             submittedAt: new Date(e.submittedAt).toLocaleString(),
+            submittedAtIso: e.submittedAt,
+            claimedAtIso: e.claimedCheckInTime,
             managerComment: e.decisionReason || undefined,
             decidedBy: e.reviewedByName || undefined,
             repName: currentUser.name,
@@ -715,6 +733,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       distanceMeters: 38,
       approvedGpsLat: 6.4428,
       approvedGpsLng: 3.3649,
+      approvedPinId: 'pin-01',
+      approvedPinVersion: 1,
       status: 'approved',
       lastVisitDate: 'Today (Active)',
     },
@@ -732,6 +752,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       distanceMeters: 420,
       approvedGpsLat: 6.5892,
       approvedGpsLng: 3.3581,
+      approvedPinId: 'pin-02',
+      approvedPinVersion: 1,
       status: 'approved',
       lastVisitDate: '3 days ago',
     },
@@ -748,6 +770,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       distanceMeters: 180,
       approvedGpsLat: 6.4389,
       approvedGpsLng: 3.3712,
+      approvedPinId: 'pin-03',
+      approvedPinVersion: 1,
       status: 'approved',
       lastVisitDate: 'Today 09:30',
     },
@@ -764,6 +788,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       distanceMeters: 850,
       approvedGpsLat: 6.5312,
       approvedGpsLng: 3.3289,
+      approvedPinId: 'pin-04',
+      approvedPinVersion: 1,
       status: 'approved',
       lastVisitDate: 'Today 08:55',
     },
@@ -942,7 +968,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     isTestEnv ? DEFAULT_MOCK_SYNC_QUEUE : []
   );
 
-  // 8. Simulation Controls
+  // 8. Real Geolocation & Test Controls
+  const [liveGpsCoordinate, setLiveGpsCoordinate] = useState<LiveGpsCoordinate | null>(null);
   const [simulatedGpsAccuracy, setSimulatedGpsAccuracy] = useState<number>(14);
   const [simulatedGeofenceDistance, setSimulatedGeofenceDistance] = useState<number>(38);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
@@ -1019,6 +1046,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     accuracy: number;
     selfieBlob: Blob;
     submissionId?: string;
+    maxAccuracy?: number;
   }): Promise<{ success: boolean; error?: string; record?: any }> => {
     if (!currentUser?.id) {
       return { success: false, error: 'Authenticated salesperson session required.' };
@@ -1032,6 +1060,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       accuracy: params.accuracy,
       selfieBlob: params.selfieBlob,
       submissionId: params.submissionId,
+      maxAccuracy: params.maxAccuracy,
     });
     if (res.error || !res.provisionalAttendance) {
       return { success: false, error: res.error?.message || 'Failed to queue offline Start Day.' };
@@ -1052,7 +1081,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     if (activeVisit) {
       return {
         success: false,
-        error: 'Cannot end workday while an active visit is open (PRD §6.1 / AT-03).',
+        error: 'Cannot end workday while an active visit is open. Check out of the active visit first.',
       };
     }
     const targetAttendanceId = attendanceRecord?.id || `att-local-${Date.now()}`;
@@ -1104,6 +1133,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       liveGps?: LiveGpsCoordinate;
       verificationStatus?: VisitVerificationStatus;
       locationClassification?: LocationClassification;
+      maxGeofenceRadiusM?: number;
+      maxGpsAccuracyM?: number;
     }
   ): Promise<boolean | void> => {
     if (activeVisit) {
@@ -1111,21 +1142,26 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       return false;
     }
 
+    const effectiveGeofenceRadius = options?.maxGeofenceRadiusM ?? activeMarketRules.defaultGeofenceRadiusMeters ?? 200;
+    const effectiveMaxGpsAccuracy = options?.maxGpsAccuracyM ?? activeMarketRules.maxVisitGpsAccuracyMeters ?? 100;
+
     // Real Supabase or Durable Offline IndexedDB persistence for authenticated salesperson sessions
     if (currentUser?.id && !isTestEnv) {
       if (!attendanceRecord?.id || workdayStatus !== 'started') {
-        notify('Cannot start visit: Workday has not been started. Please complete Start Day first (PRD §6.1).');
+        notify('Cannot start visit: Workday has not been started. Please complete Start Day first.');
         return false;
       }
 
       if (!options?.photoBlob || photoUrl.startsWith('/demo/')) {
-        notify('Live rear-camera premises photo is required before check-in (PRD §7.1).');
+        notify('Live rear-camera premises photo is required before check-in.');
         return false;
       }
 
       const provisionalClassification: LocationClassification =
         options?.locationClassification ||
-        (branch.status === 'approved' && distance + accuracy <= 200 && accuracy <= 100
+        (branch.status === 'approved' &&
+        distance + accuracy <= effectiveGeofenceRadius &&
+        accuracy <= effectiveMaxGpsAccuracy
           ? 'inside_confident'
           : 'uncertain');
 
@@ -1192,8 +1228,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         // Determine verification status: PRD §7.1 / Migration 00027 rule
         const isEligibleForVerification =
           branch.status === 'approved' &&
-          distance + accuracy <= 200 &&
-          accuracy <= 100 &&
+          distance + accuracy <= effectiveGeofenceRadius &&
+          accuracy <= effectiveMaxGpsAccuracy &&
           uploadedStoragePath.startsWith(`${currentUser.id}/${visitUuid}_premises_`);
 
         const computedVerStatus: VisitVerificationStatus =
@@ -1314,7 +1350,10 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         longitude: options?.liveGps?.longitude ?? branch.approvedGpsLng ?? 3.3649,
         accuracy,
         provisionalDistanceMeters: distance,
-        provisionalClassification: distance <= 200 && accuracy <= 100 ? 'inside_confident' : 'uncertain',
+        provisionalClassification:
+          distance <= effectiveGeofenceRadius && accuracy <= effectiveMaxGpsAccuracy
+            ? 'inside_confident'
+            : 'uncertain',
         photoBlob: options.photoBlob,
       });
       if (offlineRes.provisionalVisit) {
@@ -1340,10 +1379,13 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       premisesPhotoUrl: photoUrl,
       verificationStatus: !isOnline
         ? 'pending_sync'
-        : distance <= 200 && accuracy <= 100
+        : distance <= effectiveGeofenceRadius && accuracy <= effectiveMaxGpsAccuracy
         ? 'location_verified'
         : 'location_unverified',
-      locationClassification: distance <= 200 && accuracy <= 100 ? 'inside_confident' : 'uncertain',
+      locationClassification:
+        distance <= effectiveGeofenceRadius && accuracy <= effectiveMaxGpsAccuracy
+          ? 'inside_confident'
+          : 'uncertain',
     };
     setActiveVisit(newVisit);
     notify(`Checked in at ${branch.branchName}. Active visit timer running.`);
@@ -1356,7 +1398,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     checkoutGps?: { latitude: number; longitude: number; accuracy: number }
   ): Promise<boolean | void> => {
     if (!activeVisit) return false;
-    const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatMarketTime(new Date().toISOString(), currentUser?.marketCode);
     let isDeferred = !meetingLogData;
     let logSaveErrorMessage: string | null = null;
 
@@ -1429,7 +1471,9 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         verificationStatus: 'pending_sync',
         meetingLogSubmitted: !isDeferred,
         meetingLogDeferredUntil: isDeferred ? 'Within 2h SLA (Offline Queue)' : 'Queued on Device',
-        flagRaised: outsideGeofence ? 'Checkout Outside Geofence (>200m)' : undefined,
+        flagRaised: outsideGeofence
+          ? `Checkout Outside Geofence (>${activeMarketRules.defaultGeofenceRadiusMeters ?? 200}m)`
+          : undefined,
         capturedOffline: true,
       };
 
@@ -1540,7 +1584,9 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       verificationStatus: preservedStatus,
       meetingLogSubmitted: !isDeferred,
       meetingLogDeferredUntil: isDeferred ? (logSaveErrorMessage ? 'Unsaved — Retry Pending' : 'Within 2h SLA') : undefined,
-      flagRaised: outsideGeofence ? 'Checkout Outside Geofence (>200m)' : undefined,
+      flagRaised: outsideGeofence
+        ? `Checkout Outside Geofence (>${activeMarketRules.defaultGeofenceRadiusMeters ?? 200}m)`
+        : undefined,
     };
 
     setCompletedVisits((prev) => [newCompleted, ...prev]);
@@ -1566,7 +1612,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     const isForced = force === true;
     // PRD §5.2 Protection: An active checked-in visit can NEVER be silently discarded!
     if (activeVisit && !isForced) {
-      notify('PRD §5.2 Protection: Checked-in visits cannot be silently deleted. Please check out or report an operational exception.');
+      notify('Checked-in visits cannot be silently deleted. Please check out or report an operational exception.');
       return;
     }
     setActiveVisit(null);
@@ -1770,6 +1816,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       ...exceptionData,
       id: `exc-${Date.now()}`,
       submittedAt: `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`,
+      submittedAtIso: new Date().toISOString(),
+      claimedAtIso: exceptionData.claimedDate,
       status: 'pending_review',
       repName: currentUser?.name || 'Sales Representative',
       accuracy: '±145m (Exceeds ≤100m visit limit)',
@@ -1780,7 +1828,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
 
     if (currentUser?.id) {
       try {
-        let branchMatch = branches.find((b) => b.branchName === exceptionData.branchName || b.id === (exceptionData as any).branchCode);
+        const branchMatch = branches.find((b) => b.branchName === exceptionData.branchName || b.id === (exceptionData as any).branchCode);
         let branchId = branchMatch?.id || (branches.length > 0 ? branches[0].id : null);
         if (!branchId && currentUser.marketCode) {
           const { data: dbBranches } = await visitService.getClientsAndBranches(currentUser.marketCode);
@@ -1888,6 +1936,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         return;
       }
       setNonVisitDayRequest(null);
+      setUserNonVisitRequests((prev) => prev.filter((r) => r.id !== requestId));
       notify('Non-visit workday request cancelled successfully.');
       await refreshNonVisitRequests();
     } catch (err: any) {
@@ -1997,7 +2046,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
   const setSimulatedGps = (accuracy: number, distance: number) => {
     setSimulatedGpsAccuracy(accuracy);
     setSimulatedGeofenceDistance(distance);
-    notify(`Simulated GPS updated: Accuracy ±${accuracy}m, Distance ${distance}m.`);
+    // In-app simulator toast removed so real field operations are never interrupted
   };
 
   return (
@@ -2052,6 +2101,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         refreshOfflineQueue,
         retryFailedEvent,
         triggerSyncNow,
+        liveGpsCoordinate,
+        setLiveGpsCoordinate,
         simulatedGpsAccuracy,
         simulatedGeofenceDistance,
         setSimulatedGps,

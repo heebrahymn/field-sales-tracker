@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   FileSpreadsheet,
   Download,
@@ -8,6 +9,7 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
+  Calendar,
 } from 'lucide-react';
 import { managementService } from '@/services/managementService';
 
@@ -17,6 +19,9 @@ interface CountryCsvExportModalProps {
   marketName: string;
   defaultRep?: string;
   defaultDateRange?: 'today' | 'current_week' | 'quarter_to_date' | 'custom';
+  defaultStartDate?: string;
+  defaultEndDate?: string;
+  salespeople?: { id: string; name: string; territory?: string }[];
 }
 
 /**
@@ -44,17 +49,25 @@ export const CountryCsvExportModal: React.FC<CountryCsvExportModalProps> = ({
   marketName,
   defaultRep = 'all',
   defaultDateRange = 'current_week',
+  defaultStartDate,
+  defaultEndDate,
+  salespeople,
 }) => {
   const [dateRange, setDateRange] = useState<'today' | 'current_week' | 'quarter_to_date' | 'custom'>(defaultDateRange);
+  const [customStartDate, setCustomStartDate] = useState<string>(
+    defaultStartDate || new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
+  );
+  const [customEndDate, setCustomEndDate] = useState<string>(
+    defaultEndDate || new Date().toISOString().slice(0, 10)
+  );
   const [selectedRep, setSelectedRep] = useState<string>(defaultRep);
+  const [marketReps, setMarketReps] = useState<{ id: string; name: string; territory?: string }[]>(salespeople || []);
   const [includeUnverifiedExceptions, setIncludeUnverifiedExceptions] = useState(true);
   const [includeProvisionalWarning, setIncludeProvisionalWarning] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportedRowCount, setExportedRowCount] = useState<number>(0);
   const [exportSuccess, setExportSuccess] = useState(false);
-
-  if (!isOpen) return null;
 
   // Resolve marketCode from marketName
   const resolveMarketCode = (name: string): string => {
@@ -65,14 +78,64 @@ export const CountryCsvExportModal: React.FC<CountryCsvExportModalProps> = ({
     return 'ALL';
   };
 
+  // Synchronize state when modal opens or defaults change
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedRep(defaultRep || 'all');
+      setDateRange(defaultDateRange || 'current_week');
+      if (defaultStartDate) setCustomStartDate(defaultStartDate);
+      if (defaultEndDate) setCustomEndDate(defaultEndDate);
+      setExportSuccess(false);
+      setExportError(null);
+    }
+  }, [isOpen, defaultRep, defaultDateRange, defaultStartDate, defaultEndDate]);
+
+  // Load salespeople if not provided by prop
+  useEffect(() => {
+    if (salespeople && salespeople.length > 0) {
+      setMarketReps(salespeople);
+    } else if (isOpen) {
+      const marketCode = resolveMarketCode(marketName);
+      managementService.getMarketSalespeople(marketCode).then((reps) => {
+        if (reps && reps.length > 0) {
+          setMarketReps(
+            reps.map((r) => ({
+              id: r.id,
+              name: r.full_name,
+              territory:
+                r.market_code === 'NG'
+                  ? 'Nigeria (Lagos Hub)'
+                  : r.market_code === 'ZM'
+                  ? 'Zambia (Lusaka Hub)'
+                  : 'Malawi (Blantyre Hub)',
+            }))
+          );
+        }
+      }).catch((err) => {
+        console.warn('Could not load salespeople for export modal:', err);
+      });
+    }
+  }, [salespeople, marketName, isOpen]);
+
+  if (!isOpen) return null;
+
   const handleTriggerCsvDownload = async () => {
     setIsExporting(true);
     setExportError(null);
 
     const marketCode = resolveMarketCode(marketName);
+    const selectedRepObj = marketReps.find((r) => r.id === selectedRep || r.name === selectedRep);
+    const repName = selectedRepObj?.name;
+
     const { rowCount, error } = await managementService.exportCountryVisitsCsv({
       marketCode,
       repId: selectedRep,
+      repName,
+      dateRange,
+      startDate: dateRange === 'custom' ? customStartDate : undefined,
+      endDate: dateRange === 'custom' ? customEndDate : undefined,
+      includeUnverifiedExceptions,
+      includeProvisionalWarning,
     });
 
     setIsExporting(false);
@@ -125,7 +188,9 @@ export const CountryCsvExportModal: React.FC<CountryCsvExportModalProps> = ({
               <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto animate-bounce" />
               <h4 className="text-sm font-bold text-slate-900">CSV Export Generated &amp; Downloaded!</h4>
               <p className="text-xs text-slate-600 font-medium">
-                {exportedRowCount} visit records with CWE-1236 formula sanitisation saved to download. Export logged in audit ledger.
+                {exportedRowCount > 0
+                  ? `${exportedRowCount} visit records with CWE-1236 formula sanitisation saved to download. Export logged in audit ledger.`
+                  : `0 visit records matched the selected criteria (downloaded sanitized template with headers). Export logged in audit ledger.`}
               </p>
             </div>
           ) : (
@@ -190,6 +255,42 @@ export const CountryCsvExportModal: React.FC<CountryCsvExportModalProps> = ({
                     Custom Date Range
                   </button>
                 </div>
+
+                {/* Custom Date Range Picker */}
+                {dateRange === 'custom' && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 mt-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="flex items-center gap-1.5 text-slate-700 font-bold text-[11px]">
+                      <Calendar className="w-3.5 h-3.5 text-brand-blue" />
+                      <span>Pick Custom Date Range</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                          Start Date
+                        </label>
+                        <Input
+                          type="date"
+                          aria-label="Start Date"
+                          value={customStartDate}
+                          onChange={(e) => setCustomStartDate(e.target.value)}
+                          className="text-xs bg-white h-9"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                          End Date
+                        </label>
+                        <Input
+                          type="date"
+                          aria-label="End Date"
+                          value={customEndDate}
+                          onChange={(e) => setCustomEndDate(e.target.value)}
+                          className="text-xs bg-white h-9"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Salesperson Filter */}
@@ -201,10 +302,20 @@ export const CountryCsvExportModal: React.FC<CountryCsvExportModalProps> = ({
                   className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white"
                 >
                   <option value="all">All Country Sales Reps ({marketName})</option>
-                  <option value="CC-REP-042">Tunde Adebayo (Lagos Island / Lekki)</option>
-                  <option value="CC-REP-038">Chinyere Nwosu (Apapa Port)</option>
-                  <option value="CC-REP-039">Emeka Nwosu (Ibeju-Lekki Hub)</option>
-                  <option value="CC-REP-044">Ibrahim Sani (Kano North Depot)</option>
+                  {marketReps.length > 0 ? (
+                    marketReps.map((rep) => (
+                      <option key={rep.id} value={rep.id}>
+                        {rep.name} {rep.territory ? `(${rep.territory})` : ''}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Tunde Adebayo">Tunde Adebayo (Lagos Island / Lekki)</option>
+                      <option value="Chinyere Nwosu">Chinyere Nwosu (Apapa Port)</option>
+                      <option value="Emeka Nwosu">Emeka Nwosu (Ibeju-Lekki Hub)</option>
+                      <option value="Ibrahim Sani">Ibrahim Sani (Kano North Depot)</option>
+                    </>
+                  )}
                 </select>
               </div>
 
@@ -259,7 +370,7 @@ export const CountryCsvExportModal: React.FC<CountryCsvExportModalProps> = ({
               variant="default"
               size="sm"
               disabled={isExporting}
-              className="text-xs font-bold bg-brand-green-700 hover:bg-brand-green-800 text-white flex items-center gap-1.5"
+              className="text-xs font-bold bg-brand-green-700 hover:bg-brand-green-800 text-white flex items-center gap-1.5 cursor-pointer"
               onClick={handleTriggerCsvDownload}
             >
               {isExporting ? (

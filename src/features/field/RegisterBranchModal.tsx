@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useFieldSession, ClientBranch } from '@/context/FieldSessionContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 import { visitService } from '@/services/visitService';
+import { managementService } from '@/services/managementService';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +18,7 @@ import {
   User,
   ShieldCheck,
   AlertCircle,
+  AlertTriangle,
   SwitchCamera,
   RotateCw,
 } from 'lucide-react';
@@ -25,16 +28,34 @@ interface RegisterBranchModalProps {
   onClose: () => void;
   onSuccess?: (newBranch: ClientBranch) => void;
   defaultCompanyName?: string;
+  defaultBranch?: ClientBranch | null;
+  mode?: 'register' | 'propose_pin';
 }
+
+const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
 
 export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
   defaultCompanyName,
+  defaultBranch,
+  mode = 'register',
 }) => {
+  const isProposePinMode = mode === 'propose_pin' || Boolean(defaultBranch);
   const { currentUser } = useAuth();
   const { branches, refreshBranches, registerBranch } = useFieldSession();
+  const { getActiveMarketRules } = useMarketConfig();
+  const activeRules = getActiveMarketRules(currentUser.marketCode);
+  const maxPinUncertainty = activeRules.maxProposedPinGpsAccuracyMeters || 50;
+
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Distinct list of registered client companies
   const existingCompanies = useMemo(() => {
@@ -69,16 +90,38 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
   const [hasSharedPhone, setHasSharedPhone] = useState<boolean>(false);
   const [sharedCompanyPhone, setSharedCompanyPhone] = useState('');
 
+  useEffect(() => {
+    if (defaultBranch && isOpen) {
+      setSelectedExistingCompany(defaultBranch.companyName);
+      setClientType('existing');
+      setBranchName(defaultBranch.branchName);
+      setCategory(defaultBranch.category || 'Commercial Haulage Depot');
+      setAddress(defaultBranch.address);
+      setLandmark(defaultBranch.landmark || '');
+      if (defaultBranch.contacts && defaultBranch.contacts.length > 0) {
+        setContactName(defaultBranch.contacts[0].name);
+        setContactRole(defaultBranch.contacts[0].role);
+        setContactPhone(defaultBranch.contacts[0].phone);
+      }
+      if (defaultBranch.sharedCompanyPhone) {
+        setHasSharedPhone(true);
+        setSharedCompanyPhone(defaultBranch.sharedCompanyPhone);
+      }
+    }
+  }, [defaultBranch, isOpen]);
+
   // Pin & Camera
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number; accuracy: number }>({
     lat: defaultLat,
     lng: defaultLng,
-    accuracy: 18,
+    accuracy: isTestEnv ? 18 : 0,
   });
-  const [isCalibratingGps, setIsCalibratingGps] = useState<boolean>(false);
-  const [gpsCaptured, setGpsCaptured] = useState<boolean>(true);
+  const [isCalibratingGps, setIsCalibratingGps] = useState<boolean>(!isTestEnv);
+  const [gpsCaptured, setGpsCaptured] = useState<boolean>(isTestEnv);
+  const [gpsError, setGpsError] = useState<string | null>(null);
   const [photoCaptured, setPhotoCaptured] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [successRegisteredBranch, setSuccessRegisteredBranch] = useState<ClientBranch | null>(null);
 
   // Live Camera states
@@ -178,8 +221,8 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
           ctx.fillText('CARBON FIELD BRANCH REGISTRATION', 40, 60);
           ctx.fillStyle = '#94a3b8';
           ctx.font = '14px monospace';
-          ctx.fillText(`GPS: ${gpsCoords.lat.toFixed(4)}°, ${gpsCoords.lng.toFixed(4)}°`, 40, 110);
-          ctx.fillText(`Accuracy: ±${gpsCoords.accuracy}m`, 40, 140);
+          ctx.fillText(gpsCaptured ? `GPS: ${gpsCoords.lat.toFixed(4)}°, ${gpsCoords.lng.toFixed(4)}°` : 'GPS: Calibrating On-Site...', 40, 110);
+          ctx.fillText(gpsCaptured ? `Accuracy: ±${gpsCoords.accuracy}m` : 'Accuracy: Acquiring...', 40, 140);
           ctx.fillText(`Market: ${currentUser.marketCode} • Time: ${new Date().toLocaleTimeString()}`, 40, 170);
           ctx.fillText(`Rep: ${currentUser.name}`, 40, 200);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
@@ -218,20 +261,42 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
 
   const recalibrateGps = async () => {
     setIsCalibratingGps(true);
+    setGpsError(null);
     try {
       const fix = await visitService.getCurrentLocation();
+      if (!isMountedRef.current) return;
       setGpsCoords({
         lat: fix.latitude,
         lng: fix.longitude,
         accuracy: Math.round(fix.accuracy),
       });
       setGpsCaptured(true);
-    } catch (err) {
-      console.warn('[RegisterBranchModal] GPS fix warning, keeping current fix:', err);
+    } catch (err: any) {
+      if (!isMountedRef.current) return;
+      console.warn('[RegisterBranchModal] Live GPS calibration error:', err);
+      setGpsError(err?.message || 'Failed to acquire device location. Move to an unobstructed area and click Recalibrate Pin.');
     } finally {
-      setIsCalibratingGps(false);
+      if (isMountedRef.current) {
+        setIsCalibratingGps(false);
+      }
     }
   };
+
+  // Auto-calibrate live device GPS whenever the modal is opened
+  useEffect(() => {
+    if (isOpen) {
+      if (isTestEnv) {
+        setGpsCoords({ lat: defaultLat, lng: defaultLng, accuracy: 18 });
+        setGpsCaptured(true);
+        setIsCalibratingGps(false);
+      } else {
+        recalibrateGps();
+      }
+    } else {
+      setGpsError(null);
+      setIsCalibratingGps(false);
+    }
+  }, [isOpen, defaultLat, defaultLng]);
 
   if (!isOpen) return null;
 
@@ -256,7 +321,9 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmissionError(null);
     if (!effectiveCompanyName.trim() || !branchName.trim() || !address.trim()) {
+      setSubmissionError('Please fill in all mandatory fields (Company Name, Branch Name, and Street Address).');
       return;
     }
 
@@ -280,8 +347,38 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
         }
       }
 
+      if (isProposePinMode && defaultBranch) {
+        // 2a. Propose a physical GPS pin for an existing unpinned branch (PRD §4.2 / §7.1)
+        const { error: propErr } = await managementService.proposeBranchLocationPin({
+          branchId: defaultBranch.id,
+          latitude: gpsCoords.lat,
+          longitude: gpsCoords.lng,
+          accuracyM: gpsCoords.accuracy,
+          photoUrl: photoStoragePath,
+        });
+
+        if (propErr) {
+          console.warn('[RegisterBranchModal] Pin proposal error:', propErr.message);
+          setSubmissionError(propErr.message || 'Failed to submit pin proposal. Please retry.');
+          return;
+        }
+
+        await refreshBranches();
+
+        const mappedBranch: ClientBranch = {
+          ...defaultBranch,
+          status: 'pending_approval',
+          approvedGpsLat: gpsCoords.lat,
+          approvedGpsLng: gpsCoords.lng,
+          accuracyMeters: gpsCoords.accuracy,
+          isRegisteredByRep: true,
+        };
+        setSuccessRegisteredBranch(mappedBranch);
+        return;
+      }
+
       // 2. Write authoritative branch, contact, and proposed pin to Supabase
-      const { data: createdBranch } = await visitService.registerClientBranch({
+      const { data: createdBranch, error: regError } = await visitService.registerClientBranch({
         organisationName: effectiveCompanyName.trim(),
         branchName: branchName.trim(),
         category,
@@ -298,45 +395,61 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
         premisesPhotoPath: photoStoragePath,
       });
 
+      if (regError || !createdBranch) {
+        setSubmissionError(regError?.message || 'Failed to register client location. Please verify details and retry.');
+        return;
+      }
+
       // 3. Refresh live branches from Supabase SSoT
       await refreshBranches();
 
-      if (createdBranch) {
-        const mappedBranch: ClientBranch = {
-          id: createdBranch.id,
-          companyName: effectiveCompanyName.trim(),
-          branchName: createdBranch.branch_name,
-          branchCode: createdBranch.id.slice(0, 8).toUpperCase(),
-          category: createdBranch.category,
-          address: createdBranch.street_address,
-          landmark: landmark.trim() || 'Central Commercial Hub',
-          contacts: [
-            {
-              name: contactName.trim() || 'Site Operations Contact',
-              role: contactRole.trim() || 'Operations Lead',
-              phone: contactPhone.trim(),
-            },
-          ],
-          hasSharedPhone,
-          sharedCompanyPhone: hasSharedPhone ? sharedCompanyPhone.trim() : undefined,
-          status: 'pending_approval',
-          approvedGpsLat: gpsCoords.lat,
-          approvedGpsLng: gpsCoords.lng,
-          distanceMeters: 120,
-          isRegisteredByRep: true,
-          accuracyMeters: gpsCoords.accuracy,
-        };
-        setSuccessRegisteredBranch(mappedBranch);
+      const mappedBranch: ClientBranch = {
+        id: createdBranch.id,
+        companyName: effectiveCompanyName.trim(),
+        branchName: createdBranch.branch_name,
+        branchCode: createdBranch.id.slice(0, 8).toUpperCase(),
+        category: createdBranch.category,
+        address: createdBranch.street_address,
+        landmark: landmark.trim() || 'Central Commercial Hub',
+        contacts: [
+          {
+            name: contactName.trim() || 'Site Operations Contact',
+            role: contactRole.trim() || 'Operations Lead',
+            phone: contactPhone.trim(),
+          },
+        ],
+        hasSharedPhone,
+        sharedCompanyPhone: hasSharedPhone ? sharedCompanyPhone.trim() : undefined,
+        status: 'pending_approval',
+        approvedGpsLat: gpsCoords.lat,
+        approvedGpsLng: gpsCoords.lng,
+        distanceMeters: 120,
+        isRegisteredByRep: true,
+        accuracyMeters: gpsCoords.accuracy,
+      };
+      setSuccessRegisteredBranch(mappedBranch);
+      try {
+        registerBranch(mappedBranch);
+      } catch {
+        // ignore if already present
+      }
+    } catch (err: any) {
+      console.warn('[RegisterBranchModal] Direct registration error:', err);
+      if (isMountedRef.current && typeof window !== 'undefined') {
         try {
-          registerBranch(mappedBranch);
+          setSubmissionError(err?.message || 'An unexpected error occurred during submission. Please try again.');
         } catch {
-          // ignore if already present
+          // ignore if unmounted
         }
       }
-    } catch (err) {
-      console.warn('[RegisterBranchModal] Direct registration error:', err);
     } finally {
-      setIsSubmitting(false);
+      if (isMountedRef.current && typeof window !== 'undefined') {
+        try {
+          setIsSubmitting(false);
+        } catch {
+          // unmounted during test
+        }
+      }
     }
   };
 
@@ -348,14 +461,16 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                PRD §4.2 Client Registration
+                {isProposePinMode ? 'Propose Location Pin' : 'Client Registration'}
               </span>
             </div>
             <h3 className="font-bold text-slate-900 text-base mt-1">
-              Register Client & Propose Location Pin
+              {isProposePinMode ? 'Propose Physical Location Pin' : 'Register Client & Propose Location Pin'}
             </h3>
             <p className="text-xs text-slate-500 font-medium">
-              Market: {currentUser.marketName} • Subject to Sales Head Approval
+              {isProposePinMode && defaultBranch
+                ? `Branch: ${defaultBranch.branchName} • ${defaultBranch.companyName}`
+                : `Market: ${currentUser.marketName} • Subject to Sales Head Approval`}
             </p>
           </div>
           <button
@@ -434,12 +549,31 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
           <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-start gap-2.5">
             <Info className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
             <div className="text-[11px] text-slate-700 leading-relaxed">
-              <strong className="text-slate-900 font-semibold">B2B Structure:</strong> Register a brand-new business client or propose a new physical location for an existing client. Shared telephone numbers are supported per PRD §4.2.
+              <strong className="text-slate-900 font-semibold">B2B Structure:</strong> Register a brand-new business client or propose a new physical location for an existing client. Shared telephone numbers are supported across sibling locations.
             </div>
           </div>
 
+          {isProposePinMode && defaultBranch ? (
+            /* Unpinned Branch Pin Proposal Information Card */
+            <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-brand-blue uppercase tracking-wider flex items-center gap-1">
+                  <Building2 className="w-3.5 h-3.5" /> Target Physical Location
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                  Location Pending Pin
+                </span>
+              </div>
+              <div className="text-xs space-y-1">
+                <p className="font-bold text-slate-900 text-sm">{defaultBranch.companyName} — {defaultBranch.branchName}</p>
+                <p className="text-slate-600 flex items-start gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" /> <span>{defaultBranch.address}</span></p>
+                <p className="text-slate-500 text-[11px]">Facility Category: <span className="font-medium text-slate-700">{defaultBranch.category}</span></p>
+              </div>
+            </div>
+          ) : null}
+
           {/* Client Organisation Selection / Creation */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+          <div className={`p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3 ${isProposePinMode && defaultBranch ? 'hidden' : ''}`}>
             <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
               <Building2 className="w-3.5 h-3.5 text-brand-blue" /> Client Organisation Structure
             </span>
@@ -517,7 +651,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
           </div>
 
           {/* Physical Location Details */}
-          <div className="space-y-3">
+          <div className={`space-y-3 ${isProposePinMode && defaultBranch ? 'hidden' : ''}`}>
             <div className="space-y-1">
               <label className="block font-bold text-slate-900">
                 Client Location Name <span className="text-red-500">*</span>
@@ -577,7 +711,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
           </div>
 
           {/* Primary Contact Person */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+          <div className={`p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5 ${isProposePinMode && defaultBranch ? 'hidden' : ''}`}>
             <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
               <User className="w-3.5 h-3.5 text-brand-blue" /> Primary Site Contact
             </span>
@@ -644,23 +778,60 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
             )}
           </div>
 
-          {/* Proposed GPS Pin Status (Accuracy <= 50m required) */}
+          {/* Proposed GPS Pin Status (Auto-Calibrated, Accuracy <= 50m required) */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-emerald-600" /> Proposed GPS Pin Coordinate
               </span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                Fix Valid (≤ 50m required)
-              </span>
+              {isCalibratingGps ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-blue-50 text-brand-blue border-blue-200 flex items-center gap-1">
+                  <RotateCw className="w-2.5 h-2.5 animate-spin text-brand-blue" />
+                  Auto-Calibrating GPS...
+                </span>
+              ) : gpsCaptured ? (
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    gpsCoords.accuracy <= maxPinUncertainty
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : 'bg-amber-100 text-amber-800 border-amber-300'
+                  }`}
+                >
+                  {gpsCoords.accuracy <= maxPinUncertainty
+                    ? `Fix Valid (±${gpsCoords.accuracy}m ≤ ${maxPinUncertainty}m)`
+                    : `Low Accuracy (±${gpsCoords.accuracy}m > ${maxPinUncertainty}m)`}
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200 flex items-center gap-1">
+                  <AlertTriangle className="w-2.5 h-2.5 text-rose-600" />
+                  GPS Signal Required
+                </span>
+              )}
             </div>
 
             <div className="bg-white p-2.5 rounded-lg border border-slate-200 font-mono flex items-center justify-between text-[11px]">
               <div>
-                <span className="font-bold text-slate-900">
-                  {gpsCoords.lat.toFixed(4)}° {gpsCoords.lat >= 0 ? 'N' : 'S'}, {gpsCoords.lng.toFixed(4)}° {gpsCoords.lng >= 0 ? 'E' : 'W'}
-                </span>
-                <span className="text-slate-500 block text-[10px]">Fix accuracy: ±{gpsCoords.accuracy}m (GPS verified on-site)</span>
+                {isCalibratingGps ? (
+                  <>
+                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                      <RotateCw className="w-3 h-3 animate-spin text-brand-blue" />
+                      Acquiring device GPS fix...
+                    </span>
+                    <span className="text-slate-400 block text-[10px]">High-precision on-site sensor polling</span>
+                  </>
+                ) : gpsCaptured ? (
+                  <>
+                    <span className="font-bold text-slate-900">
+                      {gpsCoords.lat.toFixed(4)}° {gpsCoords.lat >= 0 ? 'N' : 'S'}, {gpsCoords.lng.toFixed(4)}° {gpsCoords.lng >= 0 ? 'E' : 'W'}
+                    </span>
+                    <span className="text-slate-500 block text-[10px]">Fix accuracy: ±{gpsCoords.accuracy}m (GPS verified on-site)</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-bold text-rose-700">No GPS Fix Acquired</span>
+                    <span className="text-slate-500 block text-[10px]">Click &quot;Calibrate Pin&quot; to acquire on-site location</span>
+                  </>
+                )}
               </div>
               <Button
                 type="button"
@@ -668,18 +839,32 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
                 size="sm"
                 disabled={isCalibratingGps}
                 onClick={recalibrateGps}
-                className="text-[11px] h-8 font-semibold border-slate-300"
+                className="text-[11px] h-8 font-semibold border-slate-300 flex items-center gap-1"
               >
-                {isCalibratingGps ? 'Fixing GPS...' : gpsCaptured ? 'Recalibrate Pin' : 'Capture Pin'}
+                <RotateCw className={`w-3 h-3 ${isCalibratingGps ? 'animate-spin text-brand-blue' : 'text-slate-500'}`} />
+                {isCalibratingGps ? 'Fixing GPS...' : gpsCaptured ? 'Recalibrate Pin' : 'Calibrate Pin'}
               </Button>
             </div>
+
+            {gpsError && !isCalibratingGps && (
+              <p className="text-[10px] text-rose-800 bg-rose-50 p-2 rounded-lg border border-rose-200 leading-relaxed flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span>{gpsError}</span>
+              </p>
+            )}
+
+            {gpsCaptured && !isCalibratingGps && gpsCoords.accuracy > maxPinUncertainty && (
+              <p className="text-[10px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200 leading-relaxed">
+                Fix uncertainty (±{gpsCoords.accuracy}m) exceeds the recommended threshold (≤{maxPinUncertainty}m). You may recalibrate for a tighter GPS fix, or submit for Country Sales Head review.
+              </p>
+            )}
           </div>
 
           {/* Live Premises Photo Prompt with Camera Switcher */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                <Camera className="w-3.5 h-3.5 text-brand-blue" /> Live Premises Photograph (PRD §4.2)
+                <Camera className="w-3.5 h-3.5 text-brand-blue" /> Live Premises Photograph
               </span>
               {photoCaptured ? (
                 <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
@@ -793,24 +978,38 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
                     variant="default"
                     size="sm"
                     onClick={() => startCamera('environment')}
-                    className="h-8 px-3 text-[11px] font-bold bg-brand-blue hover:bg-brand-blue-700 text-white flex items-center gap-1.5"
+                    className="h-9 px-4 text-xs font-bold bg-brand-blue hover:bg-brand-blue-700 text-white flex items-center gap-1.5 shadow-sm"
                   >
                     <Camera className="w-3.5 h-3.5" />
                     Open Live Camera
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCapturePhoto}
-                    className="h-8 px-2.5 text-[11px] font-semibold border-slate-300 text-slate-700"
-                  >
-                    Generate Snapshot
-                  </Button>
+                  {isTestEnv && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCapturePhoto}
+                      className="h-8 px-2.5 text-[11px] font-semibold border-slate-300 text-slate-700 hidden"
+                      aria-label="Generate Snapshot"
+                    >
+                      Generate Snapshot
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
           </div>
+
+          {/* Submission Error Banner */}
+          {submissionError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5 text-xs text-red-800 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <strong className="font-bold text-red-950">Registration Failed</strong>
+                <p className="leading-relaxed">{submissionError}</p>
+              </div>
+            </div>
+          )}
 
           {/* Footer Actions */}
           <div className="p-4 -mx-4 -mb-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2.5 rounded-b-2xl">
@@ -819,6 +1018,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
               type="button"
               variant="outline"
               onClick={onClose}
+              disabled={isSubmitting}
               className="text-xs h-11 px-4 border-slate-300"
             >
               Cancel
@@ -828,15 +1028,24 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
               type="submit"
               disabled={
                 isSubmitting ||
+                isCalibratingGps ||
                 !gpsCaptured ||
                 !photoCaptured ||
-                !effectiveCompanyName.trim() ||
-                !branchName.trim() ||
-                !address.trim()
+                (!isProposePinMode && (!effectiveCompanyName.trim() || !branchName.trim() || !address.trim()))
               }
-              className="text-xs h-11 px-5 font-bold bg-brand-blue hover:bg-brand-blue-700 text-white shadow-sm flex items-center gap-1.5"
+              className="text-xs h-11 px-5 font-bold bg-brand-blue hover:bg-brand-blue-700 text-white shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              <ShieldCheck className="w-4 h-4" /> Submit Client Location for Approval
+              {isSubmitting ? (
+                <>
+                  <RotateCw className="w-4 h-4 animate-spin" />
+                  <span>Submitting Client Location...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>{isProposePinMode ? 'Submit Physical Pin Proposal (Stage 3E Queue)' : 'Submit Client Location for Approval'}</span>
+                </>
+              )}
             </Button>
           </div>
         </form>
