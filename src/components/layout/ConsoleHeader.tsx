@@ -70,11 +70,11 @@ export const ConsoleHeader: React.FC<ConsoleHeaderProps> = ({
 
         {/* Provisional Reporting indicator */}
         <div
-          className="hidden xl:flex items-center gap-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-lg px-2.5 py-1 text-xs font-medium"
+          className="hidden xl:flex items-center gap-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-lg px-2.5 py-1 text-xs font-medium whitespace-nowrap shrink-0"
           title="Daily data remains provisional until the 19:00 local digest and next-day sync reconciliation"
         >
-          <Clock className="w-3.5 h-3.5 text-amber-700" />
-          <span>Provisional (Reconciliation 19:00)</span>
+          <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+          <span className="whitespace-nowrap">Provisional (Reconciliation 19:00)</span>
         </div>
 
         {/* Notifications Icon & Interactive Review Alerts Panel */}

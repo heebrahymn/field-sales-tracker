@@ -308,16 +308,19 @@ export const NotificationsMenu: React.FC<NotificationsMenuProps> = ({ onSelectSe
           aria-label="Notifications panel"
         >
           {/* Header */}
-          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-brand-blue/10 flex items-center justify-center text-brand-blue">
+          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-brand-blue/10 flex items-center justify-center text-brand-blue shrink-0">
                 <Bell className="w-4 h-4" />
               </div>
-              <div>
-                <h3 className="text-xs font-bold text-slate-900 leading-none">
+              <div className="min-w-0">
+                <h3 className="text-xs font-bold text-slate-900 leading-none truncate">
                   Review Notifications
                 </h3>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                <p
+                  className="text-[11px] text-slate-500 font-medium mt-0.5 truncate"
+                  title={currentUser.marketName || currentUser.marketCode}
+                >
                   {currentUser.role === 'hq_admin'
                     ? 'HQ Regional Governance'
                     : `Assigned Market: ${currentUser.marketName || currentUser.marketCode}`}
@@ -325,19 +328,19 @@ export const NotificationsMenu: React.FC<NotificationsMenuProps> = ({ onSelectSe
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               {totalPendingCount > 0 ? (
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap shrink-0">
                   {totalPendingCount} Action Required
                 </span>
               ) : (
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> All Clear
+                <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 whitespace-nowrap shrink-0">
+                  <CheckCircle2 className="w-3 h-3 shrink-0" /> All Clear
                 </span>
               )}
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-colors"
+                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-colors shrink-0 cursor-pointer"
                 title="Close"
                 aria-label="Close notifications panel"
               >
