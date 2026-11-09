@@ -1,17 +1,21 @@
 import React from 'react';
 import { useAuth, MarketCode } from '@/context/AuthContext';
-import { Bell, Clock, Globe2, Menu } from 'lucide-react';
+import { Clock, Globe2, Menu } from 'lucide-react';
+import { NotificationsMenu } from './NotificationsMenu';
+import { DesktopNavSection } from './DesktopSidebar';
 
 interface ConsoleHeaderProps {
   title: string;
   subtitle?: string;
   onToggleMenu?: () => void;
+  onSelectSection?: (section: DesktopNavSection) => void;
 }
 
 export const ConsoleHeader: React.FC<ConsoleHeaderProps> = ({
   title,
   subtitle,
   onToggleMenu,
+  onSelectSection,
 }) => {
   const { currentUser, selectedMarket, switchMarket } = useAuth();
   const isHQ = currentUser.role === 'hq_admin';
@@ -73,14 +77,8 @@ export const ConsoleHeader: React.FC<ConsoleHeaderProps> = ({
           <span>Provisional (Reconciliation 19:00)</span>
         </div>
 
-        {/* Notifications Icon with pending count */}
-        <button
-          className="relative p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-          title="Unresolved review alerts"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />
-        </button>
+        {/* Notifications Icon & Interactive Review Alerts Panel */}
+        <NotificationsMenu onSelectSection={onSelectSection} />
       </div>
     </header>
   );

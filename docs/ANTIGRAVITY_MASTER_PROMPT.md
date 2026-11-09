@@ -4,7 +4,7 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
-**Status:** Stages 0–3F Completed; Post-UAT Stabilisation & Release Candidate 1.0.0 Promoted (`rc-1.0.0-uat-verified` — DEF-001–DEF-019 Formally Accepted by Project Owner; 288/288 Vitest Tests Passing; 13/13 Direct API/RLS Passing; 29-Migration & Private Storage Parity Confirmed); Controlled Vercel Staging Deployed; Ready for Physical Handset Field Pilot  
+**Status:** Stages 0–3F Completed; Post-UAT Stabilisation & Release Candidate 1.0.1 (DEF-001–DEF-019 Formally Accepted by Project Owner; Interactive Notifications Menu Integrated; 295/295 Vitest Tests Passing; 13/13 Direct API/RLS Passing; 29-Migration & Private Storage Parity Confirmed); Controlled Vercel Staging Deployed; Ready for Physical Handset Field Pilot  
 **Maintainer:** Project owner
 
 ## 1. Role and working standard
@@ -239,6 +239,7 @@ Only a future-phase roadmap may describe these. Meeting purpose can mention foll
 | **Post-UAT RC Verification** | Consolidation of DEF-001–DEF-019, In-App Simulator Elimination, Multi-View Table Pagination, Non-Visit Auth Fix, 3-State Device Custody Reconciliation, Live Supabase Parity | **Completed** (288/288 Vitest Tests Passing across 30 suites, 13/13 API RLS, 0 TS Errors, 0 ESLint Errors, Vite Production Build Passing) |
 | **UAT Retest Sign-Off** | Formal Project Owner Acceptance Retest for Corrected Workflows DEF-001–DEF-019 | **Completed** (19/19 Retests Passed; Formally Accepted by Project Owner; Zero Retests Outstanding) |
 | **Release Candidate 1.0.0** | Final Verified RC Package (`rc-1.0.0-uat-verified`) Promoted to GitHub & Controlled Vercel Staging (`https://field-sales-tracker-b6l7.vercel.app/`) | **Completed** (Zero Mock Leakage, 29-Migration & 7-Bucket Private Storage Parity Confirmed) |
+| **Notifications & Alerts** | Interactive Console Notifications Menu & Direct Workbench Navigation for CSH & HQ Admin | **Completed** (295/295 Vitest Tests Passing, Zero Simulator Leakage) |
 | **Field Pilot** | Real-device physical GPS/camera/offline QA on Samsung Galaxy A15 / Nokia G22, local IT commissioning, final field pilot reconciliation | Ready for Controlled Execution |
 | **Operational Rollout** | Business-wide multi-market operational go-live across Nigeria, Zambia, and Malawi | Awaiting Final Stakeholder Authorisation |
 

@@ -179,6 +179,10 @@ To maintain absolute focus on core field activity verification and operational i
    - Multi-parameter filter bar: filter records by **Salesperson**, **Date Range** (with custom start/end date inputs), **Client Branch**, and **Verification Status**.
    - Dual-tab view: Sales Representative Operational Breakdown (comparative team performance) and Individual Visit Records (granular audit trail with live search).
    - **CWE-1236 Formula Injection Escaping:** Audited CSV export modal automatically escaping formula triggers (`=`, `+`, `-`, `@`, `\t`, `\r`) with leading single quotes (`'`).
+9. **Interactive Console Notifications Menu (`NotificationsMenu.tsx`):**
+   - Clickable header bell trigger with dynamic amber badge displaying total unresolved action items across review queues.
+   - Role-tailored dropdown panel covering: Pending Field Exceptions (`exceptions`), Client & GPS Pin Proposals (`approvals`), Risk Flags Queue (`flags`), Non-Visit Attendance Requests (`attendance`), and 5% Client Audit Calls (`audits`).
+   - Deep linking: clicking any alert card immediately switches the console view to the target workbench and closes the dropdown.
 
 ---
 

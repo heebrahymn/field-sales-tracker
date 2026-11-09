@@ -3,8 +3,8 @@
 **Project:** Carbon Field Sales Tracker  
 **Business:** Carbon Car Care  
 **Reference:** PRD v1.2 (MVP Updated)  
-**Last Updated:** November 4, 2026  
-**Current Milestone:** Release Candidate 1.0.0 (`rc-1.0.0-uat-verified`) Approved & Promoted to GitHub & Controlled Vercel Staging (DEF-001–DEF-019 Formally Accepted by Project Owner; 288/288 Vitest Tests Passing; Ready for Physical Handset Field Pilot)  
+**Last Updated:** November 9, 2026  
+**Current Milestone:** Release Candidate 1.0.1 (DEF-001–DEF-019 Formally Accepted; Interactive Console Notifications Menu Integrated; 295/295 Vitest Tests Passing; Ready for Physical Handset Field Pilot)  
 
 ---
 
@@ -41,6 +41,7 @@
 [✓] Post-UAT RC Verification — Defect Consolidation DEF-001–DEF-019, In-App Simulator Scoping, Multi-View Table Pagination, Non-Visit Auth Fix, 3-State Device Custody Reconciliation, Live Supabase Parity (288/288 Vitest, 13/13 API RLS, 0 TS Errors, 0 ESLint Errors)
 [✓] Stakeholder Retest Sign-Off — Formal Project Owner Acceptance Retest for Corrected Workflows DEF-001–DEF-019 (19/19 Retests Passed; Formally Accepted by Project Owner)
 [✓] Release Candidate 1.0.0 — Final Verified RC Baseline (`rc-1.0.0-uat-verified`) Promoted to GitHub & Controlled Vercel Staging (`https://field-sales-tracker-b6l7.vercel.app/`)
+[✓] Notifications & Alerts — Interactive Console Notifications Menu & Direct Workbench Navigation for CSH & HQ Admin (295/295 Vitest Tests Passing)
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
 ```

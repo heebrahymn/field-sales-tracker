@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Release Candidate 1.0.1 - Notifications & Review Alerts Enhancement] (2026-11-09)
+
+### Interactive Review Notifications & Console Alerts Panel
+- **Clickable Notification Bell & Unresolved Alert Trigger:** Replaced the unclickable static notification button in `ConsoleHeader.tsx` with `NotificationsMenu.tsx`, featuring a dynamic amber count badge reflecting real unresolved items across review queues.
+- **Role-Tailored Notification Queues:**
+  - **Country Sales Head:** Scoped to assigned market (`NG`, `ZM`, `MW`) covering Pending Field Exceptions (`exceptions`), Client & GPS Pin Proposals (`approvals`), Risk Flags Queue (`flags`), Non-Visit Workday Requests (`attendance`), and 5% Client Audit Calls (`audits`).
+  - **HQ Regional Admin:** Global regional oversight covering Company Device Replacements (`devices`), Field Exceptions Oversight (`exceptions`), Pending Branch Registrations (`clients`), Open Verification Flags (`dashboard`), and Client Audit Disputes (`audits`).
+- **Deep Linking & Workbench Navigation:** Clicking any notification card immediately switches the console view to the respective management workbench via `onSelectSection(sectionId)` in `AppShell.tsx` and closes the dropdown.
+- **Robust UX & Accessibility:** Added outside-click detection, `Escape` key dismissal, live manual queue refresh with timestamp, and clean empty state (*"All Queues Up to Date"*).
+- **Automated Verification:** Added 7 unit and integration tests in `src/test/notifications-menu.test.tsx` (all passing). Vitest suite expanded to 295 / 295 tests passing across 31 test suites with 0 TypeScript compiler errors and clean production build.
+
+---
+
 ## [Release Candidate rc-1.0.0-uat-verified] - Post-UAT Stabilisation, Defect Consolidation & Release Candidate Verification (2026-11-04)
 
 ### Post-UAT Defect Consolidation & Code Resolution (DEF-001 through DEF-019)
