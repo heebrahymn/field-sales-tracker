@@ -49,6 +49,7 @@ export interface DatabaseBranchWithDetails {
     decision_reason?: string | null;
     reviewed_at?: string | null;
     reviewed_by?: string | null;
+    premises_photo_url?: string | null;
   }>;
 }
 
@@ -265,59 +266,79 @@ export const visitService = {
     error: Error | null;
   }> {
     try {
-      let query = supabase
-        .from('branches')
-        .select(`
-          id,
-          branch_name,
-          category,
-          city,
-          street_address,
-          switchboard_phone,
-          estimated_fleet_size,
-          market_code,
-          operating_status,
-          organisation_id,
-          organisations (
-            id,
-            name,
-            market_code
-          ),
-          client_contacts (
-            id,
-            full_name,
-            designation,
-            phone_number,
-            email,
-            is_primary
-          ),
-          branch_location_pins (
-            id,
-            latitude,
-            longitude,
-            reported_accuracy_m,
-            status,
-            is_active,
-            version_number,
-            decision_reason,
-            reviewed_at,
-            reviewed_by
-          )
-        `)
-        .order('branch_name', { ascending: true });
+      const PAGE_SIZE = 1000;
+      const allRows: DatabaseBranchWithDetails[] = [];
+      let from = 0;
 
-      if (marketCode) {
-        query = query.eq('market_code', marketCode);
+      while (true) {
+        let query = supabase
+          .from('branches')
+          .select(`
+            id,
+            branch_name,
+            category,
+            city,
+            street_address,
+            switchboard_phone,
+            estimated_fleet_size,
+            market_code,
+            operating_status,
+            organisation_id,
+            organisations (
+              id,
+              name,
+              market_code
+            ),
+            client_contacts (
+              id,
+              full_name,
+              designation,
+              phone_number,
+              email,
+              is_primary
+            ),
+            branch_location_pins (
+              id,
+              latitude,
+              longitude,
+              reported_accuracy_m,
+              status,
+              is_active,
+              version_number,
+              decision_reason,
+              reviewed_at,
+              reviewed_by,
+              premises_photo_url
+            )
+          `)
+          .order('branch_name', { ascending: true });
+
+        if (marketCode) {
+          query = query.eq('market_code', marketCode);
+        }
+
+        const supportsRange = typeof (query as any)?.range === 'function';
+        const pagedQuery = supportsRange
+          ? (query as any).range(from, from + PAGE_SIZE - 1)
+          : query;
+
+        const { data, error } = await pagedQuery;
+
+        if (error) {
+          console.error('[visitService] Error loading clients/branches:', error);
+          return { data: [], error: new Error(error.message) };
+        }
+
+        const chunk = (data as unknown as DatabaseBranchWithDetails[]) || [];
+        allRows.push(...chunk);
+
+        if (!supportsRange || chunk.length < PAGE_SIZE) {
+          break;
+        }
+        from += PAGE_SIZE;
       }
 
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('[visitService] Error loading clients/branches:', error);
-        return { data: [], error: new Error(error.message) };
-      }
-
-      return { data: (data as unknown as DatabaseBranchWithDetails[]) || [], error: null };
+      return { data: allRows, error: null };
     } catch (err: any) {
       console.error('[visitService] getClientsAndBranches caught exception:', err);
       return { data: [], error: err instanceof Error ? err : new Error(String(err)) };
@@ -692,6 +713,44 @@ export const visitService = {
         return {
           storagePath: null,
           error: new Error(`Failed to upload business card photo: ${uploadError.message}`),
+        };
+      }
+
+      return { storagePath, error: null };
+    } catch (err: any) {
+      return {
+        storagePath: null,
+        error: err instanceof Error ? err : new Error(String(err)),
+      };
+    }
+  },
+
+  /**
+   * Uploads optional picture evidence for a salesperson-submitted exception
+   * to the private 'exception-evidence' bucket (`<userId>/<exceptionId>_evidence_<ts>.<ext>`).
+   */
+  async uploadExceptionEvidencePhoto(
+    userId: string,
+    exceptionId: string,
+    photoBlob: Blob
+  ): Promise<{ storagePath: string | null; error: Error | null }> {
+    try {
+      const contentType = photoBlob.type && photoBlob.type.startsWith('image/') ? photoBlob.type : 'image/jpeg';
+      const ext = contentType === 'image/png' ? 'png' : contentType === 'image/webp' ? 'webp' : 'jpg';
+      const storagePath = `${userId}/${exceptionId}_evidence_${Date.now()}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('exception-evidence')
+        .upload(storagePath, photoBlob, {
+          contentType,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error('[visitService] Exception evidence photo upload failed:', uploadError);
+        return {
+          storagePath: null,
+          error: new Error(`Failed to upload exception picture evidence: ${uploadError.message}`),
         };
       }
 

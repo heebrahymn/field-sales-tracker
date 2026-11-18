@@ -6,6 +6,8 @@ import {
   AbsenceRequestRecord,
   formatMarketTime,
   getMarketWorkDate,
+  buildClaimedVisitTimestampIso,
+  formatExceptionSubmissionLag,
 } from '@/services/attendanceService';
 import {
   visitService,
@@ -50,6 +52,7 @@ export interface ClientBranch {
   registeredByRepName?: string;
   accuracyMeters?: number;
   evidenceNote?: string;
+  premisesPhotoUrl?: string;
   status: 'approved' | 'pending_approval' | 'rejected';
   lastVisitDate?: string;
   managerDecision?: {
@@ -108,6 +111,7 @@ export interface FieldExceptionRecord {
   claimedTime: string;
   reason: string;
   evidenceNote: string;
+  supportingEvidenceUrl?: string;
   submittedAt: string;
   submittedAtIso?: string;
   claimedAtIso?: string;
@@ -208,7 +212,12 @@ interface FieldSessionContextType {
   // Exceptions
   exceptions: FieldExceptionRecord[];
   refreshExceptions: () => Promise<void>;
-  submitException: (exception: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'>) => void;
+  submitException: (
+    exception: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'> & {
+      evidencePhotoBlob?: Blob | null;
+      branchCode?: string;
+    }
+  ) => Promise<void> | void;
   approveException: (exceptionId: string, reason: string, managerName?: string) => void;
   rejectException: (exceptionId: string, reason: string, managerName?: string) => void;
   escalateException: (exceptionId: string, reason: string, managerName?: string) => void;
@@ -562,13 +571,24 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
                 phone: c.phone_number,
               })) || [];
 
+            const rawStreet = (b.street_address || '').trim();
+            const rawCity = (b.city || '').trim();
+            const formattedAddress =
+              rawStreet && rawCity && !rawStreet.toLowerCase().includes(rawCity.toLowerCase())
+                ? `${rawStreet}, ${rawCity}`
+                : rawStreet || rawCity || 'Registered site address';
+            const orgName =
+              (Array.isArray((b as any).organisations)
+                ? (b as any).organisations[0]?.name
+                : b.organisations?.name) || 'Registered Client';
+
             return {
               id: b.id,
-              companyName: b.organisations?.name || 'Registered Client',
+              companyName: orgName,
               branchName: b.branch_name,
               branchCode: b.branch_name.substring(0, 3).toUpperCase() + '-' + b.id.substring(0, 4).toUpperCase(),
               category: b.category,
-              address: `${b.street_address}, ${b.city}`,
+              address: formattedAddress,
               landmark: '',
               contacts,
               sharedCompanyPhone: b.switchboard_phone,
@@ -579,6 +599,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
               approvedPinId: approvedPin?.id,
               approvedPinVersion: pin?.version_number,
               accuracyMeters: pin ? pin.reported_accuracy_m : 25,
+              premisesPhotoUrl: pin?.premises_photo_url || undefined,
               status: branchStatus,
               managerDecision,
             };
@@ -618,28 +639,35 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       } else if (excs) {
         const repExceptions: FieldExceptionRecord[] = excs
           .filter((e) => e.userId === currentUser.id)
-          .map((e) => ({
-            id: e.id,
-            type: (e.exceptionType === 'missed_visit' ? 'missed_visit_claim' : e.exceptionType === 'device_depletion' ? 'device_breakdown' : e.exceptionType) as any,
-            title: e.failureReason.slice(0, 40),
-            branchName: e.branchName,
-            reason: e.failureReason,
-            evidenceNote: e.decisionReason || 'Evidence captured on mobile client',
-            claimedDate: new Date(e.claimedCheckInTime).toLocaleDateString(),
-            claimedTime: new Date(e.claimedCheckInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            claimedDuration: `${e.claimedDurationMinutes || 30} mins`,
-            submissionLag: '15 mins',
-            status: e.status === 'approved' ? 'approved_unverified' : e.status === 'rejected' ? 'rejected' : 'pending_review',
-            submittedAt: new Date(e.submittedAt).toLocaleString(),
-            submittedAtIso: e.submittedAt,
-            claimedAtIso: e.claimedCheckInTime,
-            managerComment: e.decisionReason || undefined,
-            decidedBy: e.reviewedByName || undefined,
-            repName: currentUser.name,
-            accuracy: 'GPS Unverified',
-            contactMet: 'Site Contact',
-            meetingOutcome: 'Exception visit',
-          }));
+          .map((e) => {
+            const titleByType: Record<string, string> = {
+              gps_failure: 'GPS Signal Failure Exception',
+              camera_failure: 'Camera Hardware / Capture Failure',
+              device_depletion: 'New Client Approval Delay',
+              missed_visit: 'Missed Visit Activity Claim',
+            };
+            return {
+              id: e.id,
+              type: (e.exceptionType === 'missed_visit' ? 'missed_visit_claim' : e.exceptionType === 'device_depletion' ? 'device_breakdown' : e.exceptionType) as any,
+              title: titleByType[e.exceptionType] || e.failureReason.slice(0, 40),
+              branchName: e.branchName,
+              reason: e.failureReason,
+              evidenceNote: e.decisionReason || 'Evidence captured on mobile client',
+              supportingEvidenceUrl: e.supportingEvidenceUrl || undefined,
+              claimedDate: new Date(e.claimedCheckInTime).toLocaleDateString(),
+              claimedTime: formatMarketTime(e.claimedCheckInTime, e.marketCode || currentUser.marketCode),
+              claimedDuration: 'Activity Claim',
+              submissionLag: formatExceptionSubmissionLag(e.claimedCheckInTime, e.actualSubmissionTime || e.submittedAt),
+              status: e.status === 'approved' ? 'approved_unverified' : e.status === 'rejected' ? 'rejected' : 'pending_review',
+              submittedAt: new Date(e.actualSubmissionTime || e.submittedAt).toLocaleString(),
+              submittedAtIso: e.actualSubmissionTime || e.submittedAt,
+              claimedAtIso: e.claimedCheckInTime,
+              managerComment: e.decisionReason || undefined,
+              decidedBy: e.reviewedByName || undefined,
+              repName: currentUser.name,
+              accuracy: 'Not Captured (Location Unverified)',
+            };
+          });
         setExceptions(repExceptions);
       }
     } catch (err) {
@@ -1811,51 +1839,109 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     notify(`Branch pin [${branchId}] rejected by ${managerName}. Rationale recorded.`);
   };
 
-  const submitException = async (exceptionData: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'>) => {
+  const submitException = async (
+    exceptionData: Omit<FieldExceptionRecord, 'id' | 'submittedAt' | 'status'> & {
+      evidencePhotoBlob?: Blob | null;
+      branchCode?: string;
+    }
+  ) => {
+    const excUuid =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `exc-${Date.now()}`;
+
+    let uploadedEvidencePath: string | undefined = exceptionData.supportingEvidenceUrl;
+
+    if (currentUser?.id && exceptionData.evidencePhotoBlob && !isTestEnv) {
+      const { storagePath, error: uploadErr } = await visitService.uploadExceptionEvidencePhoto(
+        currentUser.id,
+        excUuid,
+        exceptionData.evidencePhotoBlob
+      );
+      if (uploadErr || !storagePath) {
+        const msg = uploadErr?.message || 'Storage error while uploading exception evidence photo.';
+        notify(`Failed to upload picture evidence: ${msg}`);
+        throw new Error(msg);
+      }
+      uploadedEvidencePath = storagePath;
+    } else if (currentUser?.id && exceptionData.evidencePhotoBlob && isTestEnv) {
+      try {
+        const res = await visitService.uploadExceptionEvidencePhoto(
+          currentUser.id,
+          excUuid,
+          exceptionData.evidencePhotoBlob
+        );
+        if (res?.storagePath) {
+          uploadedEvidencePath = res.storagePath;
+        }
+      } catch {
+        // Test mock fallback
+      }
+    }
+
+    const claimedVisitIso = buildClaimedVisitTimestampIso(
+      exceptionData.claimedDate,
+      exceptionData.claimedTime,
+      currentUser?.marketCode
+    );
+    const submissionNowIso = new Date().toISOString();
+
     const newExc: FieldExceptionRecord = {
       ...exceptionData,
-      id: `exc-${Date.now()}`,
-      submittedAt: `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WAT Today`,
-      submittedAtIso: new Date().toISOString(),
-      claimedAtIso: exceptionData.claimedDate,
+      id: excUuid.startsWith('exc-') ? excUuid : `exc-${Date.now()}`,
+      supportingEvidenceUrl: uploadedEvidencePath,
+      submittedAt: `${formatMarketTime(submissionNowIso, currentUser?.marketCode)} Today`,
+      submittedAtIso: submissionNowIso,
+      claimedAtIso: claimedVisitIso,
+      submissionLag: formatExceptionSubmissionLag(claimedVisitIso, submissionNowIso),
       status: 'pending_review',
       repName: currentUser?.name || 'Sales Representative',
-      accuracy: '±145m (Exceeds ≤100m visit limit)',
-      claimedDuration: '35 mins',
-      submissionLag: '12 mins post-checkout',
+      accuracy: 'Not Captured (Location Unverified)',
     };
     setExceptions((prev) => [newExc, ...prev]);
 
     if (currentUser?.id) {
       try {
-        const branchMatch = branches.find((b) => b.branchName === exceptionData.branchName || b.id === (exceptionData as any).branchCode);
+        const branchMatch =
+          (exceptionData.branchCode ? branches.find((b) => b.id === exceptionData.branchCode) : undefined) ||
+          branches.find((b) => b.branchName === exceptionData.branchName);
         let branchId = branchMatch?.id || (branches.length > 0 ? branches[0].id : null);
         if (!branchId && currentUser.marketCode) {
           const { data: dbBranches } = await visitService.getClientsAndBranches(currentUser.marketCode);
           if (dbBranches && dbBranches.length > 0) {
-            const found = dbBranches.find(
-              (b) => b.branch_name === exceptionData.branchName || b.id === (exceptionData as any).branchCode
-            );
+            const found =
+              (exceptionData.branchCode ? dbBranches.find((b) => b.id === exceptionData.branchCode) : undefined) ||
+              dbBranches.find((b) => b.branch_name === exceptionData.branchName);
             branchId = found?.id || dbBranches[0].id;
           }
         }
         if (branchId) {
-          const excType = (exceptionData.type as any) === 'missed_visit_claim' ? 'missed_visit' : (exceptionData.type as any) === 'device_breakdown' ? 'device_depletion' : (exceptionData.type as any) || 'gps_failure';
+          const excType =
+            (exceptionData.type as any) === 'missed_visit_claim'
+              ? 'missed_visit'
+              : (exceptionData.type as any) === 'device_breakdown'
+              ? 'device_depletion'
+              : (exceptionData.type as any) || 'gps_failure';
           const { error: subErr } = await visitService.submitSalespersonException({
             branchId,
             exceptionType: excType,
-            claimedVisitTime: new Date().toISOString(),
+            claimedVisitTime: claimedVisitIso,
             reason: exceptionData.reason || exceptionData.evidenceNote || 'Salesperson field exception',
             attendanceDayId: attendanceRecord?.id,
-            supportingEvidenceUrl: undefined,
+            supportingEvidenceUrl: uploadedEvidencePath,
           });
           if (subErr) {
             console.error('[FieldSession] Supabase exception insert error:', subErr);
+            if (!isTestEnv) {
+              notify(`Failed to save exception claim: ${subErr.message}`);
+              throw subErr;
+            }
           } else {
             await refreshExceptions();
           }
         }
       } catch (err) {
+        if (!isTestEnv) throw err;
         console.warn('[FieldSession] Supabase exception insert notice:', err);
       }
     }

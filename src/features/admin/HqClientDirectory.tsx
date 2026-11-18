@@ -36,6 +36,7 @@ import {
   EditClientPayload,
 } from '@/services/adminService';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { PhotoLightboxModal } from '@/components/ui/photo-lightbox-modal';
 import { useMarketConfig } from '@/context/MarketConfigContext';
 import { MarketCode } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
@@ -1402,37 +1403,18 @@ export const HqClientDirectory: React.FC = () => {
       {/* ============================================================== */}
       {/* MODAL 3: FULL PREMISES PHOTO PREVIEW                           */}
       {/* ============================================================== */}
-      {previewPhotoUrl && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
-          onClick={() => setPreviewPhotoUrl(null)}
-        >
-          <div
-            className="bg-slate-900 rounded-2xl overflow-hidden max-w-2xl w-full border border-slate-800 shadow-2xl space-y-2 p-3 text-white"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800 px-2">
-              <div className="font-bold text-xs truncate">{previewPhotoUrl.title}</div>
-              <button
-                onClick={() => setPreviewPhotoUrl(null)}
-                className="p-1 text-slate-400 hover:text-white rounded"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="max-h-[75vh] overflow-hidden rounded-lg flex items-center justify-center bg-black">
-              <img
-                src={previewPhotoUrl.url}
-                alt={previewPhotoUrl.title}
-                className="max-h-[75vh] w-auto object-contain"
-              />
-            </div>
-            <div className="text-[11px] text-slate-400 text-center pt-1">
-              Live physical premises photo captured on-site during salesperson registration.
-            </div>
-          </div>
-        </div>
-      )}
+      <PhotoLightboxModal
+        photo={
+          previewPhotoUrl
+            ? {
+                url: previewPhotoUrl.url,
+                title: previewPhotoUrl.title,
+                subtitle: 'Live physical premises photo captured on-site during salesperson registration.',
+              }
+            : null
+        }
+        onClose={() => setPreviewPhotoUrl(null)}
+      />
 
       {/* ============================================================== */}
       {/* MODAL 4: PIN APPROVAL DECISION MODAL (Sales Head & HQ Admin)    */}

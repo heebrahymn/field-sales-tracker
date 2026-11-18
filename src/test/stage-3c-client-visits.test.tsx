@@ -252,34 +252,63 @@ describe('Stage 3C: Client Visits, Geofencing, Photo Evidence & Meeting Logs', (
   // 3. Live Device GPS & Camera Evidence
   // =========================================================================
   describe('3. GPS Geolocation & Camera Evidence Capture', () => {
-    it('captures premises photo frame and toggles capture state with retake capability', async () => {
-      renderWorkflowView();
-
-      // Select client and branch
-      const searchInput = screen.getByPlaceholderText(/Search business by name/i);
-      fireEvent.focus(searchInput);
-      fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Ltd/i }));
-      fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Fleet Depot/i }));
-
-      // Step 3 shows Capture Photo button
-      const captureBtn = screen.getByRole('button', { name: /Capture Live Premises Photo/i });
-      expect(captureBtn).toBeInTheDocument();
-
-      fireEvent.click(captureBtn);
-
-      // After capture, photo preview is confirmed
-      await waitFor(() => {
-        expect(screen.getByText(/Live Premises Photo Captured/i)).toBeInTheDocument();
+    it('requires Start Camera before capturing live premises photo frame and toggles retake capability', async () => {
+      const mockTrack = { stop: vi.fn(), kind: 'video' };
+      const mockStream = {
+        getTracks: vi.fn().mockReturnValue([mockTrack]),
+      };
+      const originalMediaDevices = navigator.mediaDevices;
+      Object.defineProperty(navigator, 'mediaDevices', {
+        writable: true,
+        value: {
+          getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        },
       });
 
-      // Retake action is available
-      const retakeBtn = screen.getByRole('button', { name: /Retake/i });
-      expect(retakeBtn).toBeInTheDocument();
+      try {
+        renderWorkflowView();
 
-      fireEvent.click(retakeBtn);
+        // Select client and branch
+        const searchInput = screen.getByPlaceholderText(/Search business by name/i);
+        fireEvent.focus(searchInput);
+        fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Ltd/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Fleet Depot/i }));
 
-      // Returns to uncaptured state
-      expect(screen.getByRole('button', { name: /Capture Live Premises Photo/i })).toBeInTheDocument();
+        // Pre-camera "Capture Photo" and redundant sticky "Capture Live Premises Photo" are removed
+        expect(screen.queryByRole('button', { name: /^Capture Photo$/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Capture Live Premises Photo/i })).not.toBeInTheDocument();
+
+        // Sticky Check In CTA stays disabled until live camera capture completes
+        const disabledCheckInBtn = screen.getByRole('button', { name: /Check In & Start Client Meeting/i });
+        expect(disabledCheckInBtn).toBeDisabled();
+
+        // Open live camera, then capture frame from active viewfinder
+        fireEvent.click(screen.getByRole('button', { name: /Start Camera/i }));
+        const captureFrameBtn = await screen.findByRole('button', { name: /Capture Photo Frame/i });
+        fireEvent.click(captureFrameBtn);
+
+        // After capture, photo preview is confirmed and Check In becomes enabled
+        await waitFor(() => {
+          expect(screen.getByText(/Live Premises Photo Captured/i)).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /Check In & Start Client Meeting/i })).toBeEnabled();
+        });
+
+        // Retake action is available
+        const retakeBtn = screen.getByRole('button', { name: /Retake/i });
+        expect(retakeBtn).toBeInTheDocument();
+
+        fireEvent.click(retakeBtn);
+
+        // Returns to uncaptured state with disabled Check In until new frame captured
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: /Check In & Start Client Meeting/i })).toBeDisabled();
+        });
+      } finally {
+        Object.defineProperty(navigator, 'mediaDevices', {
+          writable: true,
+          value: originalMediaDevices,
+        });
+      }
     });
 
     it('renders device GPS refresh button and displays live fix accuracy', async () => {
@@ -369,33 +398,54 @@ describe('Stage 3C: Client Visits, Geofencing, Photo Evidence & Meeting Logs', (
   // =========================================================================
   describe('4. Visit Check-in & Open Visit Protection (AT-04)', () => {
     it('allows successful check-in and renders active visit timer', async () => {
-      renderWorkflowView();
-
-      // Select client and branch
-      const searchInput = screen.getByPlaceholderText(/Search business by name/i);
-      fireEvent.focus(searchInput);
-      fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Ltd/i }));
-      fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Fleet Depot/i }));
-
-      // Capture photo
-      fireEvent.click(screen.getByRole('button', { name: /Capture Live Premises Photo/i }));
-
-      await waitFor(() => {
-        expect(screen.getByText(/Live Premises Photo Captured/i)).toBeInTheDocument();
+      const mockTrack = { stop: vi.fn(), kind: 'video' };
+      const mockStream = {
+        getTracks: vi.fn().mockReturnValue([mockTrack]),
+      };
+      const originalMediaDevices = navigator.mediaDevices;
+      Object.defineProperty(navigator, 'mediaDevices', {
+        writable: true,
+        value: {
+          getUserMedia: vi.fn().mockResolvedValue(mockStream),
+        },
       });
 
-      // Check In CTA appears
-      const checkInBtn = screen.getByRole('button', { name: /Check In & Start Client Meeting/i });
-      expect(checkInBtn).toBeInTheDocument();
+      try {
+        renderWorkflowView();
 
-      fireEvent.click(checkInBtn);
+        // Select client and branch
+        const searchInput = screen.getByPlaceholderText(/Search business by name/i);
+        fireEvent.focus(searchInput);
+        fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Ltd/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Apex Heavy Logistics Fleet Depot/i }));
 
-      // Active visit session is now displayed
-      await waitFor(() => {
-        expect(screen.getByText(/Visit Session In Progress/i)).toBeInTheDocument();
-        expect(screen.getByText(/Apex Heavy Logistics Fleet Depot/i)).toBeInTheDocument();
-        expect(screen.getByText(/Only 1 active normal physical visit is permitted/i)).toBeInTheDocument();
-      });
+        // Capture live photo via Start Camera -> Capture Photo Frame
+        fireEvent.click(screen.getByRole('button', { name: /Start Camera/i }));
+        const captureFrameBtn = await screen.findByRole('button', { name: /Capture Photo Frame/i });
+        fireEvent.click(captureFrameBtn);
+
+        await waitFor(() => {
+          expect(screen.getByText(/Live Premises Photo Captured/i)).toBeInTheDocument();
+        });
+
+        // Check In CTA is now enabled
+        const checkInBtn = screen.getByRole('button', { name: /Check In & Start Client Meeting/i });
+        expect(checkInBtn).toBeEnabled();
+
+        fireEvent.click(checkInBtn);
+
+        // Active visit session is now displayed
+        await waitFor(() => {
+          expect(screen.getByText(/Visit Session In Progress/i)).toBeInTheDocument();
+          expect(screen.getByText(/Apex Heavy Logistics Fleet Depot/i)).toBeInTheDocument();
+          expect(screen.getByText(/Only 1 active normal physical visit is permitted/i)).toBeInTheDocument();
+        });
+      } finally {
+        Object.defineProperty(navigator, 'mediaDevices', {
+          writable: true,
+          value: originalMediaDevices,
+        });
+      }
     });
 
     it('strictly prevents silent active visit cancellation without force (PRD §5.2)', () => {
@@ -541,7 +591,10 @@ describe('Stage 3C: Client Visits, Geofencing, Photo Evidence & Meeting Logs', (
       // Canonical Purpose dropdown exists
       expect(screen.getByLabelText(/Visit Purpose/i)).toBeInTheDocument();
 
-      // Mandatory free-text next step description (strictly disclaims automated pipeline triggers)
+      // Mandatory next step starts empty with no "(Free Text Only)" label text and disclaims automated pipeline triggers
+      const nextStepInput = screen.getByLabelText(/Next Step Description/i) as HTMLTextAreaElement;
+      expect(nextStepInput.value).toBe('');
+      expect(screen.queryByText(/Free Text Only/i)).not.toBeInTheDocument();
       expect(
         screen.getByText((content) => content.includes('Mandatory free-text summary') && content.includes('automated pipeline trigger'))
       ).toBeInTheDocument();
@@ -551,16 +604,19 @@ describe('Stage 3C: Client Visits, Geofencing, Photo Evidence & Meeting Logs', (
         screen.getByText(/Descriptive activity outcome only; not a sales pipeline deal or revenue forecast./i)
       ).toBeInTheDocument();
 
-      // Submit
+      // Submit remains disabled until Next Step is entered
       const submitBtn = screen.getByRole('button', { name: /Submit Log & Close Visit/i });
+      expect(submitBtn).toBeDisabled();
+
+      fireEvent.change(nextStepInput, { target: { value: 'Share battery datasheets with Fleet Manager.' } });
+      expect(submitBtn).toBeEnabled();
       fireEvent.click(submitBtn);
 
       expect(mockSubmitted).toHaveBeenCalledTimes(1);
       const [onTime, logData] = mockSubmitted.mock.calls[0] as [boolean, MeetingLogSubmissionData];
       expect(onTime).toBe(true);
       expect(logData.purpose).toBe('routine_visit');
-      expect(typeof logData.nextStepText).toBe('string');
-      expect(logData.nextStepText.length).toBeGreaterThan(0);
+      expect(logData.nextStepText).toBe('Share battery datasheets with Fleet Manager.');
     });
 
     it('supports 2-hour deferred meeting log submission option (PRD §3 Step 6)', () => {
@@ -575,6 +631,10 @@ describe('Stage 3C: Client Visits, Geofencing, Photo Evidence & Meeting Logs', (
           onSubmitted={mockSubmitted}
         />
       );
+
+      fireEvent.change(screen.getByLabelText(/Next Step Description/i), {
+        target: { value: 'Follow up with technical catalogue.' },
+      });
 
       const deferCheckbox = screen.getByLabelText(/Defer completion \(Complete within permitted 2-hour window\)/i);
       fireEvent.click(deferCheckbox);

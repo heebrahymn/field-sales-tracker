@@ -92,6 +92,8 @@ To maintain absolute focus on core field activity verification and operational i
 [✓] UAT Baseline Corrections — Credential Sanitization, Five-Tier Verification Separation, Canonical Schema Reconciliation & Device Custody Status Integrity
 [✓] Manual UAT & Retest Sign-Off — Full Project Owner Role-Based UAT & 19/19 Defect Retests Passed & Formally Accepted (DEF-001–DEF-019)
 [✓] Release Candidate 1.0.0 — Final Verified RC (`rc-1.0.0-uat-verified`) Promoted to GitHub & Controlled Vercel Staging (`288/288` Vitest, `13/13` API/RLS, 29-Migration Parity)
+[✓] Release Candidate 1.0.1 — Interactive Review Notifications Menu for Country Sales Head & HQ Admin (`295/295` Vitest)
+[✓] Release Candidate 1.0.2 — Shared Full-Photo Lightbox, Exception Picture Evidence & Live Camera Capture, Strict Team Attendance Date Scoping, Live Camera Visit Check-In & Single Checkout CTA
 [ ] Field Pilot — Controlled Real-Device Field Pilot (Samsung Galaxy A15 / Nokia G22 in Lagos, Lusaka, Blantyre)
 [ ] Operational Rollout — Multi-Market Business Production Rollout across Nigeria, Zambia, and Malawi
 ```

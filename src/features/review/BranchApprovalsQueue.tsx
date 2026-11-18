@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
 import { useMarketConfig } from '@/context/MarketConfigContext';
 import { useFieldSession } from '@/context/FieldSessionContext';
 import { useAuth } from '@/context/AuthContext';
@@ -18,6 +19,8 @@ import {
   Check,
   RefreshCw,
   Loader2,
+  Eye,
+  ExternalLink,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -60,6 +63,7 @@ export const BranchApprovalsQueue: React.FC = () => {
   const [selectedItem, setSelectedItem] = useState<ApprovalItem | null>(null);
   const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState<LightboxPhoto | null>(null);
 
   // Real Supabase branch location pins
   const [realPins, setRealPins] = useState<RealBranchPinProposal[]>([]);
@@ -177,6 +181,7 @@ export const BranchApprovalsQueue: React.FC = () => {
             contactRole: b.contacts[0]?.role || 'Manager',
             contactPhone: b.contacts[0]?.phone || '+234 800 000 0000',
             coordsText: '6.5892° N, 3.3581° E',
+            premisesPhotoUrl: b.premisesPhotoUrl,
             status: b.status,
             isRealRecord: false,
             managerDecision: b.managerDecision,
@@ -513,25 +518,69 @@ export const BranchApprovalsQueue: React.FC = () => {
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
                     <Camera className="w-3.5 h-3.5 text-brand-blue" /> Live Premises Photograph
                   </span>
-                  <div className="flex items-center gap-2 pt-0.5">
-                    <div className="w-14 h-14 rounded-lg bg-slate-900 text-white flex flex-col items-center justify-center font-bold text-[8px] shrink-0 overflow-hidden border border-slate-300 shadow-xs">
-                      {item.premisesPhotoUrl && (item.premisesPhotoUrl.startsWith('http') || item.premisesPhotoUrl.startsWith('blob:') || item.premisesPhotoUrl.startsWith('data:') || item.premisesPhotoUrl.startsWith('/')) ? (
-                        <img src={item.premisesPhotoUrl} alt="Premises" className="w-full h-full object-cover" />
-                      ) : (
-                        <>
-                          <Camera className="w-4 h-4 mb-0.5 text-slate-400" />
-                          <span className="text-[7px] text-emerald-400 font-mono">CAPTURED</span>
-                        </>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-slate-600 leading-tight">
-                      <p className="font-semibold text-slate-900">Signage Verified</p>
-                      <p className="text-[9px] text-slate-500 font-mono">Watermark: {item.claimedTime}</p>
-                      <span className="text-emerald-700 font-bold flex items-center gap-0.5">
-                        <CheckCircle2 className="w-2.5 h-2.5" /> Validated
-                      </span>
-                    </div>
-                  </div>
+                  {(() => {
+                    const photoUrl = item.premisesPhotoUrl;
+                    const hasRenderablePhoto = Boolean(
+                      photoUrl &&
+                        (photoUrl.startsWith('http') ||
+                          photoUrl.startsWith('blob:') ||
+                          photoUrl.startsWith('data:') ||
+                          photoUrl.startsWith('/'))
+                    );
+                    const openQueueLightbox = () => {
+                      if (!photoUrl || !hasRenderablePhoto) return;
+                      setLightboxPhoto({
+                        url: photoUrl,
+                        title: `${item.companyName} — ${item.title}`,
+                        subtitle: `Captured ${item.claimedTime} by ${item.repName}`,
+                      });
+                    };
+
+                    return (
+                      <div className="flex items-center gap-2 pt-0.5">
+                        {hasRenderablePhoto ? (
+                          <button
+                            type="button"
+                            onClick={openQueueLightbox}
+                            aria-label={`View full premises photo for ${item.title}`}
+                            title="Click to view full photograph"
+                            className="relative w-14 h-14 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0 overflow-hidden border border-slate-300 shadow-xs cursor-pointer group focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                          >
+                            <img
+                              src={photoUrl}
+                              alt="Premises"
+                              className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                            />
+                            <div className="absolute inset-0 bg-slate-950/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Eye className="w-4 h-4 text-white" />
+                            </div>
+                          </button>
+                        ) : (
+                          <div className="w-14 h-14 rounded-lg bg-slate-900 text-white flex flex-col items-center justify-center font-bold text-[8px] shrink-0 overflow-hidden border border-slate-300 shadow-xs">
+                            <Camera className="w-4 h-4 mb-0.5 text-slate-400" />
+                            <span className="text-[7px] text-emerald-400 font-mono">CAPTURED</span>
+                          </div>
+                        )}
+                        <div className="text-[10px] text-slate-600 leading-tight">
+                          <p className="font-semibold text-slate-900">Signage Verified</p>
+                          <p className="text-[9px] text-slate-500 font-mono">Watermark: {item.claimedTime}</p>
+                          {hasRenderablePhoto ? (
+                            <button
+                              type="button"
+                              onClick={openQueueLightbox}
+                              className="text-[10px] font-bold text-brand-blue hover:underline flex items-center gap-1 mt-0.5 cursor-pointer"
+                            >
+                              View full photo <ExternalLink className="w-2.5 h-2.5" />
+                            </button>
+                          ) : (
+                            <span className="text-emerald-700 font-bold flex items-center gap-0.5">
+                              <CheckCircle2 className="w-2.5 h-2.5" /> Validated
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -659,6 +708,9 @@ export const BranchApprovalsQueue: React.FC = () => {
         onClose={() => setIsDecisionModalOpen(false)}
         onDecision={handleDecisionRecorded}
       />
+
+      {/* Full Photo Lightbox Viewer */}
+      <PhotoLightboxModal photo={lightboxPhoto} onClose={() => setLightboxPhoto(null)} />
     </div>
   );
 };

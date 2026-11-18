@@ -131,8 +131,10 @@ export interface RealExceptionItem {
   visitId: string | null;
   exceptionType: Database['public']['Enums']['exception_type'];
   failureReason: string;
+  supportingEvidenceUrl?: string | null;
   claimedCheckInTime: string;
-  claimedDurationMinutes: number;
+  actualSubmissionTime?: string;
+  claimedDurationMinutes?: number;
   status: ExceptionReviewStatus;
   reviewedBy?: string | null;
   reviewedByName?: string;
@@ -601,6 +603,36 @@ export const managementService = {
   },
 
   /**
+   * Generates a time-limited signed URL for salesperson-uploaded exception picture evidence
+   * stored in private bucket 'exception-evidence'.
+   */
+  async getExceptionEvidenceSignedUrl(storagePath: string): Promise<string | null> {
+    if (!storagePath) return null;
+    if (
+      storagePath.startsWith('http') ||
+      storagePath.startsWith('blob:') ||
+      storagePath.startsWith('data:') ||
+      storagePath.startsWith('/')
+    ) {
+      return storagePath;
+    }
+    try {
+      const cleanPath = storagePath.startsWith('exception-evidence/')
+        ? storagePath.replace('exception-evidence/', '')
+        : storagePath;
+
+      const { data, error } = await supabase.storage
+        .from('exception-evidence')
+        .createSignedUrl(cleanPath, 300);
+
+      if (error || !data?.signedUrl) return null;
+      return data.signedUrl;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
    * Queries branch location pins for approval queue or directory inspection.
    */
   async getBranchLocationPins(
@@ -808,7 +840,9 @@ export const managementService = {
           resulting_visit_id,
           exception_type,
           reason,
+          supporting_evidence_url,
           claimed_visit_time,
+          actual_submission_time,
           status,
           reviewed_by:decided_by,
           reviewed_at:decided_at,
@@ -850,13 +884,14 @@ export const managementService = {
         visitId: row.resulting_visit_id,
         exceptionType: row.exception_type,
         failureReason: row.reason,
+        supportingEvidenceUrl: row.supporting_evidence_url || null,
         claimedCheckInTime: row.claimed_visit_time,
-        claimedDurationMinutes: 30,
+        actualSubmissionTime: row.actual_submission_time || row.created_at,
         status: row.status,
         reviewedBy: row.reviewed_by,
         reviewedAt: row.reviewed_at,
         decisionReason: row.decision_reason,
-        submittedAt: row.created_at,
+        submittedAt: row.actual_submission_time || row.created_at,
       }));
 
       return { data: records, error: null };

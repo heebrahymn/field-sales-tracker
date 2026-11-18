@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Release Candidate 1.0.2 - Field & Country Sales Head UX Polish, Attendance Date Scoping & Camera Streamlining] (2026-11-18)
+
+### Full Photo Lightbox & Review UI Polish
+- **Shared Full-Photo Lightbox (`src/components/ui/photo-lightbox-modal.tsx`):** Added shared uncropped `PhotoLightboxModal` (`object-contain`, keyboard `Escape` and backdrop dismissal) and integrated it across Country Sales Head and HQ Admin image inspection views (`ClientVisitVerification.tsx`, `BranchApprovalsQueue.tsx`, `ApprovalDecisionModal.tsx`, `TeamAttendanceReview.tsx`, `ClientsLocationsDirectory.tsx`, and `HqClientDirectory.tsx`).
+- **Single-Line Badges & Dashboard Exception Cards (`StatusBadge.tsx`, `SalesHeadDashboardPreview.tsx`):** Enforced single-line badge rendering (`whitespace-nowrap shrink-0`) and refined Sales Head exception preview cards so category/status pills do not wrap long failure narratives inside badge chips.
+
+### Exception Creation, Branch Loading & Evidence Uploads
+- **Label Alignment (`CreateExceptionModal.tsx`, `ExceptionsWorkbenchView.tsx`, `ExceptionReviewWorkbench.tsx`, `HqExceptionOversight.tsx`):** Replaced `"Device Depletion / Post-Recovery Submission"` with `"New Client Approval Delay"` across salesperson exception creation and manager/HQ review screens.
+- **Full Verified & Unverified Branch Selection (`visitService.ts`, `CreateExceptionModal.tsx`, `ClientsDirectoryView.tsx`):** Paginated `visitService.getClientsAndBranches` (`.range()`) past Supabase's 1,000-row limit so all verified and unverified client sites load reliably; added searchable branch filtering in `CreateExceptionModal` and verified/unverified counts in `ClientsDirectoryView`.
+- **Live Camera Capture & Picture Evidence (`CreateExceptionModal.tsx`, `visitService.ts`, `FieldSessionContext.tsx`, `managementService.ts`):** Added optional Picture Evidence upload (`Upload Image`) and live camera capture (`Snap Photo` via `navigator.mediaDevices.getUserMedia`), persisted to the `exception-evidence` private bucket (`uploadExceptionEvidencePhoto`) with signed URL lightbox viewing in manager/HQ review workbenches (`getExceptionEvidenceSignedUrl`), and removed the redundant `Supporting Evidence Available *` textarea.
+- **Dynamic Operational Signals (`attendanceService.ts`, `FieldSessionContext.tsx`, `ExceptionReviewWorkbench.tsx`):** Replaced static placeholder operational signal labels (`Delayed Recovery Log`, `Site Operations Lead`, `Operational Supplies Review`, `±135m`) with market-aware timestamp reconstruction (`buildClaimedVisitTimestampIso`) and dynamic lag formatting (`formatExceptionSubmissionLag`).
+
+### Team Attendance Date Filter & Non-Visit Workday Governance
+- **Strict Date Validation & Scoping (`attendanceService.ts`, `TeamAttendanceReview.tsx`):** Validated `YYYY-MM-DD` date inputs in `attendanceService.getMarketAttendance`, checked `approved_absences` query errors (`absRes.error`), prevented stale out-of-order responses with `requestSeqRef`, enforced `work_date` / `absence_date` equality during merging, and added a `Today` reset button plus clear loading/invalid-date/empty/error states.
+- **Transparent Absence Display (`TeamAttendanceReview.tsx`):** Displayed logged work date, activity category, and justification under `Non-Visit Workday` and `Approved Leave` pills, removed synthetic battery percentages and fallback GPS/selfie telemetry on non-field absence rows (`No field handset telemetry` / `Authorized Non-Field Record`), clarified pending vs. approved dates in the authorization queue (`Jump Date Filter`), and aligned the `Active on Field` pill counter with its filter predicate (`active_field` + `completed_day`).
+- **Backend Test Cleanup (`scripts/test-backend.ts` & live Supabase cleanup):** Removed 12 orphaned synthetic `approved_absences` rows and 13 paired synthetic `absence_requests` rows seeded by earlier `scripts/test-backend.ts` runs for `Tunde Adebayo`, and added `finally` post-test cleanup for Group 7 (`WF-NV-01`–`WF-NV-07`).
+
+### Client Visit Flow & Meeting Log Streamlining
+- **Live Camera Workflow (`VisitWorkflowView.tsx`):** Removed the pre-camera `Capture Photo` button in Step 3 (leaving `Start Camera` -> `Capture Photo Frame` inside the active viewfinder) and replaced the redundant sticky `Capture Live Premises Photo` CTA with a disabled `Check In & Start Client Meeting` CTA until live camera capture completes.
+- **Single Active-Visit Checkout CTA (`VisitWorkflowView.tsx`):** Removed duplicate in-card `Check Out & Document Visit` and `Draft Meeting Log` buttons from the active visit card, leaving full-width `Report Disruption` inside the card and `#sticky-btn-checkout` in the sticky footer, plus clean line separation for `Live Photo Attached`.
+- **Meeting Log Next Step Cleanliness (`MeetingLogModal.tsx`, `ClientVisitVerification.tsx`):** Removed `(Free Text Only)` / `(Free Text)` from `Next Step Description` and `Agreed Next Step:` labels and cleared the pre-filled default Next Step text (`useState('')`) in `MeetingLogModal.tsx` with `.trim()` submit validation.
+
+### Verification
+- **Vitest:** 12 targeted test suites (`128/128` tests passing, including new suites `team-attendance-date-filter.test.tsx`, `exception-picture-evidence.test.tsx`, and `saleshead-photo-lightbox.test.tsx`).
+- **Quality Gates:** `npm run lint` passed (`0` errors) and `npm run build` (`tsc -b && vite build`) passed cleanly.
+
+---
+
 ## [Release Candidate 1.0.1 - Notifications & Review Alerts Enhancement] (2026-11-09)
 
 ### Interactive Review Notifications & Console Alerts Panel

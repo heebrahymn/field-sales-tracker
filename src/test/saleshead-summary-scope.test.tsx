@@ -311,5 +311,51 @@ describe('Country Sales Head Summary Scope Filtering & Dynamic Pills', () => {
     expect(screen.getByText('Exception Branch 5')).toBeInTheDocument();
     expect(screen.queryByText('Exception Branch 6')).not.toBeInTheDocument();
   });
+
+  it('renders clean single-line exception type & status badges without duplicating long narratives on dashboard cards', async () => {
+    const longReason =
+      'Delayed approval for Chartered institute of bankers of Nigeria Met with Mr Tunde and Sadiq who confirmed that the reason they are yet to honour my recommendation for Yokohama tires as they bought maxxis instead and asked for warranty itemization.';
+
+    (managementService.getCountryPendingPins as any).mockResolvedValue([]);
+    (managementService.getCountryExceptions as any).mockResolvedValue({
+      data: [
+        {
+          id: 'exc-long-001',
+          exceptionType: 'gps_failure',
+          branchName: '19 Ademola Hopewell',
+          organisationName: 'Inner Ring Engineering',
+          repName: 'Fasakin Peter',
+          failureReason: longReason,
+          claimedCheckInTime: '2026-11-04T14:36:00Z',
+        },
+      ],
+      error: null,
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText('19 Ademola Hopewell')).toBeInTheDocument();
+    });
+
+    // Renders concise category pill and organisation name instead of stuffing narrative into a pill
+    expect(screen.getByText('GPS Failure')).toBeInTheDocument();
+    expect(screen.getByText('Inner Ring Engineering')).toBeInTheDocument();
+
+    // Renders failureReason only ONCE cleanly (not duplicated inside a pill + narrative box)
+    const reasonMatches = screen.getAllByText(longReason);
+    expect(reasonMatches).toHaveLength(1);
+    expect(reasonMatches[0]).toHaveClass('line-clamp-3');
+
+    // Keeps Pending Review badge single-line with whitespace-nowrap
+    const pendingBadgeText = screen.getByText('Pending Review');
+    expect(pendingBadgeText.parentElement).toHaveClass('whitespace-nowrap');
+
+    // Allows expanding & collapsing long narratives inline
+    const readFullBtn = screen.getByRole('button', { name: /Read full note/i });
+    fireEvent.click(readFullBtn);
+    expect(reasonMatches[0]).not.toHaveClass('line-clamp-3');
+    expect(screen.getByRole('button', { name: /Show less/i })).toBeInTheDocument();
+  });
 });
 

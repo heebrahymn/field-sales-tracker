@@ -85,13 +85,14 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
         <div>
           <span className="text-[11px] font-bold text-brand-blue uppercase tracking-wider">
-            Approved Client Directory
+            Client Directory
           </span>
           <h2 className="text-lg font-bold text-slate-900 leading-tight">
             Clients & Locations
           </h2>
           <p className="text-xs text-slate-500 font-medium">
-            {branches.length} verified physical sites in Lagos Market
+            {branches.length} registered sites ({branches.filter((b) => b.status === 'approved').length} verified •{' '}
+            {branches.filter((b) => b.status !== 'approved').length} unverified)
           </p>
         </div>
 

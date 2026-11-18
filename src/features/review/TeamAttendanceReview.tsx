@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
   attendanceService,
@@ -10,6 +10,7 @@ import {
 import { managementService } from '@/services/managementService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
 import {
   CalendarDays,
   UserCheck,
@@ -27,20 +28,30 @@ import {
   RefreshCw,
   ShieldCheck,
   MapPin,
+  ExternalLink,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { calculateAttendanceBattery, getBatteryStatus } from '@/utils/battery';
 
+export interface TeamAttendanceReviewProps {
+  enableLiveSyncInTest?: boolean;
+}
+
 export interface SalesRepAttendance {
+  recordId?: string;
   repId: string;
   repName: string;
   email: string;
   phone: string;
   assignedTerritory: string;
   deviceId: string;
-  batteryLevel: number;
+  batteryLevel: number | null;
   todayStatus: 'active_field' | 'completed_day' | 'non_visit_day' | 'approved_leave' | 'absent';
+  workDate?: string;
+  absenceCategory?: string;
+  absenceJustification?: string;
+  absenceApprovedAt?: string;
   startDayTime?: string;
   startGps?: {
     coords: string;
@@ -62,6 +73,20 @@ export interface SalesRepAttendance {
     };
   };
   isRealRecord?: boolean;
+}
+
+const WORK_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+function isValidWorkDate(value?: string | null): value is string {
+  return Boolean(value && WORK_DATE_REGEX.test(value));
+}
+
+function formatAbsenceCategoryLabel(category?: string): string {
+  if (!category) return 'Authorized Non-Field Day';
+  return category
+    .replace(/^leave_/, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
@@ -141,24 +166,26 @@ const TEST_DEMO_REPS: SalesRepAttendance[] = [
   },
 ];
 
-export const TeamAttendanceReview: React.FC = () => {
+export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
+  enableLiveSyncInTest = false,
+}) => {
   const { currentUser } = useAuth();
+  const marketToday = getMarketWorkDate(currentUser?.marketCode);
 
-  const [selectedDate, setSelectedDate] = useState<string>(() =>
-    getMarketWorkDate(currentUser?.marketCode)
-  );
+  const [selectedDate, setSelectedDate] = useState<string>(() => marketToday);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'leave' | 'non_visit'>('all');
   const [selectedRepForInspection, setSelectedRepForInspection] = useState<SalesRepAttendance | null>(null);
   const [signedSelfieUrl, setSignedSelfieUrl] = useState<string | null>(null);
   const [isLoadingSelfie, setIsLoadingSelfie] = useState<boolean>(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<LightboxPhoto | null>(null);
 
   // Leave Recording Dialog State
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [selectedRepForLeave, setSelectedRepForLeave] = useState<string>('');
   const [leaveType, setLeaveType] = useState<'annual' | 'sick' | 'compassionate' | 'training'>('annual');
-  const [leaveStartDate, setLeaveStartDate] = useState('2026-10-20');
-  const [leaveEndDate, setLeaveEndDate] = useState('2026-10-24');
+  const [leaveStartDate, setLeaveStartDate] = useState(marketToday);
+  const [leaveEndDate, setLeaveEndDate] = useState(marketToday);
   const [leaveNotes, setLeaveNotes] = useState('');
 
   // Rejection Dialog State
@@ -167,20 +194,34 @@ export const TeamAttendanceReview: React.FC = () => {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isLoadingData, setIsLoadingData] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Real data from Supabase
   const [realAttendance, setRealAttendance] = useState<AttendanceRecord[]>([]);
   const [pendingAbsenceRequests, setPendingAbsenceRequests] = useState<AbsenceRequestRecord[]>([]);
+  const requestSeqRef = useRef(0);
 
-  // Demonstration Fallback Baseline (Only in test environment)
-  const [demoReps, setDemoReps] = useState<SalesRepAttendance[]>(() => (isTestEnv ? TEST_DEMO_REPS : []));
+  // Demonstration Fallback Baseline (Only in test environment when live sync test mode is off)
+  const [demoReps, setDemoReps] = useState<SalesRepAttendance[]>(() =>
+    isTestEnv && !enableLiveSyncInTest ? TEST_DEMO_REPS : []
+  );
 
   // Load live attendance and non-visit requests from Supabase
   const loadSupabaseData = useCallback(async (dateOverride?: string) => {
-    if (isTestEnv) return;
+    if (isTestEnv && !enableLiveSyncInTest) return;
+    const dateToQuery = dateOverride ?? selectedDate;
+    const seq = ++requestSeqRef.current;
+
+    if (!isValidWorkDate(dateToQuery)) {
+      setRealAttendance([]);
+      setLoadError(null);
+      setIsLoadingData(false);
+      return;
+    }
+
     setIsLoadingData(true);
+    setLoadError(null);
     const targetMarket = currentUser?.role === 'hq_admin' ? 'ALL' : currentUser?.marketCode || 'NG';
-    const dateToQuery = dateOverride || selectedDate;
 
     try {
       const [attRes, absRes] = await Promise.all([
@@ -188,27 +229,44 @@ export const TeamAttendanceReview: React.FC = () => {
         attendanceService.getPendingNonVisitRequests(targetMarket),
       ]);
 
-      if (attRes.data) {
-        setRealAttendance(attRes.data);
+      if (seq !== requestSeqRef.current) return;
+
+      if (attRes.error) {
+        setRealAttendance([]);
+        setLoadError(attRes.error.message || 'Unable to load attendance logs for selected date.');
+      } else {
+        setRealAttendance(
+          (attRes.data || []).filter((rec) => !rec.work_date || rec.work_date === dateToQuery)
+        );
       }
+
       if (absRes.data) {
         setPendingAbsenceRequests(absRes.data);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (seq !== requestSeqRef.current) return;
       console.warn('[TeamAttendanceReview] Error loading live attendance:', err);
+      setRealAttendance([]);
+      setLoadError(err?.message || 'Unable to load attendance logs for selected date.');
     } finally {
-      setIsLoadingData(false);
+      if (seq === requestSeqRef.current) {
+        setIsLoadingData(false);
+      }
     }
-  }, [currentUser?.role, currentUser?.marketCode, selectedDate]);
+  }, [currentUser?.role, currentUser?.marketCode, selectedDate, enableLiveSyncInTest]);
 
   useEffect(() => {
     loadSupabaseData();
   }, [loadSupabaseData]);
 
-  // Merge real Supabase records with demonstration data
+  // Merge real Supabase records with demonstration data (strictly scoped to selectedDate)
+  const scopedRealAttendance = isValidWorkDate(selectedDate)
+    ? realAttendance.filter((rec) => !rec.work_date || rec.work_date === selectedDate)
+    : [];
+
   const mergedReps: SalesRepAttendance[] = [
-    // 1. Real records from Supabase attendance_days
-    ...realAttendance.map((rec) => {
+    // 1. Real records from Supabase attendance_days & approved_absences for selectedDate
+    ...scopedRealAttendance.map((rec) => {
       const repFullName = rec.profiles?.full_name || 'Carbon Field Salesperson';
       const repEmpId = `CC-${rec.market_code}-${rec.user_id.slice(0, 4).toUpperCase()}`;
 
@@ -218,14 +276,23 @@ export const TeamAttendanceReview: React.FC = () => {
       else if (rec.status === 'approved_non_visit') mappedStatus = 'non_visit_day';
       else if (rec.status === 'approved_leave') mappedStatus = 'approved_leave';
 
-      const dynamicBattery = calculateAttendanceBattery({
-        startedAt: rec.started_at,
-        endedAt: rec.ended_at,
-        visitsCount: (rec as any).visits?.length || 0,
-        deviceBatteryHealth: rec.devices?.battery_health,
-      });
+      const isAbsenceOrNonVisit = mappedStatus === 'non_visit_day' || mappedStatus === 'approved_leave';
+      const isVirtualAbsence = rec.device_id === 'authorized_absence';
+      const hasRealStartLocation =
+        !isVirtualAbsence &&
+        (rec.start_latitude !== 0 || rec.start_longitude !== 0 || rec.start_accuracy_m !== 0);
+
+      const dynamicBattery = isAbsenceOrNonVisit
+        ? null
+        : calculateAttendanceBattery({
+            startedAt: rec.started_at,
+            endedAt: rec.ended_at,
+            visitsCount: rec.visits?.length || 0,
+            deviceBatteryHealth: rec.devices?.battery_health,
+          });
 
       return {
+        recordId: rec.id,
         repId: repEmpId,
         repName: repFullName,
         email: rec.profiles?.email || 'salesperson@carboncarcare.com',
@@ -234,21 +301,27 @@ export const TeamAttendanceReview: React.FC = () => {
         deviceId: rec.devices?.asset_tag || 'Assigned Handset',
         batteryLevel: dynamicBattery,
         todayStatus: mappedStatus,
-        startDayTime: formatMarketTime(rec.started_at, rec.market_code),
-        endDayTime: rec.ended_at ? formatMarketTime(rec.ended_at, rec.market_code) : undefined,
-        startGps: {
-          coords: `${rec.start_latitude?.toFixed(4)}° N, ${rec.start_longitude?.toFixed(4)}° E`,
-          accuracy: Math.round(rec.start_accuracy_m || 15),
-        },
-        selfieUrl: rec.start_selfie_url,
-        visitsCompletedToday: (rec as any).visits?.length || 0,
+        workDate: rec.absence_date || rec.work_date,
+        absenceCategory: rec.absence_category,
+        absenceJustification: rec.absence_justification,
+        absenceApprovedAt: rec.absence_approved_at || (isAbsenceOrNonVisit ? rec.started_at : undefined),
+        startDayTime: isVirtualAbsence ? undefined : formatMarketTime(rec.started_at, rec.market_code),
+        endDayTime: !isVirtualAbsence && rec.ended_at ? formatMarketTime(rec.ended_at, rec.market_code) : undefined,
+        startGps: hasRealStartLocation
+          ? {
+              coords: `${rec.start_latitude?.toFixed(4)}° N, ${rec.start_longitude?.toFixed(4)}° E`,
+              accuracy: Math.round(rec.start_accuracy_m || 15),
+            }
+          : undefined,
+        selfieUrl: rec.start_selfie_url || undefined,
+        visitsCompletedToday: rec.visits?.length || 0,
         isRealRecord: true,
       };
     }),
-    // 2. Test environment fallback (only in test runner)
-    ...(isTestEnv
+    // 2. Test environment fallback (only in non-live test runner)
+    ...(isTestEnv && !enableLiveSyncInTest
       ? demoReps.filter(
-          (demo) => !realAttendance.some((real) => real.profiles?.full_name === demo.repName)
+          (demo) => !scopedRealAttendance.some((real) => real.profiles?.full_name === demo.repName)
         )
       : []),
   ];
@@ -438,17 +511,31 @@ export const TeamAttendanceReview: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
           {/* Work Date Selector */}
           <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1">
             <span className="text-[10px] text-slate-500 font-bold uppercase">Date:</span>
             <input
               type="date"
+              aria-label="Attendance Work Date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
               className="text-xs font-semibold text-slate-900 bg-transparent focus:outline-none"
             />
           </div>
+
+          {selectedDate !== marketToday && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedDate(marketToday)}
+              className="text-xs font-semibold border-slate-300 bg-white px-2.5"
+              title={`Jump to Today (${marketToday})`}
+            >
+              Today
+            </Button>
+          )}
 
           <Button
             variant="outline"
@@ -476,66 +563,108 @@ export const TeamAttendanceReview: React.FC = () => {
         </div>
       </div>
 
+      {loadError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-800 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{loadError}</span>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => loadSupabaseData()}
+            className="text-xs border-red-200 text-red-700 bg-white hover:bg-red-50"
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Real Supabase Pending Non-Visit Requests (if any) */}
       {pendingAbsenceRequests.length > 0 && (
         <div className="bg-purple-50 border-2 border-purple-300 rounded-xl p-4 space-y-3 animate-in fade-in">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-purple-700" />
-              <h4 className="text-xs font-bold text-purple-950 uppercase tracking-wide">
-                Live Salesperson Non-Visit Requests (Authorization Queue)
-              </h4>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-purple-700" />
+                <h4 className="text-xs font-bold text-purple-950 uppercase tracking-wide">
+                  Live Salesperson Non-Visit Requests (Authorization Queue)
+                </h4>
+              </div>
+              <p className="text-[11px] text-purple-800/80 mt-0.5">
+                Pending requests across upcoming and logged dates. Once approved, each workday appears only on its logged date.
+              </p>
             </div>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-200 text-purple-900">
               {pendingAbsenceRequests.length} Awaiting Authorization
             </span>
           </div>
 
-          {pendingAbsenceRequests.map((req) => (
-            <div
-              key={req.id}
-              className="bg-white rounded-lg p-3.5 border border-purple-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-2xs"
-            >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900">
-                    {req.profiles?.full_name || 'Carbon Rep'}
-                  </span>
-                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">
-                    {req.category.replace(/_/g, ' ')}
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-mono">
-                    Date: {req.absence_date}
-                  </span>
+          {pendingAbsenceRequests.map((req) => {
+            const matchesSelectedDate = req.absence_date === selectedDate;
+            return (
+              <div
+                key={req.id}
+                className="bg-white rounded-lg p-3.5 border border-purple-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-2xs"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-slate-900">
+                      {req.profiles?.full_name || 'Carbon Rep'}
+                    </span>
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">
+                      {req.category.replace(/_/g, ' ')}
+                    </span>
+                    <span
+                      className={cn(
+                        'text-[10px] font-mono font-semibold px-2 py-0.5 rounded border',
+                        matchesSelectedDate
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : 'bg-slate-100 text-slate-700 border-slate-200'
+                      )}
+                    >
+                      Date: {req.absence_date}
+                    </span>
+                    {!matchesSelectedDate && isValidWorkDate(req.absence_date) && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate(req.absence_date)}
+                        className="text-[10px] font-semibold text-brand-blue hover:underline cursor-pointer"
+                      >
+                        Jump Date Filter
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-slate-800 italic">&ldquo;{req.justification}&rdquo;</p>
+                  <p className="text-[10px] text-slate-500">
+                    Market: {req.market_code} • Author: Salesperson • Grants 0 Physical Visits
+                  </p>
                 </div>
-                <p className="text-slate-800 italic">&ldquo;{req.justification}&rdquo;</p>
-                <p className="text-[10px] text-slate-500">
-                  Market: {req.market_code} • Author: Salesperson • Grants 0 Physical Visits
-                </p>
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs font-semibold text-red-700 border-red-200 hover:bg-red-50"
-                  onClick={() => setRejectingRequestId(req.id)}
-                >
-                  Reject Request
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="text-xs font-bold bg-purple-700 hover:bg-purple-800 text-white"
-                  onClick={() =>
-                    handleReviewNonVisit(req.id, 'approved', 'Approved by Country Sales Head.')
-                  }
-                >
-                  Approve Non-Visit Day
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs font-semibold text-red-700 border-red-200 hover:bg-red-50"
+                    onClick={() => setRejectingRequestId(req.id)}
+                  >
+                    Reject Request
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="text-xs font-bold bg-purple-700 hover:bg-purple-800 text-white"
+                    onClick={() =>
+                      handleReviewNonVisit(req.id, 'approved', 'Approved by Country Sales Head.')
+                    }
+                  >
+                    Approve Non-Visit Day
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -632,7 +761,13 @@ export const TeamAttendanceReview: React.FC = () => {
                     : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                 }`}
               >
-                Active on Field ({mergedReps.filter((r) => r.todayStatus === 'active_field').length})
+                Active on Field (
+                {
+                  mergedReps.filter(
+                    (r) => r.todayStatus === 'active_field' || r.todayStatus === 'completed_day'
+                  ).length
+                }
+                )
               </button>
               <button
                 onClick={() => setStatusFilter('non_visit')}
@@ -654,6 +789,9 @@ export const TeamAttendanceReview: React.FC = () => {
               >
                 Approved Leave ({mergedReps.filter((r) => r.todayStatus === 'approved_leave').length})
               </button>
+              <span className="ml-1 text-[11px] font-mono text-slate-500">
+                Work Date: <strong className="text-slate-700">{selectedDate || 'Not Selected'}</strong>
+              </span>
             </div>
           </div>
         </CardContent>
@@ -674,97 +812,148 @@ export const TeamAttendanceReview: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredReps.map((rep) => {
-                const isActive = rep.todayStatus === 'active_field';
-                const isCompleted = rep.todayStatus === 'completed_day';
-                const isNonVisit = rep.todayStatus === 'non_visit_day';
-                const isLeave = rep.todayStatus === 'approved_leave';
+              {filteredReps.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-10 px-4 text-center text-xs text-slate-500">
+                    {isLoadingData ? (
+                      <span className="inline-flex items-center gap-2 font-medium text-slate-600">
+                        <Loader2 className="w-4 h-4 animate-spin text-brand-blue" />
+                        Loading attendance records for {selectedDate}...
+                      </span>
+                    ) : !isValidWorkDate(selectedDate) ? (
+                      <span>Please select a valid work date or click Today to view attendance logs.</span>
+                    ) : (
+                      <span>
+                        No attendance, leave, or non-visit workday records logged for{' '}
+                        <span className="font-mono font-semibold text-slate-700">{selectedDate}</span>.
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                filteredReps.map((rep) => {
+                  const isActive = rep.todayStatus === 'active_field';
+                  const isCompleted = rep.todayStatus === 'completed_day';
+                  const isNonVisit = rep.todayStatus === 'non_visit_day';
+                  const isLeave = rep.todayStatus === 'approved_leave';
 
-                return (
-                  <tr key={rep.repId} className="hover:bg-slate-50/75 transition-colors">
-                    {/* Salesperson */}
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                        {rep.repName}
+                  return (
+                    <tr key={rep.recordId || rep.repId} className="hover:bg-slate-50/75 transition-colors">
+                      {/* Salesperson */}
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                          {rep.repName}
+                        </div>
+                        <div className="text-[11px] text-slate-500">{rep.phone}</div>
+                      </td>
 
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        {rep.phone}
-                      </div>
-                    </td>
+                      {/* Territory */}
+                      <td className="py-3.5 px-4 font-medium text-slate-700">
+                        {rep.assignedTerritory}
+                      </td>
 
-                    {/* Territory */}
-                    <td className="py-3.5 px-4 font-medium text-slate-700">
-                      {rep.assignedTerritory}
-                    </td>
+                      {/* Today Status */}
+                      <td className="py-3.5 px-4">
+                        {isActive && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            Active on Field ({rep.startDayTime})
+                          </span>
+                        )}
+                        {isCompleted && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 whitespace-nowrap">
+                            Day Completed ({rep.startDayTime} - {rep.endDayTime || 'Ended'})
+                          </span>
+                        )}
+                        {isNonVisit && (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-brand-blue border border-blue-300 whitespace-nowrap">
+                              Non-Visit Workday
+                            </span>
+                            {(rep.absenceCategory || rep.workDate) && (
+                              <div className="text-[11px] text-slate-600">
+                                {formatAbsenceCategoryLabel(rep.absenceCategory)} • Logged for{' '}
+                                <span className="font-mono font-semibold text-slate-800">
+                                  {rep.workDate || selectedDate}
+                                </span>
+                              </div>
+                            )}
+                            {rep.absenceJustification && (
+                              <div
+                                className="text-[10px] text-slate-500 italic max-w-xs truncate"
+                                title={rep.absenceJustification}
+                              >
+                                &ldquo;{rep.absenceJustification}&rdquo;
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {isLeave && (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 whitespace-nowrap">
+                              Approved Leave
+                            </span>
+                            {(rep.absenceCategory || rep.workDate) && (
+                              <div className="text-[11px] text-slate-600">
+                                {formatAbsenceCategoryLabel(rep.absenceCategory)} • Logged for{' '}
+                                <span className="font-mono font-semibold text-slate-800">
+                                  {rep.workDate || selectedDate}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {rep.todayStatus === 'absent' && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-300 whitespace-nowrap">
+                            Not Started
+                          </span>
+                        )}
+                      </td>
 
-                    {/* Today Status */}
-                    <td className="py-3.5 px-4">
-                      {isActive && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                          Active on Field ({rep.startDayTime})
-                        </span>
-                      )}
-                      {isCompleted && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300">
-                          Day Completed ({rep.startDayTime} - {rep.endDayTime || 'Ended'})
-                        </span>
-                      )}
-                      {isNonVisit && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-brand-blue border border-blue-300">
-                          Non-Visit Workday
-                        </span>
-                      )}
-                      {isLeave && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                          Approved Leave
-                        </span>
-                      )}
-                      {rep.todayStatus === 'absent' && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-300">
-                          Not Started
-                        </span>
-                      )}
-                    </td>
+                      {/* Device & Battery */}
+                      <td className="py-3.5 px-4">
+                        <div className="font-mono text-[11px] font-semibold text-slate-800 flex items-center gap-1">
+                          <Smartphone className="w-3.5 h-3.5 text-slate-400" />
+                          {rep.deviceId}
+                        </div>
+                        {typeof rep.batteryLevel === 'number' ? (
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
+                            <Battery className={cn('w-3.5 h-3.5', getBatteryStatus(rep.batteryLevel).statusColor)} />
+                            <span className={cn('font-medium font-mono', getBatteryStatus(rep.batteryLevel).statusColor)}>
+                              {rep.batteryLevel}% Battery
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            No field handset telemetry
+                          </div>
+                        )}
+                      </td>
 
-                    {/* Device & Battery */}
-                    <td className="py-3.5 px-4">
-                      <div className="font-mono text-[11px] font-semibold text-slate-800 flex items-center gap-1">
-                        <Smartphone className="w-3.5 h-3.5 text-slate-400" />
-                        {rep.deviceId}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                        <Battery className={cn("w-3.5 h-3.5", getBatteryStatus(rep.batteryLevel).statusColor)} />
-                        <span className={cn("font-medium font-mono", getBatteryStatus(rep.batteryLevel).statusColor)}>
-                          {rep.batteryLevel}% Battery
-                        </span>
-                      </div>
-                    </td>
+                      {/* Visits Today */}
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-900 text-sm">
+                          {rep.visitsCompletedToday}
+                          <span className="text-xs text-slate-500 font-normal ml-1">completed</span>
+                        </div>
+                      </td>
 
-                    {/* Visits Today */}
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900 text-sm">
-                        {rep.visitsCompletedToday}
-                        <span className="text-xs text-slate-500 font-normal ml-1">completed</span>
-                      </div>
-                    </td>
-
-                    {/* Actions */}
-                    <td className="py-3.5 px-4 text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs font-semibold bg-white border-slate-300 hover:bg-slate-100 flex items-center gap-1 ml-auto"
-                        onClick={() => setSelectedRepForInspection(rep)}
-                      >
-                        <Eye className="w-3.5 h-3.5 text-slate-500" />
-                        Inspect Telemetry
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
+                      {/* Actions */}
+                      <td className="py-3.5 px-4 text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs font-semibold bg-white border-slate-300 hover:bg-slate-100 flex items-center gap-1 ml-auto"
+                          onClick={() => setSelectedRepForInspection(rep)}
+                        >
+                          <Eye className="w-3.5 h-3.5 text-slate-500" />
+                          Inspect Telemetry
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -795,66 +984,153 @@ export const TeamAttendanceReview: React.FC = () => {
 
             {/* Modal Body */}
             <div className="p-6 space-y-4 text-xs">
-              {/* Selfie Check-in Preview (via Time-Limited Signed URL) */}
-              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">
-                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                  <Camera className="w-3.5 h-3.5 text-brand-blue" />
-                  Live Front-Camera Start Day Selfie (Private Storage)
-                </span>
-
-                <div className="h-44 bg-slate-950 rounded-lg flex items-center justify-center text-slate-400 border border-slate-300 relative overflow-hidden">
-                  {isLoadingSelfie ? (
-                    <div className="flex flex-col items-center gap-1.5 text-white">
-                      <Loader2 className="w-6 h-6 animate-spin text-brand-blue" />
-                      <span className="text-[11px]">Generating secure signed link...</span>
+              {(selectedRepForInspection.todayStatus === 'non_visit_day' ||
+                selectedRepForInspection.todayStatus === 'approved_leave') &&
+              !selectedRepForInspection.selfieUrl &&
+              !selectedRepForInspection.startGps ? (
+                <div className="bg-blue-50/70 rounded-xl p-4 border border-blue-200 space-y-2.5 text-slate-700">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-brand-blue uppercase tracking-wider">
+                      Authorized Non-Field Record
+                    </span>
+                    <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-white border border-blue-200 text-slate-700">
+                      Logged Date: {selectedRepForInspection.workDate || selectedDate}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Classification:</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedRepForInspection.todayStatus === 'approved_leave'
+                          ? 'Approved Leave'
+                          : 'Non-Visit Workday'}
+                      </span>
                     </div>
-                  ) : signedSelfieUrl ? (
-                    <img
-                      src={signedSelfieUrl}
-                      alt={`Selfie check-in for ${selectedRepForInspection.repName}`}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="text-center p-4">
-                      <UserCheck className="w-8 h-8 text-slate-500 mx-auto mb-1.5" />
-                      <span className="font-bold text-slate-300 block">
-                        Front-Camera Selfie Evidence
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Activity Category:</span>
+                      <span className="font-semibold text-slate-900">
+                        {formatAbsenceCategoryLabel(selectedRepForInspection.absenceCategory)}
                       </span>
-                      <span className="text-[10px] text-slate-400 block mt-1">
-                        Time: {selectedRepForInspection.startDayTime || 'N/A'} • Front-Camera Visual Audit Only
+                    </div>
+                  </div>
+                  {selectedRepForInspection.absenceJustification && (
+                    <div className="pt-2 border-t border-blue-200/70">
+                      <span className="text-slate-500 block text-[10px] mb-0.5">
+                        Recorded Justification:
                       </span>
+                      <p className="text-slate-800 italic">
+                        &ldquo;{selectedRepForInspection.absenceJustification}&rdquo;
+                      </p>
                     </div>
                   )}
+                  <p className="text-[10px] text-slate-600 pt-1 border-t border-blue-200/70">
+                    Start Day GPS coordinates, live selfie capture, and field handset battery telemetry are not required for authorized non-visit workdays or approved leave (PRD §6.2).
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <>
+                  {/* Selfie Check-in Preview (via Time-Limited Signed URL) */}
+                  <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                        <Camera className="w-3.5 h-3.5 text-brand-blue" />
+                        Live Front-Camera Start Day Selfie (Private Storage)
+                      </span>
+                      {signedSelfieUrl && !isLoadingSelfie && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLightboxPhoto({
+                              url: signedSelfieUrl,
+                              title: `${selectedRepForInspection.repName} — Start Day Selfie`,
+                              subtitle: `Captured at ${selectedRepForInspection.startDayTime || 'N/A'} • Front-Camera Visual Audit`,
+                            })
+                          }
+                          className="text-[11px] font-bold text-brand-blue hover:underline flex items-center gap-1 cursor-pointer shrink-0"
+                        >
+                          View full photo <ExternalLink className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
 
-              {/* Start Day GPS Coordinates */}
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-1.5 text-slate-700">
-                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
-                  Start Day Telemetry Audit
-                </span>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div>
-                    <span className="text-slate-500 block text-[10px]">Start Timestamp:</span>
-                    <span className="font-mono font-bold text-slate-900">
-                      {selectedRepForInspection.startDayTime || 'N/A'}
-                    </span>
+                    {isLoadingSelfie ? (
+                      <div className="h-44 bg-slate-950 rounded-lg flex items-center justify-center text-slate-400 border border-slate-300 relative overflow-hidden">
+                        <div className="flex flex-col items-center gap-1.5 text-white">
+                          <Loader2 className="w-6 h-6 animate-spin text-brand-blue" />
+                          <span className="text-[11px]">Generating secure signed link...</span>
+                        </div>
+                      </div>
+                    ) : signedSelfieUrl ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLightboxPhoto({
+                            url: signedSelfieUrl,
+                            title: `${selectedRepForInspection.repName} — Start Day Selfie`,
+                            subtitle: `Captured at ${selectedRepForInspection.startDayTime || 'N/A'} • Front-Camera Visual Audit`,
+                          })
+                        }
+                        aria-label="View full Start Day selfie photograph"
+                        title="Click to display full photo"
+                        className="w-full h-52 bg-slate-950 rounded-lg flex items-center justify-center border border-slate-300 relative overflow-hidden cursor-pointer group focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                      >
+                        <img
+                          src={signedSelfieUrl}
+                          alt={`Selfie check-in for ${selectedRepForInspection.repName}`}
+                          className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-[1.02]"
+                        />
+                        <div className="absolute inset-0 bg-slate-950/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <span className="bg-slate-900/90 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-lg border border-slate-700">
+                            <Eye className="w-3.5 h-3.5" /> View full photo
+                          </span>
+                        </div>
+                      </button>
+                    ) : (
+                      <div className="h-44 bg-slate-950 rounded-lg flex items-center justify-center text-slate-400 border border-slate-300 relative overflow-hidden">
+                        <div className="text-center p-4">
+                          <UserCheck className="w-8 h-8 text-slate-500 mx-auto mb-1.5" />
+                          <span className="font-bold text-slate-300 block">
+                            Front-Camera Selfie Evidence
+                          </span>
+                          <span className="text-[10px] text-slate-400 block mt-1">
+                            Time: {selectedRepForInspection.startDayTime || 'N/A'} • Front-Camera Visual Audit Only
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <span className="text-slate-500 block text-[10px]">GPS Accuracy:</span>
-                    <span className="font-mono font-bold text-emerald-700">
-                      ±{selectedRepForInspection.startGps?.accuracy || 12}m
+
+                  {/* Start Day GPS Coordinates */}
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-1.5 text-slate-700">
+                    <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+                      Start Day Telemetry Audit
                     </span>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Start Timestamp:</span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {selectedRepForInspection.startDayTime || 'N/A'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">GPS Accuracy:</span>
+                        <span className="font-mono font-bold text-emerald-700">
+                          {selectedRepForInspection.startGps
+                            ? `±${selectedRepForInspection.startGps.accuracy}m`
+                            : 'Not captured'}
+                        </span>
+                      </div>
+                      <div className="col-span-2 pt-1 border-t border-slate-200">
+                        <span className="text-slate-500 block text-[10px]">GPS Starting Coordinate:</span>
+                        <span className="font-mono font-semibold text-slate-900 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-emerald-600" />
+                          {selectedRepForInspection.startGps?.coords || 'Not captured'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="col-span-2 pt-1 border-t border-slate-200">
-                    <span className="text-slate-500 block text-[10px]">GPS Starting Coordinate:</span>
-                    <span className="font-mono font-semibold text-slate-900 flex items-center gap-1">
-                      <MapPin className="w-3 h-3 text-emerald-600" />
-                      {selectedRepForInspection.startGps?.coords || '6.4531° N, 3.4211° E'}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                </>
+              )}
 
               {/* Handset Hardware Binding */}
               <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-1.5 text-slate-700">
@@ -870,9 +1146,19 @@ export const TeamAttendanceReview: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px]">Battery Level:</span>
-                    <span className={cn("font-mono font-bold", getBatteryStatus(selectedRepForInspection.batteryLevel).statusColor)}>
-                      {selectedRepForInspection.batteryLevel}% ({getBatteryStatus(selectedRepForInspection.batteryLevel).statusLabel})
-                    </span>
+                    {typeof selectedRepForInspection.batteryLevel === 'number' ? (
+                      <span
+                        className={cn(
+                          'font-mono font-bold',
+                          getBatteryStatus(selectedRepForInspection.batteryLevel).statusColor
+                        )}
+                      >
+                        {selectedRepForInspection.batteryLevel}% (
+                        {getBatteryStatus(selectedRepForInspection.batteryLevel).statusLabel})
+                      </span>
+                    ) : (
+                      <span className="font-mono font-semibold text-slate-500">N/A (Non-Field)</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1041,6 +1327,9 @@ export const TeamAttendanceReview: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Full Photo Lightbox Viewer */}
+      <PhotoLightboxModal photo={lightboxPhoto} onClose={() => setLightboxPhoto(null)} />
     </div>
   );
 };

@@ -15,6 +15,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
 import { TablePagination } from '@/components/ui/table-pagination';
 import { BranchApprovalsQueue } from '@/features/review/BranchApprovalsQueue';
 import { ExceptionReviewWorkbench } from '@/features/review/ExceptionReviewWorkbench';
@@ -25,6 +26,7 @@ import { TeamAttendanceReview } from '@/features/review/TeamAttendanceReview';
 import { CountryReportingView } from '@/features/review/CountryReportingView';
 import { CountryCsvExportModal } from '@/features/review/CountryCsvExportModal';
 import { DesktopNavSection } from '@/components/layout/DesktopSidebar';
+import { cn } from '@/lib/utils';
 import {
   Users,
   CheckCircle2,
@@ -38,7 +40,57 @@ import {
   FileSpreadsheet,
   Download,
   ArrowRight,
+  WifiOff,
+  Camera,
+  AlertOctagon,
+  FileText,
+  Building2,
 } from 'lucide-react';
+
+interface DashboardExceptionItem extends ApprovalItem {
+  organisationName: string;
+  exceptionTypeKey: string;
+  exceptionTypeLabel: string;
+  shortId: string;
+}
+
+const EXCEPTION_TYPE_CONFIG: Record<
+  string,
+  { label: string; icon: React.ElementType; badgeClass: string }
+> = {
+  gps_failure: {
+    label: 'GPS Failure',
+    icon: WifiOff,
+    badgeClass: 'bg-orange-50 text-orange-900 border-orange-200',
+  },
+  device_depletion: {
+    label: 'New Client Approval Delay',
+    icon: Clock,
+    badgeClass: 'bg-blue-50 text-brand-blue border-blue-200',
+  },
+  device_failure: {
+    label: 'New Client Approval Delay',
+    icon: Clock,
+    badgeClass: 'bg-blue-50 text-brand-blue border-blue-200',
+  },
+  camera_failure: {
+    label: 'Camera Issue',
+    icon: Camera,
+    badgeClass: 'bg-amber-50 text-amber-900 border-amber-200',
+  },
+  missed_visit: {
+    label: 'Missed Visit',
+    icon: AlertOctagon,
+    badgeClass: 'bg-rose-50 text-rose-900 border-rose-200',
+  },
+};
+
+const getExceptionTypeConfig = (type?: string) =>
+  (type && EXCEPTION_TYPE_CONFIG[type]) || {
+    label: 'Field Exception',
+    icon: ShieldAlert,
+    badgeClass: 'bg-amber-50 text-amber-900 border-amber-200',
+  };
 
 interface SalesHeadDashboardPreviewProps {
   activeSection?: DesktopNavSection;
@@ -73,6 +125,27 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
   const [pendingAbsencesCount, setPendingAbsencesCount] = useState<number>(0);
   const [activeRepsCount, setActiveRepsCount] = useState<number>(0);
   const [totalRepsCount, setTotalRepsCount] = useState<number>(0);
+  const [lightboxPhoto, setLightboxPhoto] = useState<LightboxPhoto | null>(null);
+  const [loadingPhotoId, setLoadingPhotoId] = useState<string | null>(null);
+
+  const handleOpenExceptionPhoto = async (item: DashboardExceptionItem) => {
+    if (!item.premisesPhotoUrl) return;
+    setLoadingPhotoId(item.id);
+    try {
+      const signedUrl = item.premisesPhotoUrl.startsWith('http')
+        ? item.premisesPhotoUrl
+        : await managementService.getExceptionEvidenceSignedUrl?.(item.premisesPhotoUrl);
+      if (signedUrl) {
+        setLightboxPhoto({
+          url: signedUrl,
+          title: `${item.title} • Picture Evidence`,
+          subtitle: `Submitted by ${item.repName} (${item.exceptionTypeLabel})`,
+        });
+      }
+    } finally {
+      setLoadingPhotoId(null);
+    }
+  };
 
   const loadDashboardData = useCallback(async () => {
     try {
@@ -220,19 +293,37 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     accuracy: `±${Math.round(p.reportedAccuracyM)}m (Passes ≤50m threshold)`,
     evidenceNote: 'GPS pin submitted by field salesperson. Verified against on-site premises photo.',
     sharedPhoneWarning: Boolean(p.hasSharedPhone),
+    premisesPhotoUrl: p.premisesPhotoPath || undefined,
   }));
 
-  const pendingExceptions: ApprovalItem[] = liveExceptions.map((e) => ({
-    id: e.id,
-    type: 'exception_approval',
-    title: e.branchName,
-    subtitle: e.failureReason,
-    clientName: e.organisationName,
-    repName: e.repName,
-    claimedTime: new Date(e.claimedCheckInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    accuracy: 'GPS Unverified',
-    evidenceNote: e.failureReason,
-  }));
+  const pendingExceptions: DashboardExceptionItem[] = liveExceptions.map((e) => {
+    const cfg = getExceptionTypeConfig(e.exceptionType);
+    const shortId = e.id.length > 8 ? e.id.slice(0, 8).toUpperCase() : e.id;
+    const claimedTimeFormatted = e.claimedCheckInTime
+      ? new Date(e.claimedCheckInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : 'Claimed';
+    return {
+      id: e.id,
+      type: 'exception_approval',
+      title: e.branchName,
+      subtitle: `${e.organisationName} • ${cfg.label}`,
+      organisationName: e.organisationName,
+      exceptionTypeKey: e.exceptionType || 'field_exception',
+      exceptionTypeLabel: cfg.label,
+      shortId,
+      repName: e.repName,
+      claimedTime: claimedTimeFormatted,
+      accuracy: 'GPS Unverified',
+      evidenceNote: e.failureReason,
+      premisesPhotoUrl: e.supportingEvidenceUrl || undefined,
+    };
+  });
+
+  // Track expanded long narratives inside preview exception cards
+  const [expandedExceptionIds, setExpandedExceptionIds] = useState<Record<string, boolean>>({});
+  const toggleExceptionExpand = (id: string) => {
+    setExpandedExceptionIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   // Pagination state for pending pins and exceptions preview cards (default to 5 items)
   const [pinsPage, setPinsPage] = useState(1);
@@ -260,15 +351,34 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     setReviewModalOpen(true);
   };
 
-  const handleDecisionRecorded = (
+  const handleDecisionRecorded = async (
     itemId: string,
     decision: 'approved' | 'rejected' | 'escalated',
     reason: string
   ) => {
     const shortId = itemId.length > 8 ? itemId.slice(0, 8).toUpperCase() : itemId;
-    setFeedbackMessage(
-      `Decision for #${shortId} (${selectedReviewItem?.title || 'Review Item'}): ${decision.toUpperCase()}. Rationale: "${reason.slice(0, 35)}..." Logged to immutable audit ledger.`
-    );
+    try {
+      if (selectedReviewItem?.type === 'pin_approval' && livePins.some((p) => p.id === itemId)) {
+        const res =
+          decision === 'approved'
+            ? await managementService.approveBranchLocationPin?.(itemId, reason)
+            : await managementService.rejectBranchLocationPin?.(itemId, reason);
+        if (res?.error) throw res.error;
+        await loadDashboardData();
+      } else if (
+        selectedReviewItem?.type === 'exception_approval' &&
+        liveExceptions.some((e) => e.id === itemId)
+      ) {
+        const res = await managementService.reviewSalespersonException?.(itemId, decision as any, reason);
+        if (res?.error) throw res.error;
+        await loadDashboardData();
+      }
+      setFeedbackMessage(
+        `Decision for #${shortId} (${selectedReviewItem?.title || 'Review Item'}): ${decision.toUpperCase()}. Rationale: "${reason.slice(0, 35)}..." Logged to immutable audit ledger.`
+      );
+    } catch (err: any) {
+      setFeedbackMessage(`Review action failed for #${shortId}: ${err?.message || 'Unable to save decision'}`);
+    }
   };
 
   return (
@@ -667,15 +777,15 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Pending Client & Pin Approvals Preview */}
             <Card className="border-slate-200 shadow-xs">
-              <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
-                <div>
+              <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="min-w-0">
                   <CardTitle className="text-base text-slate-900">Pending Client &amp; GPS Approvals</CardTitle>
                   <p className="text-xs text-slate-600 font-medium">Proposed client locations requiring manager GPS verification</p>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-xs font-bold text-brand-blue border-blue-200 hover:bg-blue-50 flex items-center gap-1"
+                  className="text-xs font-bold text-brand-blue border-blue-200 hover:bg-blue-50 flex items-center gap-1 shrink-0 whitespace-nowrap"
                   onClick={() => handleSectionChange('approvals')}
                 >
                   View All ({pendingPins.length}) <ArrowRight className="w-3.5 h-3.5" />
@@ -690,18 +800,18 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
                 ) : (
                   paginatedPins.map((item) => (
                   <div key={item.id} className="p-4 sm:p-5 pt-4 sm:pt-5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-900 text-sm">{item.title}</h4>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-slate-900 text-sm">{item.title}</h4>
                         <p className="text-xs text-slate-700 font-medium flex items-center gap-1 mt-0.5">
-                          <MapPin className="w-3.5 h-3.5 text-slate-500" />
-                          {item.subtitle}
+                          <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span>{item.subtitle}</span>
                         </p>
                         <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
                           Submitted by: <span className="text-slate-900">{item.repName}</span>
                         </p>
                       </div>
-                      <span className="text-[11px] text-slate-500 font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-200">
+                      <span className="text-[11px] text-slate-500 font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-200 whitespace-nowrap shrink-0">
                         {item.claimedTime}
                       </span>
                     </div>
@@ -756,15 +866,15 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
 
             {/* Exceptions Awaiting Manager Review Preview */}
             <Card className="border-slate-200 shadow-xs">
-              <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
-                <div>
+              <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="min-w-0">
                   <CardTitle className="text-base text-slate-900">Exceptions Workbench</CardTitle>
                   <p className="text-xs text-slate-600 font-medium">Salesperson-created missed-visit, GPS and device breakdown logs</p>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-xs font-bold text-brand-blue border-blue-200 hover:bg-blue-50 flex items-center gap-1"
+                  className="text-xs font-bold text-brand-blue border-blue-200 hover:bg-blue-50 flex items-center gap-1 shrink-0 whitespace-nowrap"
                   onClick={() => handleSectionChange('exceptions')}
                 >
                   View All ({pendingExceptions.length}) <ArrowRight className="w-3.5 h-3.5" />
@@ -777,50 +887,134 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
                     No pending field exceptions awaiting manager review.
                   </div>
                 ) : (
-                  paginatedExceptions.map((item) => (
-                  <div key={item.id} className="p-4 sm:p-5 pt-4 sm:pt-5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
-                          {item.subtitle}
-                        </span>
-                        <h4 className="text-xs font-bold text-slate-900 text-sm mt-1.5">{item.title}</h4>
-                        <p className="text-[11px] text-slate-700 font-semibold">
-                          Submitted by: <span className="text-slate-900">{item.repName}</span> • Claimed Time: {item.claimedTime}
-                        </p>
-                      </div>
-                      <StatusBadge status="pending_review" size="sm" />
-                    </div>
+                  paginatedExceptions.map((item) => {
+                    const typeCfg = getExceptionTypeConfig(item.exceptionTypeKey);
+                    const TypeIcon = typeCfg.icon;
+                    const isLongNote = item.evidenceNote.length > 160;
+                    const isExpanded = Boolean(expandedExceptionIds[item.id]);
 
-                    <p className="text-[11px] text-slate-700 font-medium bg-white p-2.5 rounded-lg border border-slate-200 italic">
-                      &ldquo;{item.evidenceNote}&rdquo;
-                    </p>
+                    return (
+                      <div
+                        key={item.id}
+                        className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors space-y-3"
+                      >
+                        {/* Top Metadata & Status Badge Row */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap',
+                                  typeCfg.badgeClass
+                                )}
+                              >
+                                <TypeIcon className="w-3 h-3 shrink-0" />
+                                {item.exceptionTypeLabel}
+                              </span>
+                              <span className="text-[10px] font-mono font-semibold text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200 whitespace-nowrap">
+                                #{item.shortId}
+                              </span>
+                            </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-200">
-                      <span className="text-[11px] text-slate-600 font-medium">
-                        Status: <strong className="text-amber-900">Unverified Activity</strong>
-                      </span>
-                      <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-xs h-9 sm:h-8 px-3 text-red-700 border-red-200 hover:bg-red-50 font-semibold flex-1 sm:flex-initial"
-                          onClick={() => handleOpenReview(item)}
-                        >
-                          Reject
-                        </Button>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="text-xs h-9 sm:h-8 px-3 bg-brand-blue hover:bg-brand-blue-700 text-white font-bold flex-1 sm:flex-initial"
-                          onClick={() => handleOpenReview(item)}
-                        >
-                          Review &amp; Decide
-                        </Button>
+                            <div>
+                              <h4 className="font-bold text-slate-900 text-sm leading-snug">
+                                {item.title}
+                              </h4>
+                              {item.organisationName && (
+                                <p className="text-xs text-slate-600 font-medium flex items-center gap-1 mt-0.5">
+                                  <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <span className="truncate">{item.organisationName}</span>
+                                </p>
+                              )}
+                            </div>
+
+                            <p className="text-[11px] text-slate-600 font-medium flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span>
+                                Submitted by: <strong className="text-slate-900">{item.repName}</strong>
+                              </span>
+                              <span className="text-slate-300">•</span>
+                              <span className="inline-flex items-center gap-1 font-mono text-slate-700">
+                                <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                                {item.claimedTime}
+                              </span>
+                            </p>
+                          </div>
+
+                          <StatusBadge status="pending_review" size="sm" />
+                        </div>
+
+                        {/* Single Clean Narrative Explanation Box */}
+                        <div className="bg-white rounded-lg border border-slate-200/90 p-3 space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                            <FileText className="w-3 h-3 text-amber-600 shrink-0" />
+                            Exception Reason
+                          </span>
+                          <p
+                            className={cn(
+                              'text-xs text-slate-700 leading-relaxed break-words',
+                              isLongNote && !isExpanded && 'line-clamp-3'
+                            )}
+                          >
+                            {item.evidenceNote}
+                          </p>
+                          {isLongNote && (
+                            <button
+                              type="button"
+                              onClick={() => toggleExceptionExpand(item.id)}
+                              className="text-[11px] font-bold text-brand-blue hover:underline cursor-pointer pt-0.5"
+                            >
+                              {isExpanded ? 'Show less' : 'Read full note'}
+                            </button>
+                          )}
+                        </div>
+
+                        {item.premisesPhotoUrl && (
+                          <div className="flex items-center justify-between gap-2 bg-blue-50/70 border border-blue-200/80 rounded-lg px-3 py-2">
+                            <span className="text-[11px] font-semibold text-brand-blue flex items-center gap-1.5">
+                              <Camera className="w-3.5 h-3.5 shrink-0" />
+                              Picture evidence attached
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenExceptionPhoto(item)}
+                              disabled={loadingPhotoId === item.id}
+                              className="text-[11px] font-bold text-brand-blue hover:text-blue-800 hover:underline flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-60"
+                            >
+                              {loadingPhotoId === item.id ? 'Loading photo...' : 'View Picture Evidence'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Footer Status & Action Row */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
+                          <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                            <span>
+                              Status: <strong className="text-amber-900">Unverified Activity</strong>
+                            </span>
+                          </span>
+                          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-8 px-3 text-red-700 border-red-200 hover:bg-red-50 font-semibold flex-1 sm:flex-initial"
+                              onClick={() => handleOpenReview(item)}
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              className="text-xs h-8 px-3.5 bg-brand-blue hover:bg-brand-blue-700 text-white font-bold flex-1 sm:flex-initial"
+                              onClick={() => handleOpenReview(item)}
+                            >
+                              Review &amp; Decide
+                            </Button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ))
+                    );
+                  })
               )}
 
                 {pendingExceptions.length > 0 && (
@@ -854,6 +1048,12 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
         isOpen={csvModalOpen}
         onClose={() => setCsvModalOpen(false)}
         marketName={currentUser.marketName}
+      />
+
+      {/* Full-View Picture Evidence Lightbox */}
+      <PhotoLightboxModal
+        photo={lightboxPhoto}
+        onClose={() => setLightboxPhoto(null)}
       />
     </div>
   );

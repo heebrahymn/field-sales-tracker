@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useFieldSession } from '@/context/FieldSessionContext';
+import { managementService } from '@/services/managementService';
 import { CreateExceptionModal } from '@/features/field/CreateExceptionModal';
+import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
 import { Button } from '@/components/ui/button';
 import {
   Plus,
@@ -13,16 +15,38 @@ import {
   UserCheck,
   AlertOctagon,
   RefreshCw,
+  Camera,
+  ExternalLink,
 } from 'lucide-react';
 
 export const ExceptionsWorkbenchView: React.FC = () => {
-  const { exceptions, refreshExceptions } = useFieldSession();
+  const { exceptions, refreshExceptions, refreshBranches } = useFieldSession();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<LightboxPhoto | null>(null);
+  const [openingPhotoId, setOpeningPhotoId] = useState<string | null>(null);
 
   useEffect(() => {
     refreshExceptions();
-  }, [refreshExceptions]);
+    refreshBranches?.();
+  }, [refreshExceptions, refreshBranches]);
+
+  const handleViewEvidencePhoto = async (exc: (typeof exceptions)[number]) => {
+    if (!exc.supportingEvidenceUrl) return;
+    setOpeningPhotoId(exc.id);
+    try {
+      const signed = await managementService.getExceptionEvidenceSignedUrl(exc.supportingEvidenceUrl);
+      if (signed) {
+        setLightboxPhoto({
+          url: signed,
+          title: `${exc.title} — ${exc.branchName}`,
+          subtitle: `Uploaded picture evidence • Claimed ${exc.claimedDate} ${exc.claimedTime}`,
+        });
+      }
+    } finally {
+      setOpeningPhotoId(null);
+    }
+  };
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
@@ -49,7 +73,7 @@ export const ExceptionsWorkbenchView: React.FC = () => {
             My Exceptions Workbench
           </h2>
           <p className="text-xs text-slate-500 font-medium">
-            GPS failure, device recovery, and missed visit claims
+            GPS failure, new client approval delay, and missed visit claims
           </p>
         </div>
 
@@ -172,10 +196,24 @@ export const ExceptionsWorkbenchView: React.FC = () => {
               </div>
 
               {/* Supporting Evidence */}
-              <div className="text-xs space-y-1">
-                <span className="font-bold text-slate-700 flex items-center gap-1 text-[11px]">
-                  <FileText className="w-3 h-3 text-slate-400" /> Supporting Evidence:
-                </span>
+              <div className="text-xs space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-700 flex items-center gap-1 text-[11px]">
+                    <FileText className="w-3 h-3 text-slate-400" /> Supporting Evidence:
+                  </span>
+                  {exc.supportingEvidenceUrl && (
+                    <button
+                      type="button"
+                      onClick={() => handleViewEvidencePhoto(exc)}
+                      disabled={openingPhotoId === exc.id}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-blue hover:underline cursor-pointer"
+                    >
+                      <Camera className="w-3 h-3" />
+                      <span>{openingPhotoId === exc.id ? 'Loading photo...' : 'View Picture Evidence'}</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </div>
                 <p className="text-slate-600 italic text-[11px]">
                   {exc.evidenceNote}
                 </p>
@@ -208,6 +246,9 @@ export const ExceptionsWorkbenchView: React.FC = () => {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
       />
+
+      {/* Picture Evidence Lightbox */}
+      <PhotoLightboxModal photo={lightboxPhoto} onClose={() => setLightboxPhoto(null)} />
     </div>
   );
 };

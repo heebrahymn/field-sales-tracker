@@ -130,6 +130,7 @@ export const ClientsLocationsDirectory: React.FC = () => {
       accuracy: loc.accuracyMeters ? `±${loc.accuracyMeters}m (Passes ≤${maxPinThreshold}m threshold)` : `±18m (Passes ≤${maxPinThreshold}m threshold)`,
       evidenceNote: loc.evidenceNote || 'Premises entrance and workshop signage verified. GPS pin confirmed at central gate.',
       sharedPhoneWarning: loc.hasSharedPhone,
+      premisesPhotoUrl: loc.premisesPhotoUrl,
     };
 
     setSelectedApprovalItem(item);

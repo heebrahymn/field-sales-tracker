@@ -11,14 +11,24 @@ import {
   FileText,
   X,
   AlertOctagon,
+  Camera,
+  ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TablePagination } from '@/components/ui/table-pagination';
+import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
 import { MarketCode } from '@/context/AuthContext';
 
 export interface HqExceptionRecord {
   id: string;
-  exceptionType: 'gps_failure' | 'device_failure' | 'camera_defect' | 'delayed_submission_recovery';
+  exceptionType:
+    | 'gps_failure'
+    | 'device_failure'
+    | 'device_depletion'
+    | 'camera_failure'
+    | 'camera_defect'
+    | 'missed_visit'
+    | 'delayed_submission_recovery';
   salespersonId: string;
   salespersonName: string;
   marketCode: MarketCode;
@@ -36,6 +46,7 @@ export interface HqExceptionRecord {
   overdueReviewHours?: number; // >24h
   salespersonRationale: string;
   evidenceProvided: string;
+  supportingEvidenceUrl?: string;
   salesHeadDecision?: {
     reviewedBy: string;
     reviewTimestamp: string;
@@ -107,6 +118,7 @@ export const HqExceptionOversight: React.FC<HqExceptionOversightProps> = ({ init
               status,
               salespersonRationale: e.failureReason,
               evidenceProvided: e.failureReason,
+              supportingEvidenceUrl: e.supportingEvidenceUrl || undefined,
               salesHeadDecision: e.reviewedBy
                 ? {
                     reviewedBy: e.reviewedBy,
@@ -129,6 +141,41 @@ export const HqExceptionOversight: React.FC<HqExceptionOversightProps> = ({ init
   const [selectedException, setSelectedException] = useState<HqExceptionRecord | null>(null);
   const [adminActionNotes, setAdminActionNotes] = useState('');
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [signedEvidenceUrl, setSignedEvidenceUrl] = useState<string | null>(null);
+  const [isLoadingPhoto, setIsLoadingPhoto] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<LightboxPhoto | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const raw = selectedException?.supportingEvidenceUrl;
+    if (!raw) {
+      setSignedEvidenceUrl(null);
+      setIsLoadingPhoto(false);
+      return;
+    }
+    if (raw.startsWith('http')) {
+      setSignedEvidenceUrl(raw);
+      setIsLoadingPhoto(false);
+      return;
+    }
+    if (!managementService.getExceptionEvidenceSignedUrl) {
+      setSignedEvidenceUrl(null);
+      setIsLoadingPhoto(false);
+      return;
+    }
+    setIsLoadingPhoto(true);
+    managementService
+      .getExceptionEvidenceSignedUrl(raw)
+      .then((url) => {
+        if (active) setSignedEvidenceUrl(url);
+      })
+      .finally(() => {
+        if (active) setIsLoadingPhoto(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedException]);
 
   // Filtered Exceptions
   const filteredExceptions = useMemo(() => {
@@ -378,7 +425,9 @@ export const HqExceptionOversight: React.FC<HqExceptionOversightProps> = ({ init
                         )}
                       </div>
                       <p className="text-[11px] font-semibold text-slate-700 capitalize">
-                        {exc.exceptionType.replace(/_/g, ' ')}
+                        {exc.exceptionType === 'device_depletion' || exc.exceptionType === 'device_failure'
+                          ? 'New Client Approval Delay'
+                          : exc.exceptionType.replace(/_/g, ' ')}
                       </p>
                     </div>
                   </td>
@@ -551,10 +600,67 @@ export const HqExceptionOversight: React.FC<HqExceptionOversightProps> = ({ init
               </div>
 
               <div className="space-y-1.5">
-                <label className="block font-bold text-slate-700">Physical Evidence Attached</label>
-                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 text-[11px] flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-brand-blue shrink-0" />
-                  <span>{selectedException.evidenceProvided}</span>
+                <label className="block font-bold text-slate-700">Physical &amp; Picture Evidence Attached</label>
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 text-[11px] space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-brand-blue shrink-0" />
+                    <span>{selectedException.evidenceProvided}</span>
+                  </div>
+                  {selectedException.supportingEvidenceUrl && (
+                    <div className="pt-2 border-t border-slate-200 flex items-center gap-3">
+                      {isLoadingPhoto ? (
+                        <div className="w-16 h-16 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-[10px] text-slate-500">
+                          Loading...
+                        </div>
+                      ) : signedEvidenceUrl ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLightboxPhoto({
+                              url: signedEvidenceUrl,
+                              title: `${selectedException.branchName} • Exception Evidence`,
+                              subtitle: `${selectedException.salespersonName} • ${selectedException.organisationName}`,
+                            })
+                          }
+                          className="w-16 h-16 rounded-lg overflow-hidden border border-slate-200 bg-white shrink-0 hover:ring-2 hover:ring-brand-blue/40 transition-all cursor-pointer"
+                          title="View full photo"
+                        >
+                          <img
+                            src={signedEvidenceUrl}
+                            alt={`${selectedException.branchName} exception evidence`}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ) : (
+                        <div className="w-16 h-16 rounded-lg border border-slate-200 bg-white flex items-center justify-center shrink-0">
+                          <Camera className="w-5 h-5 text-slate-400" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="font-semibold text-slate-800">Picture Evidence Uploaded</p>
+                        {signedEvidenceUrl ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLightboxPhoto({
+                                url: signedEvidenceUrl,
+                                title: `${selectedException.branchName} • Exception Evidence`,
+                                subtitle: `${selectedException.salespersonName} • ${selectedException.organisationName}`,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-brand-blue hover:underline cursor-pointer"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            View full photo
+                          </button>
+                        ) : (
+                          <p className="text-[11px] text-slate-500">
+                            {isLoadingPhoto ? 'Signing image URL...' : 'Evidence image unavailable'}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -616,6 +722,12 @@ export const HqExceptionOversight: React.FC<HqExceptionOversightProps> = ({ init
           </div>
         </div>
       )}
+
+      {/* Full-View Picture Evidence Lightbox */}
+      <PhotoLightboxModal
+        photo={lightboxPhoto}
+        onClose={() => setLightboxPhoto(null)}
+      />
     </div>
   );
 };

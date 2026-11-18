@@ -1231,12 +1231,15 @@ async function runComprehensiveSecurityVerification() {
     let nonVisitReqId: string | null = null;
     const runNum = Date.now() % 10000;
     const testDate = `2026-11-${String((runNum % 25) + 1).padStart(2, '0')}`;
+    const rejectDate = `2026-11-${String((runNum % 25) + 2).padStart(2, '0')}`;
+    const leaveDate = `2026-11-${String((runNum % 25) + 3).padStart(2, '0')}`;
 
-    // Clean up any potential leftover absence for this test date
-    await hq.client.from('approved_absences').delete().eq('user_id', spNg.user.id).eq('absence_date', testDate);
-    await hq.client.from('absence_requests').delete().eq('user_id', spNg.user.id).eq('absence_date', testDate);
+    try {
+      // Clean up any potential leftover absence for this test date
+      await hq.client.from('approved_absences').delete().eq('user_id', spNg.user.id).eq('absence_date', testDate);
+      await hq.client.from('absence_requests').delete().eq('user_id', spNg.user.id).eq('absence_date', testDate);
 
-    // 7.1 Salesperson submits non-visit workday request -> Starts as PENDING in absence_requests
+      // 7.1 Salesperson submits non-visit workday request -> Starts as PENDING in absence_requests
     try {
       const { data: reqId, error } = await spNg.client.rpc('request_non_visit_workday', {
         p_date: testDate,
@@ -1371,7 +1374,6 @@ async function runComprehensiveSecurityVerification() {
 
     // 7.6 Rejection Workflow: Manager rejects non-visit request with mandatory reason
     try {
-      const rejectDate = `2026-11-${String((runNum % 25) + 2).padStart(2, '0')}`;
       await hq.client.from('approved_absences').delete().eq('user_id', spNg.user.id).eq('absence_date', rejectDate);
       await hq.client.from('absence_requests').delete().eq('user_id', spNg.user.id).eq('absence_date', rejectDate);
 
@@ -1415,7 +1417,6 @@ async function runComprehensiveSecurityVerification() {
 
     // 7.7 Direct Manager Approved Leave Recording (e.g. Annual Leave)
     try {
-      const leaveDate = `2026-11-${String((runNum % 25) + 3).padStart(2, '0')}`;
       await hq.client.from('approved_absences').delete().eq('user_id', spNg.user.id).eq('absence_date', leaveDate);
 
       const { data: leaveId, error: leaveErr } = await cshNg.client.rpc('record_approved_leave', {
@@ -1442,6 +1443,13 @@ async function runComprehensiveSecurityVerification() {
       );
     } catch (err: any) {
       recordTest('Non-Visit Workday', 'WF-NV-07', 'Manager direct leave recording', false, err.message);
+    }
+    } finally {
+      // Post-test cleanup so Group 7 never leaves synthetic non-visit or leave rows behind
+      for (const cleanupDate of [testDate, rejectDate, leaveDate]) {
+        await hq.client.from('approved_absences').delete().eq('user_id', spNg.user.id).eq('absence_date', cleanupDate);
+        await hq.client.from('absence_requests').delete().eq('user_id', spNg.user.id).eq('absence_date', cleanupDate);
+      }
     }
 
     // 7.8 Negative Access: Salesperson CANNOT record approved leave directly

@@ -78,6 +78,8 @@ describe('Pre-Stage 3 Corrections & Regression Suite', () => {
       const stickyCheckoutBtn = document.getElementById('sticky-btn-checkout');
       expect(stickyCheckoutBtn).toBeInTheDocument();
       expect(stickyCheckoutBtn).toHaveTextContent(/Check Out & Document Visit/i);
+      expect(screen.getAllByRole('button', { name: /Check Out & Document Visit/i })).toHaveLength(1);
+      expect(screen.queryByRole('button', { name: /Draft Meeting Log/i })).not.toBeInTheDocument();
     });
 
     it('displays separate photo capture and check-in CTAs across draft workflow steps', () => {
@@ -109,13 +111,14 @@ describe('Pre-Stage 3 Corrections & Regression Suite', () => {
       fireEvent.click(screen.getByText('Apex Heavy Logistics Ltd'));
       fireEvent.click(screen.getByText('Apex Heavy Logistics Fleet Depot'));
 
-      // Step 2: Location selected, awaiting photo -> Sticky CTA is "Capture Live Premises Photo"
-      const stickyCaptureBtn = screen.getByRole('button', { name: /Capture Live Premises Photo/i });
-      expect(stickyCaptureBtn).toBeInTheDocument();
-      expect(stickyCaptureBtn).toHaveAttribute('id', 'sticky-btn-capture-photo');
-
-      // Click photo capture
-      fireEvent.click(stickyCaptureBtn);
+      // Step 2: Location selected, awaiting photo -> Sticky CTA shows disabled Check In & Start Client Meeting
+      // and redundant "Capture Photo" / "Capture Live Premises Photo" buttons are removed
+      const stickyCheckInDisabled = screen.getByRole('button', { name: /Check In & Start Client Meeting/i });
+      expect(stickyCheckInDisabled).toBeDisabled();
+      expect(stickyCheckInDisabled).toHaveAttribute('id', 'sticky-btn-checkin-disabled');
+      expect(screen.queryByRole('button', { name: /^Capture Photo$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Capture Live Premises Photo/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Start Camera/i })).toBeInTheDocument();
     });
   });
 

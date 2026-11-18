@@ -49,7 +49,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
   const [contactRole, setContactRole] = useState(defaultContactRole || 'Head of Fleet Operations');
   const [purpose, setPurpose] = useState<VisitPurpose>('routine_visit');
   const [outcome, setOutcome] = useState('Interest expressed in commercial battery fleet trial. Client requested technical specifications.');
-  const [nextStep, setNextStep] = useState('Deliver technical specification sheet for heavy-duty commercial battery fleet trial.');
+  const [nextStep, setNextStep] = useState('');
   const [fleetSize, setFleetSize] = useState<string>('24');
   const [selectedProducts, setSelectedProducts] = useState<string[]>(['Batteries', 'Lubricants']);
   const [deferLog, setDeferLog] = useState(false);
@@ -253,10 +253,10 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
             </p>
           </div>
 
-          {/* Next Step - Free Text ONLY (Strict MVP Exclusion Enforcement) */}
+          {/* Next Step (Strict MVP Exclusion Enforcement: Narrative Only) */}
           <div className="space-y-1.5">
             <label htmlFor="next-steps" className="block font-bold text-slate-900">
-              Next Step Description (Free Text Only) <span className="text-red-500">*</span>
+              Next Step Description <span className="text-red-500">*</span>
             </label>
             <textarea
               id="next-steps"
@@ -381,7 +381,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
             variant="default"
             size="default"
             onClick={handleComplete}
-            disabled={!contactName || !purpose || !nextStep}
+            disabled={!contactName.trim() || !purpose || !nextStep.trim()}
             className="text-xs h-11 px-5 font-bold bg-brand-blue hover:bg-brand-blue-700"
           >
             {deferLog ? 'Check Out & Defer Log (2h SLA)' : 'Submit Log & Close Visit'}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, CheckCircle2, AlertTriangle, Camera } from 'lucide-react';
+import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
+import { X, CheckCircle2, AlertTriangle, Camera, Eye, ExternalLink, Loader2 } from 'lucide-react';
 import { managementService } from '@/services/managementService';
 
 export interface ApprovalItem {
@@ -32,20 +33,34 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
   const [decisionReason, setDecisionReason] = useState('');
   const [validationError, setValidationError] = useState('');
   const [modalPhotoUrl, setModalPhotoUrl] = useState<string | null>(null);
+  const [isPhotoLoading, setIsPhotoLoading] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<LightboxPhoto | null>(null);
 
   useEffect(() => {
     let active = true;
+    setLightboxPhoto(null);
     if (item?.premisesPhotoUrl) {
       const p = item.premisesPhotoUrl;
       if (p.startsWith('http') || p.startsWith('blob:') || p.startsWith('data:') || p.startsWith('/')) {
         setModalPhotoUrl(p);
+        setIsPhotoLoading(false);
       } else {
-        managementService.getPremisesPhotoSignedUrl(p).then((url) => {
-          if (active && url) setModalPhotoUrl(url);
+        setModalPhotoUrl(null);
+        setIsPhotoLoading(true);
+        const resolver =
+          item.type === 'exception_approval'
+            ? managementService.getExceptionEvidenceSignedUrl(p)
+            : managementService.getPremisesPhotoSignedUrl(p);
+        resolver.then((url) => {
+          if (active) {
+            setIsPhotoLoading(false);
+            setModalPhotoUrl(url || null);
+          }
         });
       }
     } else {
       setModalPhotoUrl(null);
+      setIsPhotoLoading(false);
     }
     return () => {
       active = false;
@@ -53,6 +68,15 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
   }, [item]);
 
   if (!isOpen || !item) return null;
+
+  const openLightbox = () => {
+    if (!modalPhotoUrl) return;
+    setLightboxPhoto({
+      url: modalPhotoUrl,
+      title: item.title,
+      subtitle: `Captured by ${item.repName} • ${item.claimedTime}`,
+    });
+  };
 
   const handleAction = (decision: 'approved' | 'rejected' | 'escalated') => {
     if (!decisionReason.trim()) {
@@ -68,6 +92,7 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
   const isPin = item.type === 'pin_approval';
 
   return (
+    <>
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150 select-none">
       <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Modal Header */}
@@ -121,22 +146,70 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
             </h5>
             <div className="p-3 bg-white border border-slate-300 rounded-xl space-y-2.5">
               <div className="flex items-center gap-3">
-                <div className="w-16 h-16 rounded-lg bg-slate-900 border border-slate-300 flex flex-col items-center justify-center font-bold text-[9px] text-white shrink-0 overflow-hidden shadow-xs">
-                  {modalPhotoUrl ? (
-                    <img src={modalPhotoUrl} alt="Premises" className="w-full h-full object-cover" />
+                {modalPhotoUrl ? (
+                  <button
+                    type="button"
+                    onClick={openLightbox}
+                    aria-label="View full premises photograph"
+                    title="Click to view full photograph"
+                    className="relative w-16 h-16 rounded-lg bg-slate-900 border border-slate-300 flex items-center justify-center shrink-0 overflow-hidden shadow-xs cursor-pointer group focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                  >
+                    <img
+                      src={modalPhotoUrl}
+                      alt="Premises"
+                      className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 bg-slate-950/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Eye className="w-4 h-4 text-white" />
+                    </div>
+                  </button>
+                ) : (
+                  <div className="w-16 h-16 rounded-lg bg-slate-900 border border-slate-300 flex flex-col items-center justify-center font-bold text-[9px] text-white shrink-0 overflow-hidden shadow-xs">
+                    {isPhotoLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-300" />
+                    ) : (
+                      <>
+                        <Camera className="w-4 h-4 mb-0.5 text-slate-400" />
+                        <span className="text-[8px] text-slate-400">NO PHOTO</span>
+                      </>
+                    )}
+                  </div>
+                )}
+                <div className="space-y-0.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <p className="font-bold text-slate-900 text-xs">
+                      {isPin ? 'Live Premises Photograph' : 'Supporting Picture Evidence'}
+                    </p>
+                    {modalPhotoUrl && (
+                      <button
+                        type="button"
+                        onClick={openLightbox}
+                        className="text-[10px] font-bold text-brand-blue hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        View full photo <ExternalLink className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-600">
+                    {isPin ? `Captured at timestamp: ${item.claimedTime}` : `Submitted for claim time: ${item.claimedTime}`}
+                  </p>
+                  {isPin ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Camera Stream &amp; Location Validated
+                    </span>
+                  ) : isPhotoLoading ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-slate-600 font-semibold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Loading picture evidence...
+                    </span>
+                  ) : modalPhotoUrl ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Picture Evidence Attached
+                    </span>
                   ) : (
-                    <>
-                      <Camera className="w-4 h-4 mb-0.5 text-slate-400" />
-                      <span className="text-[8px] text-slate-400">NO PHOTO</span>
-                    </>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-slate-600 font-semibold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                      No Picture Uploaded (Narrative Only)
+                    </span>
                   )}
-                </div>
-                <div className="space-y-0.5">
-                  <p className="font-bold text-slate-900 text-xs">Live Premises Photograph</p>
-                  <p className="text-[10px] text-slate-600">Captured at timestamp: {item.claimedTime}</p>
-                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Camera Stream &amp; Location Validated
-                  </span>
                 </div>
               </div>
 
@@ -222,5 +295,8 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
         </div>
       </div>
     </div>
+
+    <PhotoLightboxModal photo={lightboxPhoto} onClose={() => setLightboxPhoto(null)} />
+    </>
   );
 };

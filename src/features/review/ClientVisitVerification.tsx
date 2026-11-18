@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useMarketConfig } from '@/context/MarketConfigContext';
 import { managementService, RealVisitVerificationRecord } from '@/services/managementService';
+import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
 import {
   MapPin,
   CheckCircle2,
@@ -19,6 +20,7 @@ import {
   RefreshCw,
   Loader2,
   CreditCard,
+  ExternalLink,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -75,9 +77,11 @@ export const ClientVisitVerification: React.FC = () => {
   const [realVisits, setRealVisits] = useState<RealVisitVerificationRecord[]>([]);
   const [isLoadingReal, setIsLoadingReal] = useState(false);
   const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
+  const [isPhotoLoading, setIsPhotoLoading] = useState(false);
   const [signedBusinessCardUrl, setSignedBusinessCardUrl] = useState<string | null>(null);
   const [isCardLoading, setIsCardLoading] = useState(false);
   const [cardLoadError, setCardLoadError] = useState<string | null>(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState<LightboxPhoto | null>(null);
 
   const loadRealVisits = useCallback(async () => {
     setIsLoadingReal(true);
@@ -103,17 +107,25 @@ export const ClientVisitVerification: React.FC = () => {
   // Resolve signed photo URL when inspecting a visit
   useEffect(() => {
     let active = true;
+    setLightboxPhoto(null);
     if (selectedVisitForModal?.premisesPhotoUrl) {
       const p = selectedVisitForModal.premisesPhotoUrl;
-      if (p.startsWith('http') || p.startsWith('/brand') || p.startsWith('blob:') || p.startsWith('data:')) {
+      if (p.startsWith('http') || p.startsWith('/') || p.startsWith('blob:') || p.startsWith('data:')) {
         setSignedPhotoUrl(p);
+        setIsPhotoLoading(false);
       } else {
+        setSignedPhotoUrl(null);
+        setIsPhotoLoading(true);
         managementService.getPremisesPhotoSignedUrl(p).then((url) => {
-          if (active && url) setSignedPhotoUrl(url);
+          if (active) {
+            setIsPhotoLoading(false);
+            setSignedPhotoUrl(url || null);
+          }
         });
       }
     } else {
       setSignedPhotoUrl(null);
+      setIsPhotoLoading(false);
     }
     return () => {
       active = false;
@@ -788,18 +800,61 @@ export const ClientVisitVerification: React.FC = () => {
 
               {/* Premises Photo Preview */}
               <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">
-                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                  <Camera className="w-3.5 h-3.5 text-brand-blue" />
-                  Live Premises Verification Photo (Captured via In-App Camera)
-                </span>
-                <div className="h-44 bg-slate-900 rounded-lg flex items-center justify-center text-slate-500 border border-slate-300 relative overflow-hidden">
-                  {signedPhotoUrl ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                    <Camera className="w-3.5 h-3.5 text-brand-blue" />
+                    Live Premises Verification Photo (Captured via In-App Camera)
+                  </span>
+                  {signedPhotoUrl && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLightboxPhoto({
+                          url: signedPhotoUrl,
+                          title: `${selectedVisitForModal.clientName} — ${selectedVisitForModal.branchName}`,
+                          subtitle: `Live premises verification photo • Captured ${selectedVisitForModal.checkInTime} by ${selectedVisitForModal.repName}`,
+                        })
+                      }
+                      className="text-[11px] font-bold text-brand-blue hover:underline flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      View full photo <ExternalLink className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                {signedPhotoUrl ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLightboxPhoto({
+                        url: signedPhotoUrl,
+                        title: `${selectedVisitForModal.clientName} — ${selectedVisitForModal.branchName}`,
+                        subtitle: `Live premises verification photo • Captured ${selectedVisitForModal.checkInTime} by ${selectedVisitForModal.repName}`,
+                      })
+                    }
+                    aria-label="View full premises verification photo"
+                    title="Click to display full photo"
+                    className="w-full h-52 bg-slate-950 rounded-lg flex items-center justify-center border border-slate-300 relative overflow-hidden cursor-pointer group focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                  >
                     <img
                       src={signedPhotoUrl}
                       alt="Premises Verification"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-[1.02]"
                     />
-                  ) : (
+                    <div className="absolute inset-0 bg-slate-950/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="bg-slate-900/90 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-lg border border-slate-700">
+                        <Eye className="w-3.5 h-3.5" /> View full photo
+                      </span>
+                    </div>
+                  </button>
+                ) : isPhotoLoading ? (
+                  <div className="h-44 bg-slate-950 rounded-lg flex items-center justify-center text-slate-400 border border-slate-300 p-4 text-center">
+                    <div>
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1 text-brand-blue" />
+                      <span className="text-xs font-semibold text-slate-300">Generating secure temporary preview link...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-44 bg-slate-900 rounded-lg flex items-center justify-center text-slate-500 border border-slate-300 relative overflow-hidden">
                     <div className="text-center p-4">
                       <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-1.5" />
                       <span className="font-bold text-slate-200 block">
@@ -809,8 +864,8 @@ export const ClientVisitVerification: React.FC = () => {
                         Watermarked: {selectedVisitForModal.geofenceResult.checkInCoords} • {selectedVisitForModal.checkInTime}
                       </span>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Complete Meeting Narrative Outcome */}
@@ -833,9 +888,9 @@ export const ClientVisitVerification: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Free Text Next Step Note (PRD Compliant: Free text only, no task manager) */}
+                {/* Next Step Note (PRD Compliant: Narrative only, no task manager) */}
                 <div className="pt-2 border-t border-slate-100">
-                  <strong className="text-slate-900 block">Agreed Next Step (Free Text):</strong>
+                  <strong className="text-slate-900 block">Agreed Next Step:</strong>
                   <span className="text-slate-700 italic">
                     {selectedVisitForModal.meetingLog.nextStepText || 'No next step recorded.'}
                   </span>
@@ -844,29 +899,63 @@ export const ClientVisitVerification: React.FC = () => {
 
               {/* Client Business Card Section */}
               <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
                     <CreditCard className="w-3.5 h-3.5 text-brand-blue" />
                     Client Business Card (Captured at Meeting Log / Checkout)
                   </span>
-                  {selectedVisitForModal.meetingLog.businessCardPhotoPath && (
-                    <span className="text-[10px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
-                      Encrypted Cloud File
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {signedBusinessCardUrl && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLightboxPhoto({
+                            url: signedBusinessCardUrl,
+                            title: `${selectedVisitForModal.clientName} — Client Business Card`,
+                            subtitle: `Contact: ${selectedVisitForModal.meetingLog.contactMet} • Submitted ${selectedVisitForModal.meetingLog.submittedAt || ''}`,
+                          })
+                        }
+                        className="text-[11px] font-bold text-brand-blue hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        View full photo <ExternalLink className="w-3 h-3" />
+                      </button>
+                    )}
+                    {selectedVisitForModal.meetingLog.businessCardPhotoPath && (
+                      <span className="text-[10px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                        Encrypted Cloud File
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {signedBusinessCardUrl ? (
-                  <div className="h-56 bg-slate-900 rounded-lg flex items-center justify-center border border-slate-300 relative overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLightboxPhoto({
+                        url: signedBusinessCardUrl,
+                        title: `${selectedVisitForModal.clientName} — Client Business Card`,
+                        subtitle: `Contact: ${selectedVisitForModal.meetingLog.contactMet} • Submitted ${selectedVisitForModal.meetingLog.submittedAt || ''}`,
+                      })
+                    }
+                    aria-label="View full business card photo"
+                    title="Click to display full photo"
+                    className="w-full h-56 bg-slate-950 rounded-lg flex items-center justify-center border border-slate-300 relative overflow-hidden cursor-pointer group focus:outline-none focus:ring-2 focus:ring-brand-blue"
+                  >
                     <img
                       src={signedBusinessCardUrl}
                       alt="Client Business Card"
-                      className="w-full h-full object-contain bg-slate-950"
+                      className="w-full h-full object-contain bg-slate-950 transition-transform duration-200 group-hover:scale-[1.02]"
                       onError={() => {
                         setCardLoadError('Failed to display business card image.');
                         setSignedBusinessCardUrl(null);
                       }}
                     />
-                  </div>
+                    <div className="absolute inset-0 bg-slate-950/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="bg-slate-900/90 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-lg border border-slate-700">
+                        <Eye className="w-3.5 h-3.5" /> View full photo
+                      </span>
+                    </div>
+                  </button>
                 ) : isCardLoading ? (
                   <div className="h-28 bg-slate-100 rounded-lg flex items-center justify-center text-slate-500 border border-slate-200 p-4 text-center">
                     <div>
@@ -948,6 +1037,9 @@ export const ClientVisitVerification: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Full Photo Lightbox Viewer */}
+      <PhotoLightboxModal photo={lightboxPhoto} onClose={() => setLightboxPhoto(null)} />
     </div>
   );
 };

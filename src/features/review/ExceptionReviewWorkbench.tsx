@@ -3,14 +3,18 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { ApprovalDecisionModal, ApprovalItem } from '@/features/review/ApprovalDecisionModal';
+import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
 import { useFieldSession } from '@/context/FieldSessionContext';
 import { useAuth } from '@/context/AuthContext';
 import { managementService, RealExceptionItem } from '@/services/managementService';
+import { formatExceptionSubmissionLag, formatMarketTime } from '@/services/attendanceService';
 import {
   ShieldAlert,
   AlertOctagon,
   Clock,
-  BatteryCharging,
+  Camera,
+  Image as ImageIcon,
+  ExternalLink,
   WifiOff,
   CheckCircle2,
   XCircle,
@@ -27,11 +31,10 @@ export interface ExceptionRecord extends ApprovalItem {
   exceptionType: 'gps_failure' | 'device_failure' | 'missed_visit';
   clientName: string;
   branchName: string;
-  claimedDuration: string;
+  actualSubmissionTime: string;
   submissionLag: string;
-  productsDiscussed: string;
-  contactMet: string;
   failureReason: string;
+  signedEvidenceUrl?: string;
   status: 'pending_review' | 'manager_approved_unverified' | 'rejected' | 'escalated';
   isRealRecord?: boolean;
   rawDate?: string;
@@ -45,7 +48,13 @@ export interface ExceptionRecord extends ApprovalItem {
 
 const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
 
-export const ExceptionReviewWorkbench: React.FC = () => {
+export interface ExceptionReviewWorkbenchProps {
+  initialExceptions?: RealExceptionItem[];
+}
+
+export const ExceptionReviewWorkbench: React.FC<ExceptionReviewWorkbenchProps> = ({
+  initialExceptions,
+}) => {
   const { currentUser } = useAuth();
   const { approveException, rejectException, escalateException } = useFieldSession();
 
@@ -59,12 +68,40 @@ export const ExceptionReviewWorkbench: React.FC = () => {
   const [selectedException, setSelectedException] = useState<ApprovalItem | null>(null);
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState<LightboxPhoto | null>(null);
+  const [loadingPhotoId, setLoadingPhotoId] = useState<string | null>(null);
+  const [evidenceUrls, setEvidenceUrls] = useState<Record<string, string>>({});
 
   // Real Supabase exceptions
-  const [realExceptions, setRealExceptions] = useState<RealExceptionItem[]>([]);
+  const [realExceptions, setRealExceptions] = useState<RealExceptionItem[]>(initialExceptions || []);
   const [isLoadingReal, setIsLoadingReal] = useState(false);
 
+  const resolveEvidenceUrls = useCallback(async (items: RealExceptionItem[]) => {
+    const itemsWithEvidence = items.filter((exc) => Boolean(exc.supportingEvidenceUrl));
+    if (itemsWithEvidence.length === 0 || !managementService.getExceptionEvidenceSignedUrl) {
+      setEvidenceUrls({});
+      return;
+    }
+    const pairs = await Promise.all(
+      itemsWithEvidence.map(async (exc) => {
+        const rawPath = exc.supportingEvidenceUrl!;
+        if (rawPath.startsWith('http')) return [exc.id, rawPath] as const;
+        const signed = await managementService.getExceptionEvidenceSignedUrl(rawPath);
+        return signed ? ([exc.id, signed] as const) : null;
+      })
+    );
+    const nextMap: Record<string, string> = {};
+    for (const pair of pairs) {
+      if (pair) nextMap[pair[0]] = pair[1];
+    }
+    setEvidenceUrls(nextMap);
+  }, []);
+
   const loadRealExceptions = useCallback(async () => {
+    if (initialExceptions) {
+      await resolveEvidenceUrls(initialExceptions);
+      return;
+    }
     if (isTestEnv) return;
     setIsLoadingReal(true);
     try {
@@ -74,19 +111,27 @@ export const ExceptionReviewWorkbench: React.FC = () => {
         console.warn('[ExceptionReviewWorkbench] Failed to query Supabase exceptions:', error.message);
       } else {
         setRealExceptions(data);
+        await resolveEvidenceUrls(data);
       }
     } catch (err: any) {
       console.warn('[ExceptionReviewWorkbench] Error:', err);
     } finally {
       setIsLoadingReal(false);
     }
-  }, [currentUser?.marketCode]);
+  }, [currentUser?.marketCode, initialExceptions, resolveEvidenceUrls]);
 
   useEffect(() => {
     loadRealExceptions();
   }, [loadRealExceptions]);
 
   const exceptions: ExceptionRecord[] = useMemo(() => {
+    const typeTitleMap: Record<string, string> = {
+      gps_failure: 'GPS Failure',
+      device_depletion: 'New Client Approval Delay',
+      device_failure: 'New Client Approval Delay',
+      camera_failure: 'Camera Failure',
+      missed_visit: 'Missed Visit',
+    };
     // Map real exceptions from Supabase
     const realMapped: ExceptionRecord[] = realExceptions.map((item) => {
       let mappedType: ExceptionRecord['exceptionType'] = 'gps_failure';
@@ -101,22 +146,30 @@ export const ExceptionReviewWorkbench: React.FC = () => {
       else if (item.status === 'rejected') mappedStatus = 'rejected';
       else if (item.status === 'escalated') mappedStatus = 'escalated';
 
+      const readableType = typeTitleMap[item.exceptionType] || item.exceptionType.replace(/_/g, ' ');
+      const submittedIso = item.actualSubmissionTime || item.submittedAt;
+      const computedLag = formatExceptionSubmissionLag(item.claimedCheckInTime, submittedIso);
+
       return {
         id: item.id,
         type: 'exception_approval',
         exceptionType: mappedType,
-        title: `${item.branchName} (${item.exceptionType.replace('_', ' ')})`,
+        title: `${item.branchName} (${readableType})`,
         subtitle: `${item.failureReason.slice(0, 65)}...`,
         clientName: item.organisationName,
         branchName: item.branchName,
         repName: item.repName,
-        claimedTime: item.claimedCheckInTime ? new Date(item.claimedCheckInTime).toLocaleString() : 'Claimed Visit',
-        claimedDuration: `${item.claimedDurationMinutes} mins`,
-        submissionLag: 'Delayed Recovery Log',
-        accuracy: '±135m (Location Unverified)',
+        claimedTime: item.claimedCheckInTime
+          ? `${new Date(item.claimedCheckInTime).toLocaleDateString()} • ${formatMarketTime(item.claimedCheckInTime, item.marketCode)}`
+          : 'Claimed Visit',
+        actualSubmissionTime: submittedIso
+          ? `${new Date(submittedIso).toLocaleDateString()} • ${formatMarketTime(submittedIso, item.marketCode)}`
+          : 'Recorded',
+        submissionLag: computedLag,
+        accuracy: 'Not Captured (Location Unverified)',
         evidenceNote: item.failureReason,
-        productsDiscussed: 'Operational Supplies Review',
-        contactMet: 'Site Operations Lead',
+        premisesPhotoUrl: item.supportingEvidenceUrl || undefined,
+        signedEvidenceUrl: evidenceUrls[item.id] || undefined,
         failureReason: item.failureReason,
         status: mappedStatus,
         isRealRecord: true,
@@ -133,7 +186,40 @@ export const ExceptionReviewWorkbench: React.FC = () => {
     });
 
     return realMapped;
-  }, [realExceptions]);
+  }, [realExceptions, evidenceUrls]);
+
+  const handleOpenPhoto = async (item: ExceptionRecord) => {
+    const labelMap: Record<ExceptionRecord['exceptionType'], string> = {
+      gps_failure: 'GPS Failure',
+      device_failure: 'New Client Approval Delay',
+      missed_visit: 'Missed Visit',
+    };
+    if (item.signedEvidenceUrl) {
+      setLightboxPhoto({
+        url: item.signedEvidenceUrl,
+        title: `${item.branchName} • Picture Evidence`,
+        subtitle: `Submitted by ${item.repName} (${labelMap[item.exceptionType]})`,
+      });
+      return;
+    }
+    if (!item.premisesPhotoUrl) return;
+    setLoadingPhotoId(item.id);
+    try {
+      const signed = item.premisesPhotoUrl.startsWith('http')
+        ? item.premisesPhotoUrl
+        : await managementService.getExceptionEvidenceSignedUrl?.(item.premisesPhotoUrl);
+      if (signed) {
+        setEvidenceUrls((prev) => ({ ...prev, [item.id]: signed }));
+        setLightboxPhoto({
+          url: signed,
+          title: `${item.branchName} • Picture Evidence`,
+          subtitle: `Submitted by ${item.repName} (${labelMap[item.exceptionType]})`,
+        });
+      }
+    } finally {
+      setLoadingPhotoId(null);
+    }
+  };
 
   const handleOpenDecision = (item: ExceptionRecord) => {
     setSelectedException(item);
@@ -419,11 +505,11 @@ export const ExceptionReviewWorkbench: React.FC = () => {
                 onClick={() => { setFilterType('device_failure'); setCurrentPage(1); }}
                 className={`text-[11px] px-2 py-0.5 rounded font-bold flex items-center gap-1 transition-colors ${
                   filterType === 'device_failure'
-                    ? 'bg-purple-700 text-white'
-                    : 'bg-purple-50 text-purple-800 border border-purple-200'
+                    ? 'bg-brand-blue text-white'
+                    : 'bg-blue-50 text-brand-blue border border-blue-200'
                 }`}
               >
-                <BatteryCharging className="w-3 h-3" /> Device
+                <Clock className="w-3 h-3" /> Approval Delay
               </button>
               <button
                 onClick={() => { setFilterType('missed_visit'); setCurrentPage(1); }}
@@ -466,18 +552,22 @@ export const ExceptionReviewWorkbench: React.FC = () => {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
-                        className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 ${
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 whitespace-nowrap ${
                           item.exceptionType === 'gps_failure'
                             ? 'bg-orange-100 text-orange-900 border border-orange-200'
                             : item.exceptionType === 'device_failure'
-                            ? 'bg-purple-100 text-purple-900 border border-purple-200'
+                            ? 'bg-blue-100 text-brand-blue border border-blue-200'
                             : 'bg-rose-100 text-rose-900 border border-rose-200'
                         }`}
                       >
                         {item.exceptionType === 'gps_failure' && <WifiOff className="w-3 h-3" />}
-                        {item.exceptionType === 'device_failure' && <BatteryCharging className="w-3 h-3" />}
+                        {item.exceptionType === 'device_failure' && <Clock className="w-3 h-3" />}
                         {item.exceptionType === 'missed_visit' && <AlertOctagon className="w-3 h-3" />}
-                        {item.exceptionType.replace('_', ' ')}
+                        {item.exceptionType === 'device_failure'
+                          ? 'New Client Approval Delay'
+                          : item.exceptionType === 'gps_failure'
+                          ? 'GPS Failure'
+                          : 'Missed Visit'}
                       </span>
 
                       <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
@@ -526,10 +616,7 @@ export const ExceptionReviewWorkbench: React.FC = () => {
                           <FileText className="w-3.5 h-3.5 text-amber-800" />
                           Salesperson Narrative &amp; Failure Explanation:
                         </div>
-                        <p className="text-slate-700 font-medium italic">&ldquo;{item.evidenceNote}&rdquo;</p>
-                        <p className="text-[11px] text-slate-600">
-                          <strong>Technical Cause:</strong> {item.failureReason}
-                        </p>
+                        <p className="text-slate-700 font-medium leading-relaxed">{item.failureReason}</p>
                       </div>
                     </div>
 
@@ -538,27 +625,80 @@ export const ExceptionReviewWorkbench: React.FC = () => {
                       <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                         Operational Signals
                       </div>
-                      <div className="space-y-1 text-slate-700 text-[11px]">
+                      <div className="space-y-1.5 text-slate-700 text-[11px]">
                         <div>
-                          <strong>Contact Met:</strong> {item.contactMet}
+                          <strong>Claimed Time:</strong>{' '}
+                          <span className="font-mono text-slate-800">{item.claimedTime}</span>
                         </div>
                         <div>
-                          <strong>Products:</strong> {item.productsDiscussed}
-                        </div>
-                        <div>
-                          <strong>Claimed Duration:</strong> {item.claimedDuration}
+                          <strong>Submitted At:</strong>{' '}
+                          <span className="font-mono text-slate-800">{item.actualSubmissionTime}</span>
                         </div>
                         <div>
                           <strong>Submission Lag:</strong>{' '}
-                          <span className="text-amber-800 font-semibold">{item.submissionLag}</span>
+                          <span
+                            className={`font-semibold ${
+                              item.submissionLag === 'Immediate (<5 mins)'
+                                ? 'text-emerald-700'
+                                : 'text-amber-800'
+                            }`}
+                          >
+                            {item.submissionLag}
+                          </span>
                         </div>
                         <div>
-                          <strong>GPS Signal Fix:</strong>{' '}
+                          <strong>Location Status:</strong>{' '}
                           <span className="text-red-700 font-bold">{item.accuracy}</span>
                         </div>
                       </div>
                     </div>
                   </div>
+
+                  {/* Picture Evidence Preview */}
+                  {(item.signedEvidenceUrl || item.premisesPhotoUrl) && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {item.signedEvidenceUrl ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPhoto(item)}
+                            className="w-14 h-14 rounded-lg overflow-hidden border border-slate-200 bg-white shrink-0 hover:ring-2 hover:ring-brand-blue/40 transition-all cursor-pointer"
+                            title="View full photo"
+                          >
+                            <img
+                              src={item.signedEvidenceUrl}
+                              alt={`${item.branchName} exception evidence`}
+                              className="w-full h-full object-cover"
+                            />
+                          </button>
+                        ) : (
+                          <div className="w-14 h-14 rounded-lg border border-blue-200 bg-blue-50 flex items-center justify-center shrink-0">
+                            <Camera className="w-5 h-5 text-brand-blue" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                            <ImageIcon className="w-3.5 h-3.5 text-brand-blue shrink-0" />
+                            Picture Evidence Attached
+                          </span>
+                          <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                            Click to inspect full-resolution supporting photograph uploaded by salesperson.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenPhoto(item)}
+                        disabled={loadingPhotoId === item.id}
+                        className="text-xs h-8 px-3 border-brand-blue/30 text-brand-blue hover:bg-blue-50 font-semibold shrink-0"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                        {loadingPhotoId === item.id ? 'Loading...' : 'View full photo'}
+                      </Button>
+                    </div>
+                  )}
 
                   {/* Existing Manager Decision (if resolved) */}
                   {item.managerDecision && (
@@ -680,6 +820,12 @@ export const ExceptionReviewWorkbench: React.FC = () => {
         isOpen={decisionModalOpen}
         onClose={() => setDecisionModalOpen(false)}
         onDecision={handleDecisionRecorded}
+      />
+
+      {/* Full-View Picture Evidence Lightbox */}
+      <PhotoLightboxModal
+        photo={lightboxPhoto}
+        onClose={() => setLightboxPhoto(null)}
       />
     </div>
   );

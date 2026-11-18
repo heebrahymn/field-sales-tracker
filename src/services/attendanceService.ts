@@ -19,6 +19,11 @@ export interface AttendanceRecord {
   captured_offline: boolean;
   server_received_at?: string;
   created_at?: string;
+  absence_date?: string;
+  absence_category?: string;
+  absence_justification?: string;
+  absence_approved_at?: string;
+  visits?: Array<{ id: string; verification_status: string }>;
   profiles?: {
     id: string;
     full_name: string;
@@ -143,6 +148,97 @@ export function formatMarketTime(isoString?: string | null, marketCode?: string)
   }
 }
 
+/**
+ * Returns fixed UTC offset for Carbon Car Care markets (none observe DST).
+ */
+export function getMarketUtcOffset(marketCode?: string): string {
+  switch (marketCode) {
+    case 'ZM':
+    case 'MW':
+      return '+02:00';
+    case 'NG':
+    default:
+      return '+01:00';
+  }
+}
+
+/**
+ * Builds an authoritative UTC ISO timestamp from the salesperson's claimed local
+ * calendar date (YYYY-MM-DD) and time input (e.g. "13:40 - 14:15 WAT" or "09:15").
+ */
+export function buildClaimedVisitTimestampIso(
+  claimedDate?: string,
+  claimedTime?: string,
+  marketCode?: string
+): string {
+  if (claimedDate && claimedDate.includes('T')) {
+    const parsedIso = new Date(claimedDate);
+    if (!Number.isNaN(parsedIso.getTime())) {
+      return parsedIso.toISOString();
+    }
+  }
+
+  if (claimedDate && /^\d{4}-\d{2}-\d{2}$/.test(claimedDate.trim())) {
+    const match = claimedTime?.match(/(\d{1,2}):(\d{2})(?:\s*(am|pm))?/i);
+    let hours = match ? Number(match[1]) : 12;
+    const mins = match ? Math.min(59, Math.max(0, Number(match[2]))) : 0;
+    const meridiem = match?.[3]?.toLowerCase();
+
+    if (meridiem === 'pm' && hours < 12) hours += 12;
+    if (meridiem === 'am' && hours === 12) hours = 0;
+    hours = Math.min(23, Math.max(0, hours));
+
+    const hh = String(hours).padStart(2, '0');
+    const mm = String(mins).padStart(2, '0');
+    const offset = getMarketUtcOffset(marketCode);
+    const parsed = new Date(`${claimedDate.trim()}T${hh}:${mm}:00${offset}`);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  return new Date().toISOString();
+}
+
+/**
+ * Computes human-readable lag between claimed_visit_time and actual_submission_time.
+ */
+export function formatExceptionSubmissionLag(
+  claimedIso?: string | null,
+  submittedIso?: string | null
+): string {
+  if (!claimedIso || !submittedIso) return 'Timestamp unavailable';
+  const claimedMs = new Date(claimedIso).getTime();
+  const submittedMs = new Date(submittedIso).getTime();
+  if (Number.isNaN(claimedMs) || Number.isNaN(submittedMs)) {
+    return 'Timestamp unavailable';
+  }
+
+  const diffMins = Math.round((submittedMs - claimedMs) / 60000);
+  if (diffMins >= -5 && diffMins < 5) {
+    return 'Immediate (<5 mins)';
+  }
+
+  const formatDuration = (totalMins: number) => {
+    if (totalMins < 60) {
+      return `${totalMins} ${totalMins === 1 ? 'min' : 'mins'}`;
+    }
+    if (totalMins < 1440) {
+      const hrs = Math.floor(totalMins / 60);
+      const rem = totalMins % 60;
+      return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+    }
+    const days = Math.floor(totalMins / 1440);
+    const remHrs = Math.floor((totalMins % 1440) / 60);
+    return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+  };
+
+  if (diffMins < -5) {
+    return `${formatDuration(Math.abs(diffMins))} before claimed time`;
+  }
+  return `${formatDuration(diffMins)} after claimed time`;
+}
+
 export const attendanceService = {
   /**
    * Queries public.attendance_days for an employee's attendance record on today's local work_date.
@@ -467,116 +563,139 @@ export const attendanceService = {
    * Queries team attendance for Country Sales Head or HQ Admin review.
    * RLS automatically sandboxes Country Sales Head to their assigned market.
    */
-  async getMarketAttendance(
-    marketCode: string,
-    dateStr: string
-  ): Promise<{ data: AttendanceRecord[]; error: Error | null }> {
-    try {
-      let query = supabase
-        .from('attendance_days')
-        .select(`
-          id,
-          user_id,
-          device_id,
-          market_code,
-          work_date,
-          started_at,
-          ended_at,
-          start_latitude,
-          start_longitude,
-          start_accuracy_m,
-          start_selfie_url,
-          end_latitude,
-          end_longitude,
-          end_accuracy_m,
-          status,
-          captured_offline,
-          visits (id, verification_status),
-          profiles:user_id (id, full_name, email, phone_number, role, market_code),
-          devices:device_id (id, asset_tag, asset_id, make, model)
-        `)
-        .eq('work_date', dateStr);
-
-      if (marketCode && marketCode !== 'ALL') {
-        query = query.eq('market_code', marketCode);
-      }
-
-      // Also query approved_absences (Authorized Non-Visit Workdays & Approved Leave - PRD §6.2)
-      let absQuery = supabase
-        .from('approved_absences')
-        .select(`
-          id,
-          user_id,
-          market_code,
-          absence_date,
-          category,
-          counts_as_attendance,
-          counts_as_visit_target,
-          justification,
-          approved_by,
-          approved_at,
-          created_at,
-          profiles:user_id (id, full_name, email, phone_number, role, market_code)
-        `)
-        .eq('absence_date', dateStr);
-
-      if (marketCode && marketCode !== 'ALL') {
-        absQuery = absQuery.eq('market_code', marketCode);
-      }
-
-      const [attRes, absRes] = await Promise.all([
-        query.order('started_at', { ascending: false }),
-        absQuery.order('approved_at', { ascending: false }),
-      ]);
-
-      if (attRes.error) {
-        console.error('[AttendanceService] getMarketAttendance error:', attRes.error);
-        return { data: [], error: new Error(attRes.error.message) };
-      }
-
-      const attendanceList: AttendanceRecord[] = (attRes.data as any[]) || [];
-
-      if (absRes.data && absRes.data.length > 0) {
-        for (const abs of absRes.data as any[]) {
-          const isLeave = ['annual_leave', 'sick_leave', 'compassionate_leave', 'leave_annual', 'leave_sick', 'leave_compassionate', 'leave_training'].includes(abs.category);
-          const newStatus = isLeave ? 'approved_leave' : 'approved_non_visit';
-
-          const existingIndex = attendanceList.findIndex((a) => a.user_id === abs.user_id);
-          if (existingIndex >= 0) {
-            // User had a physical attendance row; mark status as approved absence/non-visit
-            attendanceList[existingIndex].status = newStatus;
-          } else {
-            // User had no physical attendance row; add virtual attendance record
-            attendanceList.push({
-              id: abs.id,
-              user_id: abs.user_id,
-              device_id: 'authorized_absence',
-              market_code: abs.market_code,
-              work_date: abs.absence_date,
-              started_at: abs.approved_at || abs.created_at || new Date().toISOString(),
-              ended_at: abs.approved_at || abs.created_at || null,
-              start_latitude: 0,
-              start_longitude: 0,
-              start_accuracy_m: 0,
-              start_selfie_url: '',
-              end_latitude: null,
-              end_longitude: null,
-              end_accuracy_m: null,
-              status: newStatus,
-              captured_offline: false,
-              ...({ visits: [] } as any),
-              profiles: abs.profiles,
-              devices: {
-                id: 'none',
-                asset_tag: 'Not Required (Absence)',
-                make: 'N/A',
-                model: 'Authorized Non-Field',
-              },
-            });
-          }
-        }
-      }
-
+  async getMarketAttendance(
+    marketCode: string,
+    dateStr: string
+  ): Promise<{ data: AttendanceRecord[]; error: Error | null }> {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return { data: [], error: null };
+    }
+
+    try {
+      let query = supabase
+        .from('attendance_days')
+        .select(`
+          id,
+          user_id,
+          device_id,
+          market_code,
+          work_date,
+          started_at,
+          ended_at,
+          start_latitude,
+          start_longitude,
+          start_accuracy_m,
+          start_selfie_url,
+          end_latitude,
+          end_longitude,
+          end_accuracy_m,
+          status,
+          captured_offline,
+          visits (id, verification_status),
+          profiles:user_id (id, full_name, email, phone_number, role, market_code),
+          devices:device_id (id, asset_tag, asset_id, make, model)
+        `)
+        .eq('work_date', dateStr);
+
+      if (marketCode && marketCode !== 'ALL') {
+        query = query.eq('market_code', marketCode);
+      }
+
+      // Also query approved_absences (Authorized Non-Visit Workdays & Approved Leave - PRD §6.2)
+      let absQuery = supabase
+        .from('approved_absences')
+        .select(`
+          id,
+          user_id,
+          market_code,
+          absence_date,
+          category,
+          counts_as_attendance,
+          counts_as_visit_target,
+          justification,
+          approved_by,
+          approved_at,
+          created_at,
+          profiles:user_id (id, full_name, email, phone_number, role, market_code)
+        `)
+        .eq('absence_date', dateStr);
+
+      if (marketCode && marketCode !== 'ALL') {
+        absQuery = absQuery.eq('market_code', marketCode);
+      }
+
+      const [attRes, absRes] = await Promise.all([
+        query.order('started_at', { ascending: false }),
+        absQuery.order('approved_at', { ascending: false }),
+      ]);
+
+      if (attRes.error) {
+        console.error('[AttendanceService] getMarketAttendance error:', attRes.error);
+        return { data: [], error: new Error(attRes.error.message) };
+      }
+
+      if (absRes.error) {
+        console.error('[AttendanceService] getMarketAttendance approved_absences error:', absRes.error);
+        return { data: [], error: new Error(absRes.error.message) };
+      }
+
+      const attendanceList: AttendanceRecord[] = ((attRes.data as AttendanceRecord[]) || []).filter(
+        (rec) => !rec.work_date || rec.work_date === dateStr
+      );
+
+      if (absRes.data && absRes.data.length > 0) {
+        for (const abs of absRes.data as any[]) {
+          if (abs.absence_date && abs.absence_date !== dateStr) {
+            continue;
+          }
+
+          const isLeave = ['annual_leave', 'sick_leave', 'compassionate_leave', 'leave_annual', 'leave_sick', 'leave_compassionate', 'leave_training'].includes(abs.category);
+          const newStatus = isLeave ? 'approved_leave' : 'approved_non_visit';
+
+          const existingIndex = attendanceList.findIndex((a) => a.user_id === abs.user_id);
+          if (existingIndex >= 0) {
+            // User had a physical attendance row; mark status as approved absence/non-visit
+            attendanceList[existingIndex].status = newStatus;
+            attendanceList[existingIndex].absence_date = abs.absence_date;
+            attendanceList[existingIndex].absence_category = abs.category;
+            attendanceList[existingIndex].absence_justification = abs.justification;
+            attendanceList[existingIndex].absence_approved_at = abs.approved_at || abs.created_at;
+          } else {
+            // User had no physical attendance row; add virtual attendance record
+            attendanceList.push({
+              id: abs.id,
+              user_id: abs.user_id,
+              device_id: 'authorized_absence',
+              market_code: abs.market_code,
+              work_date: abs.absence_date,
+              started_at: abs.approved_at || abs.created_at || new Date().toISOString(),
+              ended_at: abs.approved_at || abs.created_at || null,
+              start_latitude: 0,
+              start_longitude: 0,
+              start_accuracy_m: 0,
+              start_selfie_url: '',
+              end_latitude: null,
+              end_longitude: null,
+              end_accuracy_m: null,
+              status: newStatus,
+              captured_offline: false,
+              absence_date: abs.absence_date,
+              absence_category: abs.category,
+              absence_justification: abs.justification,
+              absence_approved_at: abs.approved_at || abs.created_at,
+              visits: [],
+              profiles: abs.profiles,
+              devices: {
+                id: 'none',
+                asset_tag: 'Not Required (Absence)',
+                make: 'N/A',
+                model: 'Authorized Non-Field',
+              },
+            });
+          }
+        }
+      }
+
       // Ensure each active field salesperson displays their latest assigned company handset
       try {
         const { data: currentAssignments } = await supabase
