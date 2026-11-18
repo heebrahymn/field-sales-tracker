@@ -559,17 +559,21 @@ export const attendanceService = {
     }
   },
 
-  /**
-   * Queries team attendance for Country Sales Head or HQ Admin review.
-   * RLS automatically sandboxes Country Sales Head to their assigned market.
-   */
-  async getMarketAttendance(
+  /**
+   * Manager Dashboard / Team Attendance: Fetches attendance_days and approved_absences
+   * for a single date or inclusive date range (YYYY-MM-DD .. YYYY-MM-DD).
+   */
+  async getMarketAttendanceRange(
     marketCode: string,
-    dateStr: string
+    startDateStr: string,
+    endDateStr: string
   ): Promise<{ data: AttendanceRecord[]; error: Error | null }> {
-    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!startDateStr || !endDateStr || !dateRe.test(startDateStr) || !dateRe.test(endDateStr) || startDateStr > endDateStr) {
       return { data: [], error: null };
     }
+
+    const isSingleDay = startDateStr === endDateStr;
 
     try {
       let query = supabase
@@ -594,8 +598,11 @@ export const attendanceService = {
           visits (id, verification_status),
           profiles:user_id (id, full_name, email, phone_number, role, market_code),
           devices:device_id (id, asset_tag, asset_id, make, model)
-        `)
-        .eq('work_date', dateStr);
+        `);
+
+      query = isSingleDay
+        ? query.eq('work_date', startDateStr)
+        : query.gte('work_date', startDateStr).lte('work_date', endDateStr);
 
       if (marketCode && marketCode !== 'ALL') {
         query = query.eq('market_code', marketCode);
@@ -617,8 +624,11 @@ export const attendanceService = {
           approved_at,
           created_at,
           profiles:user_id (id, full_name, email, phone_number, role, market_code)
-        `)
-        .eq('absence_date', dateStr);
+        `);
+
+      absQuery = isSingleDay
+        ? absQuery.eq('absence_date', startDateStr)
+        : absQuery.gte('absence_date', startDateStr).lte('absence_date', endDateStr);
 
       if (marketCode && marketCode !== 'ALL') {
         absQuery = absQuery.eq('market_code', marketCode);
@@ -640,28 +650,30 @@ export const attendanceService = {
       }
 
       const attendanceList: AttendanceRecord[] = ((attRes.data as AttendanceRecord[]) || []).filter(
-        (rec) => !rec.work_date || rec.work_date === dateStr
+        (rec) => !rec.work_date || (rec.work_date >= startDateStr && rec.work_date <= endDateStr)
       );
 
       if (absRes.data && absRes.data.length > 0) {
         for (const abs of absRes.data as any[]) {
-          if (abs.absence_date && abs.absence_date !== dateStr) {
+          if (abs.absence_date && (abs.absence_date < startDateStr || abs.absence_date > endDateStr)) {
             continue;
           }
 
           const isLeave = ['annual_leave', 'sick_leave', 'compassionate_leave', 'leave_annual', 'leave_sick', 'leave_compassionate', 'leave_training'].includes(abs.category);
           const newStatus = isLeave ? 'approved_leave' : 'approved_non_visit';
 
-          const existingIndex = attendanceList.findIndex((a) => a.user_id === abs.user_id);
+          const existingIndex = attendanceList.findIndex(
+            (a) => a.user_id === abs.user_id && a.work_date === abs.absence_date
+          );
           if (existingIndex >= 0) {
-            // User had a physical attendance row; mark status as approved absence/non-visit
+            // User had a physical attendance row on that date; mark status as approved absence/non-visit
             attendanceList[existingIndex].status = newStatus;
             attendanceList[existingIndex].absence_date = abs.absence_date;
             attendanceList[existingIndex].absence_category = abs.category;
             attendanceList[existingIndex].absence_justification = abs.justification;
             attendanceList[existingIndex].absence_approved_at = abs.approved_at || abs.created_at;
           } else {
-            // User had no physical attendance row; add virtual attendance record
+            // User had no physical attendance row on that date; add virtual attendance record
             attendanceList.push({
               id: abs.id,
               user_id: abs.user_id,
@@ -696,40 +708,46 @@ export const attendanceService = {
         }
       }
 
-      // Ensure each active field salesperson displays their latest assigned company handset
-      try {
-        const { data: currentAssignments } = await supabase
-          .from('device_assignments')
-          .select('salesperson_id, devices(id, asset_tag, asset_id, make, model, battery_health)')
-          .eq('is_current', true);
-
-        if (currentAssignments && currentAssignments.length > 0) {
-          const assignMap = new Map<string, any>();
-          for (const a of currentAssignments as any[]) {
-            if (a.salesperson_id && a.devices) {
-              assignMap.set(a.salesperson_id, a.devices);
-            }
-          }
-
-          attendanceList.forEach((att) => {
-            if (att.status !== 'approved_leave' && att.status !== 'approved_non_visit') {
-              if (assignMap.has(att.user_id)) {
-                att.devices = assignMap.get(att.user_id);
-              }
-            }
-          });
-        }
-      } catch (devErr) {
-        console.warn('[AttendanceService] Note querying active assignments for attendance list:', devErr);
-      }
-
-      return { data: attendanceList, error: null };
-    } catch (err: any) {
-      console.error('[AttendanceService] getMarketAttendance caught error:', err);
-      return { data: [], error: err instanceof Error ? err : new Error(String(err)) };
-    }
-  },
-
+      // Ensure each active field salesperson displays their latest assigned company handset
+      try {
+        const { data: currentAssignments } = await supabase
+          .from('device_assignments')
+          .select('salesperson_id, devices(id, asset_tag, asset_id, make, model, battery_health)')
+          .eq('is_current', true);
+
+        if (currentAssignments && currentAssignments.length > 0) {
+          const assignMap = new Map<string, any>();
+          for (const a of currentAssignments as any[]) {
+            if (a.salesperson_id && a.devices) {
+              assignMap.set(a.salesperson_id, a.devices);
+            }
+          }
+
+          attendanceList.forEach((att) => {
+            if (att.status !== 'approved_leave' && att.status !== 'approved_non_visit') {
+              if (assignMap.has(att.user_id)) {
+                att.devices = assignMap.get(att.user_id);
+              }
+            }
+          });
+        }
+      } catch (devErr) {
+        console.warn('[AttendanceService] Note querying active assignments for attendance list:', devErr);
+      }
+
+      return { data: attendanceList, error: null };
+    } catch (err: any) {
+      console.error('[AttendanceService] getMarketAttendanceRange caught error:', err);
+      return { data: [], error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  },
+
+  async getMarketAttendance(
+    marketCode: string,
+    dateStr: string
+  ): Promise<{ data: AttendanceRecord[]; error: Error | null }> {
+    return this.getMarketAttendanceRange(marketCode, dateStr, dateStr);
+  },
   /**
    * Creates a secure, time-limited signed URL (300s expiry) for private attendance selfies.
    * Does NOT publish unrestricted public URLs (PRD Privacy Rule).

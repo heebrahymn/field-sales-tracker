@@ -258,9 +258,10 @@ describe('Team Attendance Date Filter & Non-Visit Workday Scoping', () => {
     expect(screen.queryByText('Tunde Adebayo')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Active on Field \(2\)/i })).toBeInTheDocument();
 
-    // Switching Date Filter to 2026-11-10 displays Tunde's non-visit record for that exact logged date
-    const dateInput = screen.getByLabelText('Attendance Work Date');
-    fireEvent.change(dateInput, { target: { value: nonVisitPastDate } });
+    // Switching End Date Filter backward to 2026-11-10 clamps Start Date too, displaying Tunde's non-visit record for that exact date
+    const startInput = screen.getByLabelText('Attendance Start Date');
+    const endInput = screen.getByLabelText('Attendance End Date');
+    fireEvent.change(endInput, { target: { value: nonVisitPastDate } });
 
     await waitFor(() => {
       expect(getMarketSpy).toHaveBeenCalledWith('NG', nonVisitPastDate);
@@ -280,11 +281,11 @@ describe('Team Attendance Date Filter & Non-Visit Workday Scoping', () => {
     expect(screen.queryByText(/6\.4531/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Close Telemetry Inspection/i }));
 
-    // Clearing the date input clears rows safely without firing invalid date queries
+    // Clearing a date input clears rows safely without firing invalid date queries
     const callCountBeforeClear = getMarketSpy.mock.calls.length;
-    fireEvent.change(dateInput, { target: { value: '' } });
+    fireEvent.change(startInput, { target: { value: '' } });
     await waitFor(() => {
-      expect(screen.getByText(/Please select a valid work date/i)).toBeInTheDocument();
+      expect(screen.getByText(/Please select a valid From and To date/i)).toBeInTheDocument();
     });
     expect(getMarketSpy.mock.calls.length).toBe(callCountBeforeClear);
 
@@ -357,10 +358,11 @@ describe('Team Attendance Date Filter & Non-Visit Workday Scoping', () => {
     });
 
     renderWithAuth(<TeamAttendanceReview enableLiveSyncInTest />);
-    const dateInput = screen.getByLabelText('Attendance Work Date');
+    const startInput = screen.getByLabelText('Attendance Start Date');
+    const endInput = screen.getByLabelText('Attendance End Date');
 
-    fireEvent.change(dateInput, { target: { value: '2026-11-11' } });
-    fireEvent.change(dateInput, { target: { value: '2026-11-12' } });
+    fireEvent.change(endInput, { target: { value: '2026-11-11' } });
+    fireEvent.change(startInput, { target: { value: '2026-11-12' } });
 
     await waitFor(() => {
       expect(screen.getByText('Latest Date Rep')).toBeInTheDocument();
@@ -373,5 +375,204 @@ describe('Team Attendance Date Filter & Non-Visit Workday Scoping', () => {
       expect(screen.getByText('Latest Date Rep')).toBeInTheDocument();
       expect(screen.queryByText('Stale Date Rep')).not.toBeInTheDocument();
     });
+  });
+
+  it('supports date range selection to show total and per-salesperson client visits logged across multiple days', async () => {
+    const funmiDay1: AttendanceRecord = {
+      id: 'att-f1',
+      user_id: 'user-funmi-0001',
+      device_id: 'dev-f',
+      market_code: 'NG',
+      work_date: '2026-11-12',
+      started_at: '2026-11-12T08:15:00Z',
+      ended_at: '2026-11-12T17:00:00Z',
+      start_latitude: 6.45,
+      start_longitude: 3.42,
+      start_accuracy_m: 12,
+      start_selfie_url: '',
+      end_latitude: null,
+      end_longitude: null,
+      end_accuracy_m: null,
+      status: 'ended',
+      captured_offline: false,
+      visits: [
+        { id: 'v1', verification_status: 'location_verified' },
+        { id: 'v2', verification_status: 'location_verified' },
+      ],
+      profiles: {
+        id: 'user-funmi-0001',
+        full_name: 'Funmi Ojo',
+        email: 'funmi@carbon.ng',
+        role: 'salesperson',
+        market_code: 'NG',
+      },
+      devices: { id: 'dev-f', asset_tag: 'CAR-FUNMI' },
+    };
+
+    const funmiDay2: AttendanceRecord = {
+      ...funmiDay1,
+      id: 'att-f2',
+      work_date: '2026-11-14',
+      started_at: '2026-11-14T08:30:00Z',
+      ended_at: null,
+      status: 'started',
+      visits: [
+        { id: 'v3', verification_status: 'location_verified' },
+        { id: 'v4', verification_status: 'location_unverified' },
+        { id: 'v5', verification_status: 'location_verified' },
+      ],
+    };
+
+    const peterDay1: AttendanceRecord = {
+      ...funmiDay1,
+      id: 'att-p1',
+      user_id: 'user-peter-0002',
+      work_date: '2026-11-14',
+      status: 'started',
+      visits: [{ id: 'v6', verification_status: 'manager_approved_unverified' }],
+      profiles: {
+        id: 'user-peter-0002',
+        full_name: 'Fasakin Peter',
+        email: 'peter@carbon.ng',
+        role: 'salesperson',
+        market_code: 'NG',
+      },
+      devices: { id: 'dev-p', asset_tag: 'CAR-PETER' },
+    };
+
+    const tundeNonVisit: AttendanceRecord = {
+      ...funmiDay1,
+      id: 'abs-t1',
+      user_id: 'user-tunde-0003',
+      device_id: 'authorized_absence',
+      work_date: '2026-11-13',
+      status: 'approved_non_visit',
+      absence_date: '2026-11-13',
+      absence_category: 'training_development',
+      visits: [],
+      profiles: {
+        id: 'user-tunde-0003',
+        full_name: 'Tunde Adebayo',
+        email: 'tunde@carbon.ng',
+        role: 'salesperson',
+        market_code: 'NG',
+      },
+      devices: { id: 'none', asset_tag: 'Not Required (Absence)' },
+    };
+
+    vi.spyOn(attendanceService, 'getMarketAttendance').mockResolvedValue({
+      data: [],
+      error: null,
+    });
+    const rangeSpy = vi
+      .spyOn(attendanceService, 'getMarketAttendanceRange')
+      .mockResolvedValue({
+        data: [funmiDay1, funmiDay2, peterDay1, tundeNonVisit],
+        error: null,
+      });
+    vi.spyOn(attendanceService, 'getPendingNonVisitRequests').mockResolvedValue({
+      data: [],
+      error: null,
+    });
+
+    renderWithAuth(<TeamAttendanceReview enableLiveSyncInTest />);
+
+    const startInput = screen.getByLabelText('Attendance Start Date');
+    const endInput = screen.getByLabelText('Attendance End Date');
+
+    fireEvent.change(endInput, { target: { value: '2026-11-15' } });
+    fireEvent.change(startInput, { target: { value: '2026-11-12' } });
+
+    await waitFor(() => {
+      expect(rangeSpy).toHaveBeenCalledWith('NG', '2026-11-12', '2026-11-15');
+      expect(screen.getByText('Funmi Ojo')).toBeInTheDocument();
+      expect(screen.getByText('Fasakin Peter')).toBeInTheDocument();
+      expect(screen.getByText('Tunde Adebayo')).toBeInTheDocument();
+    });
+
+    // Total Team Visits Logged across 2026-11-12..2026-11-15 = 5 + 1 + 0 = 6 (4 location verified)
+    expect(screen.getByText(/Total Client Visits Logged:/i)).toBeInTheDocument();
+    expect(screen.getByText('6')).toBeInTheDocument();
+    expect(screen.getByText(/\(4 location verified\)/i)).toBeInTheDocument();
+
+    // Per-rep aggregated counts
+    expect(screen.getByText(/2 field days • 4 verified/i)).toBeInTheDocument();
+    expect(screen.getByText('2 Field Days')).toBeInTheDocument();
+    expect(screen.getByText('1 Non-Visit')).toBeInTheDocument();
+  });
+
+  it('attendanceService.getMarketAttendanceRange queries date bounds and merges absences per exact (user_id, work_date)', async () => {
+    const makeRangeChain = (resolved: any) => {
+      const chain: any = {
+        select: vi.fn(() => chain),
+        eq: vi.fn(() => chain),
+        gte: vi.fn(() => chain),
+        lte: vi.fn(() => chain),
+        order: vi.fn().mockResolvedValue(resolved),
+      };
+      return chain;
+    };
+
+    const attChain = makeRangeChain({
+      data: [
+        {
+          id: 'att-day1',
+          user_id: 'rep-multi',
+          device_id: 'dev-m',
+          market_code: 'NG',
+          work_date: '2026-11-14',
+          started_at: '2026-11-14T08:00:00Z',
+          ended_at: null,
+          start_latitude: 6.45,
+          start_longitude: 3.42,
+          start_accuracy_m: 10,
+          start_selfie_url: '',
+          end_latitude: null,
+          end_longitude: null,
+          end_accuracy_m: null,
+          status: 'started',
+          captured_offline: false,
+          visits: [{ id: 'v-10', verification_status: 'location_verified' }],
+        },
+      ],
+      error: null,
+    });
+
+    const absChain = makeRangeChain({
+      data: [
+        {
+          id: 'abs-day2',
+          user_id: 'rep-multi',
+          market_code: 'NG',
+          absence_date: '2026-11-15',
+          category: 'training_development',
+          justification: 'HQ workshop',
+          approved_at: '2026-11-15T07:30:00Z',
+        },
+      ],
+      error: null,
+    });
+
+    const assignChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+
+    vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+      if (table === 'attendance_days') return attChain;
+      if (table === 'approved_absences') return absChain;
+      return assignChain as any;
+    });
+
+    const res = await attendanceService.getMarketAttendanceRange('NG', '2026-11-14', '2026-11-15');
+    expect(res.error).toBeNull();
+    expect(attChain.gte).toHaveBeenCalledWith('work_date', '2026-11-14');
+    expect(attChain.lte).toHaveBeenCalledWith('work_date', '2026-11-15');
+    expect(absChain.gte).toHaveBeenCalledWith('absence_date', '2026-11-14');
+    expect(absChain.lte).toHaveBeenCalledWith('absence_date', '2026-11-15');
+    // Both days must remain separate entries (absence on 11-15 must not overwrite attendance on 11-14)
+    expect(res.data).toHaveLength(2);
+    expect(res.data.find((r) => r.work_date === '2026-11-14')?.status).toBe('started');
+    expect(res.data.find((r) => r.work_date === '2026-11-15')?.status).toBe('approved_non_visit');
   });
 });

@@ -60,6 +60,10 @@ export interface SalesRepAttendance {
   selfieUrl?: string;
   endDayTime?: string;
   visitsCompletedToday: number;
+  locationVerifiedVisitsCount?: number;
+  fieldDaysCount?: number;
+  nonVisitDaysCount?: number;
+  leaveDaysCount?: number;
   nonVisitRequest?: {
     id: string;
     activityType: string;
@@ -87,6 +91,113 @@ function formatAbsenceCategoryLabel(category?: string): string {
     .replace(/^leave_/, '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function mapAttendanceRecordToRep(rec: AttendanceRecord): SalesRepAttendance {
+  const repFullName = rec.profiles?.full_name || 'Carbon Field Salesperson';
+  const repEmpId = `CC-${rec.market_code}-${rec.user_id.slice(0, 4).toUpperCase()}`;
+
+  let mappedStatus: SalesRepAttendance['todayStatus'] = 'absent';
+  if (rec.status === 'started') mappedStatus = 'active_field';
+  else if (rec.status === 'ended') mappedStatus = 'completed_day';
+  else if (rec.status === 'approved_non_visit') mappedStatus = 'non_visit_day';
+  else if (rec.status === 'approved_leave') mappedStatus = 'approved_leave';
+
+  const isAbsenceOrNonVisit = mappedStatus === 'non_visit_day' || mappedStatus === 'approved_leave';
+  const isVirtualAbsence = rec.device_id === 'authorized_absence';
+  const hasRealStartLocation =
+    !isVirtualAbsence &&
+    (rec.start_latitude !== 0 || rec.start_longitude !== 0 || rec.start_accuracy_m !== 0);
+
+  const dynamicBattery = isAbsenceOrNonVisit
+    ? null
+    : calculateAttendanceBattery({
+        startedAt: rec.started_at,
+        endedAt: rec.ended_at,
+        visitsCount: rec.visits?.length || 0,
+        deviceBatteryHealth: rec.devices?.battery_health,
+      });
+
+  const visits = rec.visits || [];
+  const verifiedVisitsCount = visits.filter((v) => v.verification_status === 'location_verified').length;
+
+  return {
+    recordId: rec.id,
+    repId: repEmpId,
+    repName: repFullName,
+    email: rec.profiles?.email || 'salesperson@carboncarcare.com',
+    phone: rec.profiles?.phone_number || '—',
+    assignedTerritory: `${rec.market_code} Commercial Territory`,
+    deviceId: rec.devices?.asset_tag || 'Assigned Handset',
+    batteryLevel: dynamicBattery,
+    todayStatus: mappedStatus,
+    workDate: rec.absence_date || rec.work_date,
+    absenceCategory: rec.absence_category,
+    absenceJustification: rec.absence_justification,
+    absenceApprovedAt: rec.absence_approved_at || (isAbsenceOrNonVisit ? rec.started_at : undefined),
+    startDayTime: isVirtualAbsence ? undefined : formatMarketTime(rec.started_at, rec.market_code),
+    endDayTime: !isVirtualAbsence && rec.ended_at ? formatMarketTime(rec.ended_at, rec.market_code) : undefined,
+    startGps: hasRealStartLocation
+      ? {
+          coords: `${rec.start_latitude?.toFixed(4)}° N, ${rec.start_longitude?.toFixed(4)}° E`,
+          accuracy: Math.round(rec.start_accuracy_m || 15),
+        }
+      : undefined,
+    selfieUrl: rec.start_selfie_url || undefined,
+    visitsCompletedToday: visits.length,
+    locationVerifiedVisitsCount: verifiedVisitsCount,
+    fieldDaysCount: mappedStatus === 'active_field' || mappedStatus === 'completed_day' ? 1 : 0,
+    nonVisitDaysCount: mappedStatus === 'non_visit_day' ? 1 : 0,
+    leaveDaysCount: mappedStatus === 'approved_leave' ? 1 : 0,
+    isRealRecord: true,
+  };
+}
+
+function aggregateAttendanceRecordsByUser(records: AttendanceRecord[]): SalesRepAttendance[] {
+  const grouped = new Map<string, AttendanceRecord[]>();
+  for (const rec of records) {
+    const bucket = grouped.get(rec.user_id) || [];
+    bucket.push(rec);
+    grouped.set(rec.user_id, bucket);
+  }
+
+  const summaries: SalesRepAttendance[] = [];
+  for (const userRecords of grouped.values()) {
+    const sorted = [...userRecords].sort((a, b) => {
+      const dateCmp = (b.work_date || '').localeCompare(a.work_date || '');
+      if (dateCmp !== 0) return dateCmp;
+      return (b.started_at || '').localeCompare(a.started_at || '');
+    });
+
+    const mappedList = sorted.map(mapAttendanceRecordToRep);
+    const latest = mappedList[0];
+    const latestField = mappedList.find((m) => m.todayStatus === 'active_field' || m.todayStatus === 'completed_day');
+    const telemetrySource = latestField || latest;
+
+    const totalVisits = mappedList.reduce((sum, m) => sum + m.visitsCompletedToday, 0);
+    const totalVerifiedVisits = mappedList.reduce((sum, m) => sum + (m.locationVerifiedVisitsCount || 0), 0);
+    const fieldDaysCount = mappedList.reduce((sum, m) => sum + (m.fieldDaysCount || 0), 0);
+    const nonVisitDaysCount = mappedList.reduce((sum, m) => sum + (m.nonVisitDaysCount || 0), 0);
+    const leaveDaysCount = mappedList.reduce((sum, m) => sum + (m.leaveDaysCount || 0), 0);
+
+    summaries.push({
+      ...latest,
+      deviceId: telemetrySource.deviceId,
+      batteryLevel: telemetrySource.batteryLevel,
+      startDayTime: telemetrySource.startDayTime,
+      endDayTime: telemetrySource.endDayTime,
+      startGps: telemetrySource.startGps,
+      selfieUrl: telemetrySource.selfieUrl,
+      workDate: latest.workDate,
+      visitsCompletedToday: totalVisits,
+      locationVerifiedVisitsCount: totalVerifiedVisits,
+      fieldDaysCount,
+      nonVisitDaysCount,
+      leaveDaysCount,
+    });
+  }
+
+  return summaries.sort((a, b) => b.visitsCompletedToday - a.visitsCompletedToday || a.repName.localeCompare(b.repName));
 }
 
 const isTestEnv = typeof process !== 'undefined' && process.env?.NODE_ENV === 'test';
@@ -172,7 +283,8 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
   const { currentUser } = useAuth();
   const marketToday = getMarketWorkDate(currentUser?.marketCode);
 
-  const [selectedDate, setSelectedDate] = useState<string>(() => marketToday);
+  const [startDate, setStartDate] = useState<string>(() => marketToday);
+  const [endDate, setEndDate] = useState<string>(() => marketToday);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'leave' | 'non_visit'>('all');
   const [selectedRepForInspection, setSelectedRepForInspection] = useState<SalesRepAttendance | null>(null);
@@ -207,12 +319,13 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
   );
 
   // Load live attendance and non-visit requests from Supabase
-  const loadSupabaseData = useCallback(async (dateOverride?: string) => {
+  const loadSupabaseData = useCallback(async (startOverride?: string, endOverride?: string) => {
     if (isTestEnv && !enableLiveSyncInTest) return;
-    const dateToQuery = dateOverride ?? selectedDate;
+    const queryStart = startOverride ?? startDate;
+    const queryEnd = endOverride ?? endDate;
     const seq = ++requestSeqRef.current;
 
-    if (!isValidWorkDate(dateToQuery)) {
+    if (!isValidWorkDate(queryStart) || !isValidWorkDate(queryEnd) || queryStart > queryEnd) {
       setRealAttendance([]);
       setLoadError(null);
       setIsLoadingData(false);
@@ -225,7 +338,9 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
 
     try {
       const [attRes, absRes] = await Promise.all([
-        attendanceService.getMarketAttendance(targetMarket, dateToQuery),
+        queryStart === queryEnd
+          ? attendanceService.getMarketAttendance(targetMarket, queryStart)
+          : attendanceService.getMarketAttendanceRange(targetMarket, queryStart, queryEnd),
         attendanceService.getPendingNonVisitRequests(targetMarket),
       ]);
 
@@ -233,10 +348,12 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
 
       if (attRes.error) {
         setRealAttendance([]);
-        setLoadError(attRes.error.message || 'Unable to load attendance logs for selected date.');
+        setLoadError(attRes.error.message || 'Unable to load attendance logs for selected date range.');
       } else {
         setRealAttendance(
-          (attRes.data || []).filter((rec) => !rec.work_date || rec.work_date === dateToQuery)
+          (attRes.data || []).filter(
+            (rec) => !rec.work_date || (rec.work_date >= queryStart && rec.work_date <= queryEnd)
+          )
         );
       }
 
@@ -247,78 +364,35 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
       if (seq !== requestSeqRef.current) return;
       console.warn('[TeamAttendanceReview] Error loading live attendance:', err);
       setRealAttendance([]);
-      setLoadError(err?.message || 'Unable to load attendance logs for selected date.');
+      setLoadError(err?.message || 'Unable to load attendance logs for selected date range.');
     } finally {
       if (seq === requestSeqRef.current) {
         setIsLoadingData(false);
       }
     }
-  }, [currentUser?.role, currentUser?.marketCode, selectedDate, enableLiveSyncInTest]);
+  }, [currentUser?.role, currentUser?.marketCode, startDate, endDate, enableLiveSyncInTest]);
 
   useEffect(() => {
     loadSupabaseData();
   }, [loadSupabaseData]);
 
-  // Merge real Supabase records with demonstration data (strictly scoped to selectedDate)
-  const scopedRealAttendance = isValidWorkDate(selectedDate)
-    ? realAttendance.filter((rec) => !rec.work_date || rec.work_date === selectedDate)
+  const hasValidRange = isValidWorkDate(startDate) && isValidWorkDate(endDate) && startDate <= endDate;
+  const isRangeMode = hasValidRange && startDate !== endDate;
+
+  // Merge real Supabase records with demonstration data (strictly scoped to [startDate, endDate])
+  const scopedRealAttendance = hasValidRange
+    ? realAttendance.filter(
+        (rec) => !rec.work_date || (rec.work_date >= startDate && rec.work_date <= endDate)
+      )
     : [];
 
+  const realRepsForView: SalesRepAttendance[] = isRangeMode
+    ? aggregateAttendanceRecordsByUser(scopedRealAttendance)
+    : scopedRealAttendance.map(mapAttendanceRecordToRep);
+
   const mergedReps: SalesRepAttendance[] = [
-    // 1. Real records from Supabase attendance_days & approved_absences for selectedDate
-    ...scopedRealAttendance.map((rec) => {
-      const repFullName = rec.profiles?.full_name || 'Carbon Field Salesperson';
-      const repEmpId = `CC-${rec.market_code}-${rec.user_id.slice(0, 4).toUpperCase()}`;
-
-      let mappedStatus: SalesRepAttendance['todayStatus'] = 'absent';
-      if (rec.status === 'started') mappedStatus = 'active_field';
-      else if (rec.status === 'ended') mappedStatus = 'completed_day';
-      else if (rec.status === 'approved_non_visit') mappedStatus = 'non_visit_day';
-      else if (rec.status === 'approved_leave') mappedStatus = 'approved_leave';
-
-      const isAbsenceOrNonVisit = mappedStatus === 'non_visit_day' || mappedStatus === 'approved_leave';
-      const isVirtualAbsence = rec.device_id === 'authorized_absence';
-      const hasRealStartLocation =
-        !isVirtualAbsence &&
-        (rec.start_latitude !== 0 || rec.start_longitude !== 0 || rec.start_accuracy_m !== 0);
-
-      const dynamicBattery = isAbsenceOrNonVisit
-        ? null
-        : calculateAttendanceBattery({
-            startedAt: rec.started_at,
-            endedAt: rec.ended_at,
-            visitsCount: rec.visits?.length || 0,
-            deviceBatteryHealth: rec.devices?.battery_health,
-          });
-
-      return {
-        recordId: rec.id,
-        repId: repEmpId,
-        repName: repFullName,
-        email: rec.profiles?.email || 'salesperson@carboncarcare.com',
-        phone: rec.profiles?.phone_number || '—',
-        assignedTerritory: `${rec.market_code} Commercial Territory`,
-        deviceId: rec.devices?.asset_tag || 'Assigned Handset',
-        batteryLevel: dynamicBattery,
-        todayStatus: mappedStatus,
-        workDate: rec.absence_date || rec.work_date,
-        absenceCategory: rec.absence_category,
-        absenceJustification: rec.absence_justification,
-        absenceApprovedAt: rec.absence_approved_at || (isAbsenceOrNonVisit ? rec.started_at : undefined),
-        startDayTime: isVirtualAbsence ? undefined : formatMarketTime(rec.started_at, rec.market_code),
-        endDayTime: !isVirtualAbsence && rec.ended_at ? formatMarketTime(rec.ended_at, rec.market_code) : undefined,
-        startGps: hasRealStartLocation
-          ? {
-              coords: `${rec.start_latitude?.toFixed(4)}° N, ${rec.start_longitude?.toFixed(4)}° E`,
-              accuracy: Math.round(rec.start_accuracy_m || 15),
-            }
-          : undefined,
-        selfieUrl: rec.start_selfie_url || undefined,
-        visitsCompletedToday: rec.visits?.length || 0,
-        isRealRecord: true,
-      };
-    }),
-    // 2. Test environment fallback (only in non-live test runner)
+    ...realRepsForView,
+    // Test environment fallback (only in non-live test runner)
     ...(isTestEnv && !enableLiveSyncInTest
       ? demoReps.filter(
           (demo) => !scopedRealAttendance.some((real) => real.profiles?.full_name === demo.repName)
@@ -384,10 +458,15 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
           : `Non-visit workday request REJECTED.`
       );
 
-      // If approved for a date different from currently viewed date, switch date to view the record
-      if (decision === 'approved' && targetReq?.absence_date && targetReq.absence_date !== selectedDate) {
-        setSelectedDate(targetReq.absence_date);
-        await loadSupabaseData(targetReq.absence_date);
+      // If approved for a date outside currently viewed range, switch to that date to view the record
+      if (
+        decision === 'approved' &&
+        targetReq?.absence_date &&
+        (!hasValidRange || targetReq.absence_date < startDate || targetReq.absence_date > endDate)
+      ) {
+        setStartDate(targetReq.absence_date);
+        setEndDate(targetReq.absence_date);
+        await loadSupabaseData(targetReq.absence_date, targetReq.absence_date);
       } else {
         // Refresh real Supabase requests & attendance
         await loadSupabaseData();
@@ -462,11 +541,32 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
     setLeaveNotes('');
   };
 
+  const handleStartDateChange = (value: string) => {
+    setStartDate(value);
+    if (isValidWorkDate(value) && isValidWorkDate(endDate) && value > endDate) {
+      setEndDate(value);
+    }
+  };
+
+  const handleEndDateChange = (value: string) => {
+    setEndDate(value);
+    if (isValidWorkDate(value) && isValidWorkDate(startDate) && value < startDate) {
+      setStartDate(value);
+    }
+  };
+
+  const matchesStatusCategory = (r: SalesRepAttendance, category: 'active' | 'leave' | 'non_visit') => {
+    if (category === 'active') {
+      return r.todayStatus === 'active_field' || r.todayStatus === 'completed_day' || (r.fieldDaysCount ?? 0) > 0;
+    }
+    if (category === 'leave') {
+      return r.todayStatus === 'approved_leave' || (r.leaveDaysCount ?? 0) > 0;
+    }
+    return r.todayStatus === 'non_visit_day' || (r.nonVisitDaysCount ?? 0) > 0;
+  };
+
   const filteredReps = mergedReps.filter((r) => {
-    if (statusFilter === 'active' && r.todayStatus !== 'active_field' && r.todayStatus !== 'completed_day')
-      return false;
-    if (statusFilter === 'leave' && r.todayStatus !== 'approved_leave') return false;
-    if (statusFilter === 'non_visit' && r.todayStatus !== 'non_visit_day') return false;
+    if (statusFilter !== 'all' && !matchesStatusCategory(r, statusFilter)) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
@@ -477,6 +577,12 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
     }
     return true;
   });
+
+  const totalVisitsLogged = filteredReps.reduce((sum, r) => sum + r.visitsCompletedToday, 0);
+  const totalVerifiedVisitsLogged = filteredReps.reduce(
+    (sum, r) => sum + (r.locationVerifiedVisitsCount ?? 0),
+    0
+  );
 
   return (
     <div className="space-y-6">
@@ -512,24 +618,38 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          {/* Work Date Selector */}
+          {/* Work Date Range Selector */}
           <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1">
-            <span className="text-[10px] text-slate-500 font-bold uppercase">Date:</span>
+            <span className="text-[10px] text-slate-500 font-bold uppercase">From:</span>
             <input
               type="date"
-              aria-label="Attendance Work Date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              aria-label="Attendance Start Date"
+              value={startDate}
+              onChange={(e) => handleStartDateChange(e.target.value)}
               className="text-xs font-semibold text-slate-900 bg-transparent focus:outline-none"
             />
           </div>
 
-          {selectedDate !== marketToday && (
+          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1">
+            <span className="text-[10px] text-slate-500 font-bold uppercase">To:</span>
+            <input
+              type="date"
+              aria-label="Attendance End Date"
+              value={endDate}
+              onChange={(e) => handleEndDateChange(e.target.value)}
+              className="text-xs font-semibold text-slate-900 bg-transparent focus:outline-none"
+            />
+          </div>
+
+          {(startDate !== marketToday || endDate !== marketToday) && (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setSelectedDate(marketToday)}
+              onClick={() => {
+                setStartDate(marketToday);
+                setEndDate(marketToday);
+              }}
               className="text-xs font-semibold border-slate-300 bg-white px-2.5"
               title={`Jump to Today (${marketToday})`}
             >
@@ -602,7 +722,8 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
           </div>
 
           {pendingAbsenceRequests.map((req) => {
-            const matchesSelectedDate = req.absence_date === selectedDate;
+            const matchesSelectedDate =
+              hasValidRange && req.absence_date >= startDate && req.absence_date <= endDate;
             return (
               <div
                 key={req.id}
@@ -629,7 +750,10 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                     {!matchesSelectedDate && isValidWorkDate(req.absence_date) && (
                       <button
                         type="button"
-                        onClick={() => setSelectedDate(req.absence_date)}
+                        onClick={() => {
+                          setStartDate(req.absence_date);
+                          setEndDate(req.absence_date);
+                        }}
                         className="text-[10px] font-semibold text-brand-blue hover:underline cursor-pointer"
                       >
                         Jump Date Filter
@@ -761,13 +885,7 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                     : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                 }`}
               >
-                Active on Field (
-                {
-                  mergedReps.filter(
-                    (r) => r.todayStatus === 'active_field' || r.todayStatus === 'completed_day'
-                  ).length
-                }
-                )
+                Active on Field ({mergedReps.filter((r) => matchesStatusCategory(r, 'active')).length})
               </button>
               <button
                 onClick={() => setStatusFilter('non_visit')}
@@ -777,7 +895,7 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                     : 'bg-blue-50 text-brand-blue border border-blue-200'
                 }`}
               >
-                Non-Visit Days ({mergedReps.filter((r) => r.todayStatus === 'non_visit_day').length})
+                Non-Visit Days ({mergedReps.filter((r) => matchesStatusCategory(r, 'non_visit')).length})
               </button>
               <button
                 onClick={() => setStatusFilter('leave')}
@@ -787,12 +905,42 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                     : 'bg-amber-50 text-amber-800 border border-amber-200'
                 }`}
               >
-                Approved Leave ({mergedReps.filter((r) => r.todayStatus === 'approved_leave').length})
+                Approved Leave ({mergedReps.filter((r) => matchesStatusCategory(r, 'leave')).length})
               </button>
-              <span className="ml-1 text-[11px] font-mono text-slate-500">
-                Work Date: <strong className="text-slate-700">{selectedDate || 'Not Selected'}</strong>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-100 text-xs">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 text-brand-blue border border-blue-200 font-bold">
+                Total Client Visits Logged:{' '}
+                <span className="font-mono text-sm">{totalVisitsLogged}</span>
+                {totalVerifiedVisitsLogged > 0 && (
+                  <span className="text-[11px] font-medium text-emerald-700">
+                    ({totalVerifiedVisitsLogged} location verified)
+                  </span>
+                )}
+              </span>
+              <span className="text-slate-600 font-medium">
+                Salespeople Shown: <strong className="text-slate-900">{filteredReps.length}</strong>
               </span>
             </div>
+
+            <span className="text-[11px] font-mono text-slate-500">
+              {isRangeMode ? (
+                <>
+                  Date Range: <strong className="text-slate-700">{startDate}</strong> →{' '}
+                  <strong className="text-slate-700">{endDate}</strong>
+                </>
+              ) : (
+                <>
+                  Work Date:{' '}
+                  <strong className="text-slate-700">
+                    {hasValidRange ? startDate : 'Not Selected'}
+                  </strong>
+                </>
+              )}
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -818,14 +966,18 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                     {isLoadingData ? (
                       <span className="inline-flex items-center gap-2 font-medium text-slate-600">
                         <Loader2 className="w-4 h-4 animate-spin text-brand-blue" />
-                        Loading attendance records for {selectedDate}...
+                        Loading attendance records for{' '}
+                        {isRangeMode ? `${startDate} to ${endDate}` : startDate}...
                       </span>
-                    ) : !isValidWorkDate(selectedDate) ? (
-                      <span>Please select a valid work date or click Today to view attendance logs.</span>
+                    ) : !hasValidRange ? (
+                      <span>Please select a valid From and To date (or click Today) to view logs.</span>
                     ) : (
                       <span>
                         No attendance, leave, or non-visit workday records logged for{' '}
-                        <span className="font-mono font-semibold text-slate-700">{selectedDate}</span>.
+                        <span className="font-mono font-semibold text-slate-700">
+                          {isRangeMode ? `${startDate} to ${endDate}` : startDate}
+                        </span>
+                        .
                       </span>
                     )}
                   </td>
@@ -852,61 +1004,92 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                         {rep.assignedTerritory}
                       </td>
 
-                      {/* Today Status */}
+                      {/* Today Status / Range Summary */}
                       <td className="py-3.5 px-4">
-                        {isActive && (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            Active on Field ({rep.startDayTime})
-                          </span>
-                        )}
-                        {isCompleted && (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 whitespace-nowrap">
-                            Day Completed ({rep.startDayTime} - {rep.endDayTime || 'Ended'})
-                          </span>
-                        )}
-                        {isNonVisit && (
+                        {isRangeMode ? (
                           <div className="space-y-1">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-brand-blue border border-blue-300 whitespace-nowrap">
-                              Non-Visit Workday
-                            </span>
-                            {(rep.absenceCategory || rep.workDate) && (
-                              <div className="text-[11px] text-slate-600">
-                                {formatAbsenceCategoryLabel(rep.absenceCategory)} • Logged for{' '}
-                                <span className="font-mono font-semibold text-slate-800">
-                                  {rep.workDate || selectedDate}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {(rep.fieldDaysCount ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
+                                  {rep.fieldDaysCount} Field {rep.fieldDaysCount === 1 ? 'Day' : 'Days'}
                                 </span>
-                              </div>
-                            )}
-                            {rep.absenceJustification && (
-                              <div
-                                className="text-[10px] text-slate-500 italic max-w-xs truncate"
-                                title={rep.absenceJustification}
-                              >
-                                &ldquo;{rep.absenceJustification}&rdquo;
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {isLeave && (
-                          <div className="space-y-1">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 whitespace-nowrap">
-                              Approved Leave
-                            </span>
-                            {(rep.absenceCategory || rep.workDate) && (
-                              <div className="text-[11px] text-slate-600">
-                                {formatAbsenceCategoryLabel(rep.absenceCategory)} • Logged for{' '}
-                                <span className="font-mono font-semibold text-slate-800">
-                                  {rep.workDate || selectedDate}
+                              )}
+                              {(rep.nonVisitDaysCount ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-brand-blue border border-blue-300 whitespace-nowrap">
+                                  {rep.nonVisitDaysCount} Non-Visit
                                 </span>
+                              )}
+                              {(rep.leaveDaysCount ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 whitespace-nowrap">
+                                  {rep.leaveDaysCount} Leave
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              Latest log:{' '}
+                              <span className="font-mono font-semibold text-slate-700">
+                                {rep.workDate || endDate}
+                              </span>
+                              {rep.startDayTime ? ` • ${rep.startDayTime}` : ''}
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {isActive && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                Active on Field ({rep.startDayTime})
+                              </span>
+                            )}
+                            {isCompleted && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 whitespace-nowrap">
+                                Day Completed ({rep.startDayTime} - {rep.endDayTime || 'Ended'})
+                              </span>
+                            )}
+                            {isNonVisit && (
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-brand-blue border border-blue-300 whitespace-nowrap">
+                                  Non-Visit Workday
+                                </span>
+                                {(rep.absenceCategory || rep.workDate) && (
+                                  <div className="text-[11px] text-slate-600">
+                                    {formatAbsenceCategoryLabel(rep.absenceCategory)} • Logged for{' '}
+                                    <span className="font-mono font-semibold text-slate-800">
+                                      {rep.workDate || startDate}
+                                    </span>
+                                  </div>
+                                )}
+                                {rep.absenceJustification && (
+                                  <div
+                                    className="text-[10px] text-slate-500 italic max-w-xs truncate"
+                                    title={rep.absenceJustification}
+                                  >
+                                    &ldquo;{rep.absenceJustification}&rdquo;
+                                  </div>
+                                )}
                               </div>
                             )}
-                          </div>
-                        )}
-                        {rep.todayStatus === 'absent' && (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-300 whitespace-nowrap">
-                            Not Started
-                          </span>
+                            {isLeave && (
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 whitespace-nowrap">
+                                  Approved Leave
+                                </span>
+                                {(rep.absenceCategory || rep.workDate) && (
+                                  <div className="text-[11px] text-slate-600">
+                                    {formatAbsenceCategoryLabel(rep.absenceCategory)} • Logged for{' '}
+                                    <span className="font-mono font-semibold text-slate-800">
+                                      {rep.workDate || startDate}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {rep.todayStatus === 'absent' && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-300 whitespace-nowrap">
+                                Not Started
+                              </span>
+                            )}
+                          </>
                         )}
                       </td>
 
@@ -930,12 +1113,25 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                         )}
                       </td>
 
-                      {/* Visits Today */}
+                      {/* Visits Logged */}
                       <td className="py-3.5 px-4">
                         <div className="font-bold text-slate-900 text-sm">
                           {rep.visitsCompletedToday}
-                          <span className="text-xs text-slate-500 font-normal ml-1">completed</span>
+                          <span className="text-xs text-slate-500 font-normal ml-1">
+                            {isRangeMode ? 'logged' : 'completed'}
+                          </span>
                         </div>
+                        {isRangeMode && (
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {(rep.fieldDaysCount ?? 0) > 0
+                              ? `${rep.fieldDaysCount} field ${rep.fieldDaysCount === 1 ? 'day' : 'days'}${
+                                  (rep.locationVerifiedVisitsCount ?? 0) > 0
+                                    ? ` • ${rep.locationVerifiedVisitsCount} verified`
+                                    : ''
+                                }`
+                              : 'Non-field days only'}
+                          </div>
+                        )}
                       </td>
 
                       {/* Actions */}
@@ -994,7 +1190,7 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                       Authorized Non-Field Record
                     </span>
                     <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-white border border-blue-200 text-slate-700">
-                      Logged Date: {selectedRepForInspection.workDate || selectedDate}
+                      Logged Date: {selectedRepForInspection.workDate || startDate}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[11px]">
