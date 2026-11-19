@@ -35,6 +35,7 @@ export interface MarketRuleConfig {
   minVisitDurationMinutes: number; // 5 mins
   idleGapThresholdMinutes: number; // 150 mins
   dailyVisitTarget: number; // 6 visits/day
+  meetingLogSlaHours: number; // 2 hours
   dailyProvisionalCutoffHour: number; // 19:00 (19)
   auditSamplingPercentage: number; // 5%
   ruleVersion: string; // "v1.2-canonical"
@@ -78,7 +79,7 @@ export const HqMarketConfiguration: React.FC = () => {
       const res = await updateMarketRules(
         activeMarket,
         editConfig,
-        `Operational thresholds adjusted by HQ Admin: ${editConfig.defaultGeofenceRadiusMeters}m geofence, ${editConfig.maxVisitGpsAccuracyMeters}m accuracy limit, ${editConfig.dailyVisitTarget} daily visit target.`
+        `Operational thresholds adjusted by HQ Admin: ${editConfig.defaultGeofenceRadiusMeters}m geofence, ${editConfig.maxVisitGpsAccuracyMeters}m accuracy limit, ${editConfig.dailyVisitTarget} daily visit target, ${editConfig.meetingLogSlaHours}h log SLA.`
       );
 
       setIsEditing(false);
@@ -358,7 +359,7 @@ export const HqMarketConfiguration: React.FC = () => {
                   )}
                 </div>
                 <p className="text-[10px] text-emerald-800 leading-relaxed">
-                  Canonical default: 200m. Rep check-ins within this circle count toward location verification.
+                  Active limit: {currentConfig.defaultGeofenceRadiusMeters}m. Rep check-ins within this circle count toward location verification.
                 </p>
               </div>
 
@@ -439,6 +440,38 @@ export const HqMarketConfiguration: React.FC = () => {
                   ) : (
                     <span className="font-bold text-slate-900 font-mono">
                       {currentConfig.dailyVisitTarget} physical visits
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <label htmlFor="input-meeting-log-sla-hours" className="text-slate-600 font-medium">
+                    Meeting Log SLA:
+                  </label>
+                  {isEditing ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        id="input-meeting-log-sla-hours"
+                        aria-label="Meeting Log SLA Hours"
+                        type="number"
+                        min={0.5}
+                        max={72}
+                        step={0.5}
+                        value={editConfig.meetingLogSlaHours ?? 2}
+                        onChange={(e) =>
+                          setEditConfig({
+                            ...editConfig,
+                            meetingLogSlaHours: Math.max(0.5, Number(e.target.value) || 0.5),
+                          })
+                        }
+                        className="w-20 p-1.5 border border-slate-200 rounded text-xs font-mono text-right"
+                      />
+                      <span className="text-[11px] font-semibold text-slate-500">hrs</span>
+                    </div>
+                  ) : (
+                    <span className="font-bold text-slate-900 font-mono">
+                      {currentConfig.meetingLogSlaHours ?? 2}{' '}
+                      {(currentConfig.meetingLogSlaHours ?? 2) === 1 ? 'hour' : 'hours'}
                     </span>
                   )}
                 </div>

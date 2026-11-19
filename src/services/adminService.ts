@@ -224,8 +224,32 @@ export interface HqMarketRuleRecord {
   maxIdleGapMinutes: number;
   maxClockDriftMinutes: number;
   dailyVisitTarget: number;
+  meetingLogSlaHours: number;
   effectiveFrom: string;
   effectiveTo: string | null;
+}
+
+function mapMarketRuleRow(row: any, fallbackSlaHours = 2): HqMarketRuleRecord {
+  return {
+    id: row.id,
+    marketCode: row.market_code,
+    versionTag: row.version_tag,
+    isActive: row.is_active,
+    workingHoursStart: row.working_hours_start,
+    workingHoursEnd: row.working_hours_end,
+    shiftGraceMinutes: row.shift_grace_minutes,
+    geofenceRadiusM: Number(row.geofence_radius_m),
+    maxVisitGpsAccuracyM: Number(row.max_visit_gps_accuracy_m),
+    maxPinGpsAccuracyM: Number(row.max_pin_gps_accuracy_m),
+    minVisitDurationSeconds: row.min_visit_duration_seconds,
+    maxIdleGapMinutes: row.max_idle_gap_minutes,
+    maxClockDriftMinutes: row.max_clock_drift_minutes,
+    dailyVisitTarget: row.daily_visit_target,
+    meetingLogSlaHours:
+      row.meeting_log_sla_hours != null ? Number(row.meeting_log_sla_hours) : fallbackSlaHours,
+    effectiveFrom: row.effective_from,
+    effectiveTo: row.effective_to,
+  };
 }
 
 export interface CommitMarketRuleParams {
@@ -236,6 +260,7 @@ export interface CommitMarketRuleParams {
   minVisitDurationSeconds: number;
   maxIdleGapMinutes: number;
   dailyVisitTarget: number;
+  meetingLogSlaHours?: number;
   shiftGraceMinutes: number;
   lateStartCutoffMinutes?: number;
   workingHoursStart: string;
@@ -2091,24 +2116,36 @@ export const adminService = {
         return { data: [], error: new Error(error.message) };
       }
 
-      const records: HqMarketRuleRecord[] = (data || []).map((row: any) => ({
-        id: row.id,
-        marketCode: row.market_code,
-        versionTag: row.version_tag,
-        isActive: row.is_active,
-        workingHoursStart: row.working_hours_start,
-        workingHoursEnd: row.working_hours_end,
-        shiftGraceMinutes: row.shift_grace_minutes,
-        geofenceRadiusM: row.geofence_radius_m,
-        maxVisitGpsAccuracyM: row.max_visit_gps_accuracy_m,
-        maxPinGpsAccuracyM: row.max_pin_gps_accuracy_m,
-        minVisitDurationSeconds: row.min_visit_duration_seconds,
-        maxIdleGapMinutes: row.max_idle_gap_minutes,
-        maxClockDriftMinutes: row.max_clock_drift_minutes,
-        dailyVisitTarget: row.daily_visit_target,
-        effectiveFrom: row.effective_from,
-        effectiveTo: row.effective_to,
-      }));
+      const rows = (data || []) as any[];
+      const auditSlaMap = new Map<string, number>();
+      const missingColumnIds = rows
+        .filter((row) => row.meeting_log_sla_hours === undefined || row.meeting_log_sla_hours === null)
+        .map((row) => row.id)
+        .filter(Boolean);
+
+      if (missingColumnIds.length > 0) {
+        try {
+          const { data: auditRows } = await supabase
+            .from('approval_audit')
+            .select('entity_id, new_state')
+            .eq('entity_type', 'market_rules')
+            .in('entity_id', missingColumnIds);
+          for (const audit of auditRows || []) {
+            const match = typeof (audit as any).new_state === 'string'
+              ? (audit as any).new_state.match(/\|sla:([0-9]+(?:\.[0-9]+)?)h/i)
+              : null;
+            if (match && (audit as any).entity_id) {
+              auditSlaMap.set((audit as any).entity_id, Number(match[1]));
+            }
+          }
+        } catch {
+          // Safe fallback when approval_audit query is unavailable or omitted in tests
+        }
+      }
+
+      const records: HqMarketRuleRecord[] = rows.map((row) =>
+        mapMarketRuleRow(row, auditSlaMap.get(row.id) ?? 2)
+      );
 
       return { data: records, error: null };
     } catch (err: any) {
@@ -2132,6 +2169,7 @@ export const adminService = {
         payload.min_visit_duration_seconds = updates.minVisitDurationSeconds;
       if (updates.maxIdleGapMinutes !== undefined) payload.max_idle_gap_minutes = updates.maxIdleGapMinutes;
       if (updates.dailyVisitTarget !== undefined) payload.daily_visit_target = updates.dailyVisitTarget;
+      if (updates.meetingLogSlaHours !== undefined) payload.meeting_log_sla_hours = updates.meetingLogSlaHours;
       if (updates.shiftGraceMinutes !== undefined) payload.shift_grace_minutes = updates.shiftGraceMinutes;
       if (updates.workingHoursStart !== undefined) payload.working_hours_start = updates.workingHoursStart;
       if (updates.workingHoursEnd !== undefined) payload.working_hours_end = updates.workingHoursEnd;
@@ -2169,24 +2207,29 @@ export const adminService = {
         return { data: null, error: null };
       }
 
-      const record: HqMarketRuleRecord = {
-        id: data.id,
-        marketCode: data.market_code,
-        versionTag: data.version_tag,
-        isActive: data.is_active,
-        workingHoursStart: data.working_hours_start,
-        workingHoursEnd: data.working_hours_end,
-        shiftGraceMinutes: data.shift_grace_minutes,
-        geofenceRadiusM: Number(data.geofence_radius_m),
-        maxVisitGpsAccuracyM: Number(data.max_visit_gps_accuracy_m),
-        maxPinGpsAccuracyM: Number(data.max_pin_gps_accuracy_m),
-        minVisitDurationSeconds: data.min_visit_duration_seconds,
-        maxIdleGapMinutes: data.max_idle_gap_minutes,
-        maxClockDriftMinutes: data.max_clock_drift_minutes,
-        dailyVisitTarget: data.daily_visit_target,
-        effectiveFrom: data.effective_from,
-        effectiveTo: data.effective_to,
-      };
+      const rawData: any = data;
+      let resolvedSlaHours =
+        rawData.meeting_log_sla_hours != null ? Number(rawData.meeting_log_sla_hours) : undefined;
+      if (resolvedSlaHours === undefined && rawData.id) {
+        try {
+          const { data: auditRow } = await supabase
+            .from('approval_audit')
+            .select('new_state')
+            .eq('entity_type', 'market_rules')
+            .eq('entity_id', rawData.id)
+            .order('timestamp', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const match = typeof (auditRow as any)?.new_state === 'string'
+            ? (auditRow as any).new_state.match(/\|sla:([0-9]+(?:\.[0-9]+)?)h/i)
+            : null;
+          if (match) resolvedSlaHours = Number(match[1]);
+        } catch {
+          // Ignore when audit query unavailable
+        }
+      }
+
+      const record = mapMarketRuleRow(data, resolvedSlaHours ?? 2);
       return { data: record, error: null };
     } catch (err: any) {
       return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
@@ -2214,12 +2257,16 @@ export const adminService = {
         minVisitDurationSeconds,
         maxIdleGapMinutes,
         dailyVisitTarget,
+        meetingLogSlaHours,
         shiftGraceMinutes,
         workingHoursStart,
         workingHoursEnd,
         reason,
         approvedBy,
       } = params;
+      const effectiveSlaHours = meetingLogSlaHours != null && Number.isFinite(Number(meetingLogSlaHours))
+        ? Number(meetingLogSlaHours)
+        : 2;
 
       // 1. Fetch current active rule for this market
       const { data: currentRule, error: fetchErr } = await supabase
@@ -2272,6 +2319,7 @@ export const adminService = {
         min_visit_duration_seconds: minVisitDurationSeconds,
         max_idle_gap_minutes: maxIdleGapMinutes,
         daily_visit_target: dailyVisitTarget,
+        meeting_log_sla_hours: effectiveSlaHours,
         shift_grace_minutes: shiftGraceMinutes,
         working_hours_start: workingHoursStart,
         working_hours_end: workingHoursEnd,
@@ -2282,55 +2330,46 @@ export const adminService = {
         created_by: actorId,
       };
 
-      const { data: newRow, error: insertErr } = await supabase
+      let { data: newRow, error: insertErr } = await supabase
         .from('market_rules')
         .insert(insertPayload)
         .select()
         .single();
 
-      if (insertErr) {
+      // Pre-Migration 00030 schema compatibility retry when meeting_log_sla_hours column does not exist yet
+      if (insertErr && /meeting_log_sla_hours/i.test(insertErr.message || '')) {
+        const { meeting_log_sla_hours: _omitted, ...legacyPayload } = insertPayload;
+        const retryRes = await supabase
+          .from('market_rules')
+          .insert(legacyPayload)
+          .select()
+          .single();
+        newRow = retryRes.data;
+        insertErr = retryRes.error;
+      }
+
+      if (insertErr || !newRow) {
         // Rollback archive if possible
         if (currentRule) {
           await supabase.from('market_rules').update({ effective_to: null, is_active: true }).eq('id', currentRule.id);
         }
-        return { data: null, newVersion: null, error: new Error(`Failed to insert new rule: ${insertErr.message}`) };
+        return { data: null, newVersion: null, error: new Error(`Failed to insert new rule: ${insertErr?.message || 'Unknown error'}`) };
       }
 
-      // 5. Insert approval / governance audit record
+      // 5. Insert approval / governance audit record (compact VARCHAR(64) new_state)
       await supabase.from('approval_audit').insert({
         entity_type: 'market_rules',
         entity_id: newRow.id,
         actor_id: actorId,
         action: 'rule_version_published',
-        mandatory_reason: reason?.trim() || `Operational parameters adjusted: ${geofenceRadiusM}m geofence, ${maxVisitGpsAccuracyM}m GPS uncertainty limit.`,
-        new_state: JSON.stringify({
-          versionTag: nextVersionTag,
-          geofenceRadiusM,
-          maxVisitGpsAccuracyM,
-          maxPinGpsAccuracyM,
-          dailyVisitTarget,
-          approvedBy: approvedBy || 'HQ Administrator',
-        }),
+        previous_state: currentRule?.version_tag ? `active:${currentRule.version_tag}`.slice(0, 64) : null,
+        new_state: `active:${nextVersionTag}|sla:${effectiveSlaHours}h`.slice(0, 64),
+        mandatory_reason:
+          reason?.trim() ||
+          `Operational parameters adjusted by ${approvedBy || 'HQ Administrator'}: ${geofenceRadiusM}m geofence, ${maxVisitGpsAccuracyM}m GPS uncertainty limit, ${effectiveSlaHours}h log SLA.`,
       });
 
-      const newRecord: HqMarketRuleRecord = {
-        id: newRow.id,
-        marketCode: newRow.market_code,
-        versionTag: newRow.version_tag,
-        isActive: newRow.is_active,
-        workingHoursStart: newRow.working_hours_start,
-        workingHoursEnd: newRow.working_hours_end,
-        shiftGraceMinutes: newRow.shift_grace_minutes,
-        geofenceRadiusM: Number(newRow.geofence_radius_m),
-        maxVisitGpsAccuracyM: Number(newRow.max_visit_gps_accuracy_m),
-        maxPinGpsAccuracyM: Number(newRow.max_pin_gps_accuracy_m),
-        minVisitDurationSeconds: newRow.min_visit_duration_seconds,
-        maxIdleGapMinutes: newRow.max_idle_gap_minutes,
-        maxClockDriftMinutes: newRow.max_clock_drift_minutes,
-        dailyVisitTarget: newRow.daily_visit_target,
-        effectiveFrom: newRow.effective_from,
-        effectiveTo: newRow.effective_to,
-      };
+      const newRecord = mapMarketRuleRow(newRow, effectiveSlaHours);
 
       return { data: newRecord, newVersion: nextVersionTag, error: null };
     } catch (err: any) {

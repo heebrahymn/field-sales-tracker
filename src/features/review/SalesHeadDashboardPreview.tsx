@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 import {
   attendanceService,
   getMarketWorkDate,
@@ -107,6 +108,8 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
   onSelectSection,
 }) => {
   const { currentUser } = useAuth();
+  const { getActiveMarketRules } = useMarketConfig();
+  const logSlaHours = getActiveMarketRules((currentUser?.marketCode || 'NG') as any).meetingLogSlaHours ?? 2;
   const [internalSection, setInternalSection] = useState<DesktopNavSection>('dashboard');
   const [selectedReviewItem, setSelectedReviewItem] = useState<ApprovalItem | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -754,7 +757,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
                 <div className="mt-1">
                   <span className="inline-block text-[10px] font-bold text-orange-800 bg-orange-50 border border-orange-200/70 px-1.5 py-0.5 rounded">
                     {summaryTimeframe === 'daily'
-                      ? '>2h SLA Overdue'
+                      ? `>${logSlaHours}h SLA Overdue`
                       : summaryTimeframe === 'weekly'
                       ? 'Unlogged (Week)'
                       : 'Unlogged (Quarter)'}

@@ -46,7 +46,7 @@ export interface VerifiedVisitRecord {
   };
   premisesPhotoUrl?: string;
   meetingLog: {
-    status: 'complete' | 'missing' | 'late_submitted';
+    status: 'complete' | 'pending' | 'missing' | 'late_submitted';
     contactMet: string;
     contactRole: string;
     purpose: string;
@@ -64,8 +64,16 @@ export interface VerifiedVisitRecord {
 
 export const ClientVisitVerification: React.FC = () => {
   const { currentUser } = useAuth();
-  const { getActiveMarketRules } = useMarketConfig();
-  const geofenceLimit = getActiveMarketRules((currentUser?.marketCode || 'NG') as any).defaultGeofenceRadiusMeters ?? 200;
+  const { getActiveMarketRules, refreshMarketRules } = useMarketConfig();
+  const activeMarketRule = getActiveMarketRules((currentUser?.marketCode || 'NG') as any);
+  const geofenceLimit = activeMarketRule?.defaultGeofenceRadiusMeters ?? 200;
+  const maxVisitAccuracyM =
+    activeMarketRule?.maxVisitGpsAccuracyMeters ??
+    (activeMarketRule as any)?.maxGpsAccuracyMeters ??
+    100;
+  const logSlaHours = activeMarketRule?.meetingLogSlaHours ?? 2;
+  const logSlaHourLabel = `${logSlaHours} ${logSlaHours === 1 ? 'Hour' : 'Hours'}`;
+  const logSlaLowerLabel = `${logSlaHours} ${logSlaHours === 1 ? 'hour' : 'hours'}`;
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLocationStatus, setFilterLocationStatus] = useState<'all' | 'verified' | 'unverified_approved'>('all');
   const [filterLogStatus, setFilterLogStatus] = useState<'all' | 'complete' | 'missing'>('all');
@@ -192,8 +200,13 @@ export const ClientVisitVerification: React.FC = () => {
         locationStatus: isVerified ? 'location_verified' : isApprovedUnverified ? 'manager_approved_unverified' : 'unverified',
         geofenceResult: {
           distanceMeters: v.distanceMeters || 0,
-          thresholdMeters: v.geofenceRadiusM || geofenceLimit,
-          passed: v.withinGeofence,
+          thresholdMeters: v.geofenceRadiusM > 0 ? v.geofenceRadiusM : geofenceLimit,
+          passed:
+            v.geofenceRadiusM > 0
+              ? v.withinGeofence
+              : v.distanceMeters != null
+              ? v.distanceMeters <= geofenceLimit
+              : v.withinGeofence,
           accuracyMeters: Math.round(v.checkInAccuracyM),
           checkInCoords: `${v.checkInLatitude?.toFixed(4)}° N, ${v.checkInLongitude?.toFixed(4)}° E`,
           pinCoords: v.pinLatitude ? `${v.pinLatitude?.toFixed(4)}° N, ${v.pinLongitude?.toFixed(4)}° E` : 'No Pin',
@@ -212,24 +225,30 @@ export const ClientVisitVerification: React.FC = () => {
               submittedAt: v.meetingLog.submittedAt ? new Date(v.meetingLog.submittedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' WAT' : 'Logged',
               businessCardPhotoPath: v.meetingLog.businessCardPhotoPath || null,
             }
-          : {
-              status: 'missing',
-              contactMet: 'Pending Submission',
-              contactRole: 'Site Operations',
-              purpose: 'Unrecorded',
-              productsDiscussed: [],
-              fleetSize: 'Unknown',
-              narrativeOutcome: 'No meeting log record submitted yet.',
-              nextStepText: '',
-              submittedAt: 'Awaiting Log',
-            },
+          : (() => {
+              const checkOutMs = v.checkOutAt ? new Date(v.checkOutAt).getTime() : NaN;
+              const hasCheckedOut = Number.isFinite(checkOutMs);
+              const slaMs = logSlaHours * 3600 * 1000;
+              const isOverdue = hasCheckedOut && Date.now() - checkOutMs > slaMs;
+              return {
+                status: isOverdue ? ('missing' as const) : ('pending' as const),
+                contactMet: 'Pending Submission',
+                contactRole: 'Site Operations',
+                purpose: 'Unrecorded',
+                productsDiscussed: [],
+                fleetSize: 'Unknown',
+                narrativeOutcome: 'No meeting log record submitted yet.',
+                nextStepText: '',
+                submittedAt: hasCheckedOut ? (isOverdue ? 'Awaiting Log' : 'Within SLA Window') : 'Visit In Progress',
+              };
+            })(),
         clientAuditStatus: auditStatus,
         isRealRecord: true,
       };
     });
 
     return realMapped;
-  }, [realVisits]);
+  }, [realVisits, geofenceLimit, logSlaHours]);
 
   const distinctUsers = useMemo(() => {
     return Array.from(new Set(visits.map((v) => v.repName).filter(Boolean))).sort();
@@ -278,7 +297,7 @@ export const ClientVisitVerification: React.FC = () => {
               </span>
             </div>
             <p className="text-slate-700 font-medium mt-0.5">
-              Distinguish physical location verification from meeting log completeness. Location verification requires GPS ≤100m within 200m geofence and live photo; meeting logs require narrative and free-text next steps within 2 hours.
+              Distinguish physical location verification from meeting log completeness. Location verification requires GPS ≤{maxVisitAccuracyM}m within {geofenceLimit}m geofence and live photo; meeting logs require narrative and free-text next steps within {logSlaLowerLabel}.
             </p>
           </div>
         </div>
@@ -288,7 +307,7 @@ export const ClientVisitVerification: React.FC = () => {
             variant="outline"
             size="sm"
             onClick={async () => {
-              await loadRealVisits();
+              await Promise.all([loadRealVisits(), refreshMarketRules?.()]);
               emitBadgeCountsChanged();
             }}
             disabled={isLoadingReal}
@@ -301,7 +320,7 @@ export const ClientVisitVerification: React.FC = () => {
             Geofence Limit: {geofenceLimit}m
           </span>
           <span className="text-xs font-bold px-2.5 py-1 rounded bg-white border border-blue-200 text-brand-blue">
-            Log SLA: 2 Hours
+            Log SLA: {logSlaHourLabel}
           </span>
         </div>
       </div>
@@ -373,7 +392,7 @@ export const ClientVisitVerification: React.FC = () => {
                       : 'bg-rose-50 text-rose-800 border border-rose-200'
                   }`}
                 >
-                  Missing &gt;2h
+                  Missing &gt;{logSlaHours}h
                 </button>
               </div>
             </div>
@@ -448,6 +467,7 @@ export const ClientVisitVerification: React.FC = () => {
           const isApprovedUnverified = visit.locationStatus === 'manager_approved_unverified';
           const isLogComplete = visit.meetingLog.status === 'complete';
           const isLogMissing = visit.meetingLog.status === 'missing';
+          const isLogPending = visit.meetingLog.status === 'pending';
 
           return (
             <Card key={visit.id} className="border-slate-200 shadow-xs hover:border-slate-300 transition-all">
@@ -489,7 +509,15 @@ export const ClientVisitVerification: React.FC = () => {
                     {isLogMissing && (
                       <span className="text-xs font-bold text-rose-800 bg-rose-50 border border-rose-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                         <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                        Log Overdue (&gt;2h)
+                        Log Overdue (&gt;{logSlaHours}h)
+                      </span>
+                    )}
+                    {isLogPending && (
+                      <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        {visit.meetingLog.submittedAt === 'Visit In Progress'
+                          ? 'Awaiting Checkout'
+                          : `Pending Log (≤${logSlaHours}h)`}
                       </span>
                     )}
                   </div>
@@ -553,7 +581,7 @@ export const ClientVisitVerification: React.FC = () => {
                         <span className="text-slate-500">Check-in Accuracy:</span>
                         <span className="font-mono font-bold text-slate-800">
                           {visit.geofenceResult.accuracyMeters > 0
-                            ? `±${visit.geofenceResult.accuracyMeters}m (≤100m)`
+                            ? `±${visit.geofenceResult.accuracyMeters}m (≤${maxVisitAccuracyM}m)`
                             : 'N/A'}
                         </span>
                       </div>
@@ -600,7 +628,14 @@ export const ClientVisitVerification: React.FC = () => {
 
                       {isLogMissing ? (
                         <div className="p-2 bg-rose-50 border border-rose-200 rounded text-rose-800 text-xs">
-                          <strong>SLA Breach:</strong> No meeting log submitted within 2 hours. Notification dispatched to salesperson.
+                          <strong>SLA Breach:</strong> No meeting log submitted within {logSlaLowerLabel}. Notification dispatched to salesperson.
+                        </div>
+                      ) : isLogPending ? (
+                        <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-900 text-xs">
+                          <strong>Pending Log:</strong>{' '}
+                          {visit.meetingLog.submittedAt === 'Visit In Progress'
+                            ? `Visit still in progress; ${logSlaLowerLabel} submission window begins at checkout.`
+                            : `Within active ${logSlaLowerLabel} post-checkout submission window.`}
                         </div>
                       ) : (
                         <div className="text-[11px] text-slate-700 space-y-1">

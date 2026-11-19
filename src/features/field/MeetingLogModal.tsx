@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { X, Clock, Camera, CheckCircle2 } from 'lucide-react';
 import { VisitPurpose } from '@/services/visitService';
+import { useAuthSafe } from '@/context/AuthContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
 
 export interface MeetingLogSubmissionData {
   contactId?: string;
@@ -45,6 +47,10 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
   defaultContactRole,
   onSubmitted,
 }) => {
+  const auth = useAuthSafe();
+  const { getActiveMarketRules } = useMarketConfig();
+  const logSlaHours = getActiveMarketRules((auth?.currentUser?.marketCode || 'NG') as any).meetingLogSlaHours ?? 2;
+  const slaHoursPlural = `${logSlaHours} ${logSlaHours === 1 ? 'hour' : 'hours'}`;
   const [contactName, setContactName] = useState(defaultContactName || 'Alhaji Musa Garba');
   const [contactRole, setContactRole] = useState(defaultContactRole || 'Head of Fleet Operations');
   const [purpose, setPurpose] = useState<VisitPurpose>('routine_visit');
@@ -144,11 +150,11 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
 
         {/* Scrollable Form Body */}
         <div className="p-4 overflow-y-auto space-y-4 text-xs text-slate-800">
-          {/* Submission Timing Rule Note (PRD §3 Step 6) */}
+          {/* Submission Timing Rule Note */}
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2.5">
             <Clock className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
             <div className="text-[11px] text-slate-700 leading-relaxed">
-              <strong className="text-slate-900">2-Hour Submission Window:</strong> You may submit this meeting log right now at check-out, or within 2 hours. Records submitted beyond 2 hours are flagged as <span className="font-semibold text-amber-900">Late Meeting Log</span> for manager review.
+              <strong className="text-slate-900">{logSlaHours}-Hour Submission Window:</strong> You may submit this meeting log right now at check-out, or within {slaHoursPlural}. Records submitted beyond {slaHoursPlural} are flagged as <span className="font-semibold text-amber-900">Late Meeting Log</span> for manager review.
             </div>
           </div>
 
@@ -367,7 +373,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
             >
             </input>
             <label htmlFor="deferCheck" className="text-[11px] text-slate-700 font-medium cursor-pointer">
-              Defer completion (Complete within permitted 2-hour window)
+              Defer completion (Complete within permitted {logSlaHours}-hour window)
             </label>
           </div>
         </div>
@@ -384,7 +390,7 @@ export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
             disabled={!contactName.trim() || !purpose || !nextStep.trim()}
             className="text-xs h-11 px-5 font-bold bg-brand-blue hover:bg-brand-blue-700"
           >
-            {deferLog ? 'Check Out & Defer Log (2h SLA)' : 'Submit Log & Close Visit'}
+            {deferLog ? `Check Out & Defer Log (${logSlaHours}h SLA)` : 'Submit Log & Close Visit'}
           </Button>
         </div>
       </div>

@@ -271,6 +271,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
   const currentUser = auth?.currentUser;
   const { getActiveMarketRules } = useMarketConfig();
   const activeMarketRules = getActiveMarketRules((currentUser?.marketCode || 'NG') as any);
+  const logSlaHoursRef = useRef<number>(activeMarketRules.meetingLogSlaHours ?? 2);
+  logSlaHoursRef.current = activeMarketRules.meetingLogSlaHours ?? 2;
 
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -488,7 +490,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
                 durationMinutes: durationMins,
                 verificationStatus: (v.verification_status as any) || 'location_verified',
                 meetingLogSubmitted: hasLog,
-                meetingLogDeferredUntil: hasLog ? undefined : 'Within 2h SLA',
+                meetingLogDeferredUntil: hasLog ? undefined : `Within ${logSlaHoursRef.current}h SLA`,
               };
             });
           }
@@ -1473,6 +1475,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         longitude: checkoutGps?.longitude ?? null,
         accuracy: checkoutGps?.accuracy ?? null,
         meetingLogDeferred: !meetingLogData,
+        geofenceRadiusM: activeMarketRules.defaultGeofenceRadiusMeters ?? 200,
+        logSlaHours: activeMarketRules.meetingLogSlaHours ?? 2,
       });
 
       if (checkoutRes.error) {
@@ -1513,7 +1517,9 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         durationMinutes: Math.max(1, Math.round(activeVisit.elapsedSeconds / 60)),
         verificationStatus: 'pending_sync',
         meetingLogSubmitted: !isDeferred,
-        meetingLogDeferredUntil: isDeferred ? 'Within 2h SLA (Offline Queue)' : 'Queued on Device',
+        meetingLogDeferredUntil: isDeferred
+          ? `Within ${activeMarketRules.meetingLogSlaHours ?? 2}h SLA (Offline Queue)`
+          : 'Queued on Device',
         flagRaised: outsideGeofence
           ? `Checkout Outside Geofence (>${activeMarketRules.defaultGeofenceRadiusMeters ?? 200}m)`
           : undefined,
@@ -1626,7 +1632,9 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
       durationMinutes: Math.max(1, Math.round(activeVisit.elapsedSeconds / 60)),
       verificationStatus: preservedStatus,
       meetingLogSubmitted: !isDeferred,
-      meetingLogDeferredUntil: isDeferred ? (logSaveErrorMessage ? 'Unsaved — Retry Pending' : 'Within 2h SLA') : undefined,
+      meetingLogDeferredUntil: isDeferred
+        ? (logSaveErrorMessage ? 'Unsaved — Retry Pending' : `Within ${activeMarketRules.meetingLogSlaHours ?? 2}h SLA`)
+        : undefined,
       flagRaised: outsideGeofence
         ? `Checkout Outside Geofence (>${activeMarketRules.defaultGeofenceRadiusMeters ?? 200}m)`
         : undefined,

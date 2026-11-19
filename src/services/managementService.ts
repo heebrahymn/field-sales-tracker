@@ -403,6 +403,7 @@ export const managementService = {
             attendance_day_id,
             branch_id,
             branch_pin_id,
+            rule_version_id,
             check_in_at,
             check_out_at,
             check_in_latitude,
@@ -437,6 +438,11 @@ export const managementService = {
               longitude,
               reported_accuracy_m,
               version_number
+            ),
+            market_rules:rule_version_id (
+              id,
+              geofence_radius_m,
+              max_visit_gps_accuracy_m
             ),
             meeting_logs (
               id,
@@ -493,6 +499,10 @@ export const managementService = {
             ? row.branches.branch_location_pins.find((p: any) => p.status === 'approved') ||
               row.branches.branch_location_pins[0]
             : null);
+        const rowRule = Array.isArray(row.market_rules) ? row.market_rules[0] : row.market_rules;
+        const ruleGeofenceRadiusM = rowRule?.geofence_radius_m != null ? Number(rowRule.geofence_radius_m) : 0;
+        const effectiveThresholdForCalc = ruleGeofenceRadiusM > 0 ? ruleGeofenceRadiusM : 200;
+
         let distanceMeters: number | null = null;
         let withinGeofence = false;
 
@@ -507,7 +517,7 @@ export const managementService = {
             Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
           distanceMeters = Math.round(R * c);
-          withinGeofence = distanceMeters <= 200;
+          withinGeofence = distanceMeters <= effectiveThresholdForCalc;
         }
 
         let durationMins: number | null = null;
@@ -544,7 +554,7 @@ export const managementService = {
           checkOutAccuracyM: row.check_out_accuracy_m,
           pinLatitude: pin?.latitude || null,
           pinLongitude: pin?.longitude || null,
-          geofenceRadiusM: 200,
+          geofenceRadiusM: ruleGeofenceRadiusM,
           distanceMeters,
           withinGeofence,
           capturedOffline: Boolean(row.captured_offline),

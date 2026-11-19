@@ -20,6 +20,7 @@ export interface MarketRuleConfig {
   minVisitDurationMinutes: number; // 5 mins
   idleGapThresholdMinutes: number; // 150 mins
   dailyVisitTarget: number; // 6 visits/day
+  meetingLogSlaHours: number; // 2 hours
   dailyProvisionalCutoffHour: number; // 19:00 (19)
   auditSamplingPercentage: number; // 5%
   ruleVersion: string; // "v1.2-canonical"
@@ -57,6 +58,7 @@ export const INITIAL_MARKET_RULES: Record<MarketCode, MarketRuleConfig> = {
     minVisitDurationMinutes: 5,
     idleGapThresholdMinutes: 150,
     dailyVisitTarget: 6,
+    meetingLogSlaHours: 2,
     dailyProvisionalCutoffHour: 19,
     auditSamplingPercentage: 5,
     ruleVersion: 'v1.2-canonical',
@@ -86,6 +88,7 @@ export const INITIAL_MARKET_RULES: Record<MarketCode, MarketRuleConfig> = {
     minVisitDurationMinutes: 5,
     idleGapThresholdMinutes: 150,
     dailyVisitTarget: 6,
+    meetingLogSlaHours: 2,
     dailyProvisionalCutoffHour: 19,
     auditSamplingPercentage: 5,
     ruleVersion: 'v1.2-canonical',
@@ -115,6 +118,7 @@ export const INITIAL_MARKET_RULES: Record<MarketCode, MarketRuleConfig> = {
     minVisitDurationMinutes: 5,
     idleGapThresholdMinutes: 150,
     dailyVisitTarget: 6,
+    meetingLogSlaHours: 2,
     dailyProvisionalCutoffHour: 19,
     auditSamplingPercentage: 5,
     ruleVersion: 'v1.2-canonical',
@@ -209,6 +213,7 @@ export const MarketConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 minVisitDurationMinutes: Math.round(rule.minVisitDurationSeconds / 60),
                 idleGapThresholdMinutes: rule.maxIdleGapMinutes,
                 dailyVisitTarget: rule.dailyVisitTarget,
+                meetingLogSlaHours: rule.meetingLogSlaHours != null ? Number(rule.meetingLogSlaHours) : updated[code].meetingLogSlaHours,
                 workingHoursStart: rule.workingHoursStart?.slice(0, 5) || updated[code].workingHoursStart,
                 workingHoursEnd: rule.workingHoursEnd?.slice(0, 5) || updated[code].workingHoursEnd,
                 attendanceGraceMinutes: rule.shiftGraceMinutes,
@@ -234,7 +239,7 @@ export const MarketConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 version: r.versionTag,
                 effectiveDate: r.effectiveFrom?.slice(0, 10) || '2026-09-01',
                 approvedBy: 'HQ Administrator (HQ Admin)',
-                changeSummary: `Operational threshold version: ${r.geofenceRadiusM}m geofence, ${r.maxVisitGpsAccuracyM}m GPS limit, ${r.dailyVisitTarget} daily visit target.`,
+                changeSummary: `Operational threshold version: ${r.geofenceRadiusM}m geofence, ${r.maxVisitGpsAccuracyM}m GPS limit, ${r.dailyVisitTarget} daily visit target, ${r.meetingLogSlaHours ?? 2}h log SLA.`,
               }));
             }
           }
@@ -336,6 +341,7 @@ export const MarketConfigProvider: React.FC<{ children: React.ReactNode }> = ({ 
         minVisitDurationSeconds: (updates.minVisitDurationMinutes ?? current.minVisitDurationMinutes) * 60,
         maxIdleGapMinutes: updates.idleGapThresholdMinutes ?? current.idleGapThresholdMinutes,
         dailyVisitTarget: updates.dailyVisitTarget ?? current.dailyVisitTarget,
+        meetingLogSlaHours: updates.meetingLogSlaHours ?? current.meetingLogSlaHours,
         shiftGraceMinutes: updates.attendanceGraceMinutes ?? current.attendanceGraceMinutes,
         workingHoursStart: updates.workingHoursStart ?? current.workingHoursStart,
         workingHoursEnd: updates.workingHoursEnd ?? current.workingHoursEnd,

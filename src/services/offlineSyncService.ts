@@ -995,6 +995,8 @@ export const offlineSyncService = {
     longitude?: number | null;
     accuracy?: number | null;
     meetingLogDeferred: boolean;
+    geofenceRadiusM?: number;
+    logSlaHours?: number;
     capturedAt?: string;
   }): Promise<{
     event: OfflineJournalEvent | null;
@@ -1016,6 +1018,8 @@ export const offlineSyncService = {
       longitude,
       accuracy,
       meetingLogDeferred,
+      geofenceRadiusM = 200,
+      logSlaHours = 2,
       capturedAt,
     } = params;
 
@@ -1089,8 +1093,8 @@ export const offlineSyncService = {
       // Remains pending_sync until server confirms!
       verificationStatus: 'pending_sync' as const,
       meetingLogSubmitted: !meetingLogDeferred,
-      meetingLogDeferredUntil: meetingLogDeferred ? 'Within 2h SLA (Offline Queue)' : 'Queued on Device',
-      flagRaised: outsideGeofence ? 'Checkout Outside Geofence (>200m)' : undefined,
+      meetingLogDeferredUntil: meetingLogDeferred ? `Within ${logSlaHours}h SLA (Offline Queue)` : 'Queued on Device',
+      flagRaised: outsideGeofence ? `Checkout Outside Geofence (>${geofenceRadiusM}m)` : undefined,
       capturedOffline: true,
     };
 

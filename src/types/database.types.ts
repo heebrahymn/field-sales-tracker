@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -1184,6 +1184,7 @@ export type Database = {
           max_idle_gap_minutes: number
           max_pin_gps_accuracy_m: number
           max_visit_gps_accuracy_m: number
+          meeting_log_sla_hours: number
           min_visit_duration_seconds: number
           shift_grace_minutes: number
           version_tag: string
@@ -1204,6 +1205,7 @@ export type Database = {
           max_idle_gap_minutes?: number
           max_pin_gps_accuracy_m?: number
           max_visit_gps_accuracy_m?: number
+          meeting_log_sla_hours?: number
           min_visit_duration_seconds?: number
           shift_grace_minutes?: number
           version_tag: string
@@ -1224,6 +1226,7 @@ export type Database = {
           max_idle_gap_minutes?: number
           max_pin_gps_accuracy_m?: number
           max_visit_gps_accuracy_m?: number
+          meeting_log_sla_hours?: number
           min_visit_duration_seconds?: number
           shift_grace_minutes?: number
           version_tag?: string
