@@ -396,7 +396,7 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
           <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
             Field Actions (Context-Aware)
           </h3>
-          <span className="text-[10px] text-slate-500 font-medium">AT-04 Rule Enforced</span>
+          <span className="text-[10px] text-slate-500 font-medium">Single Active Visit Limit</span>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -473,7 +473,7 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
               activeVisit ? 'text-blue-900 font-semibold' : 'text-blue-100'
             }`}>
               {activeVisit
-                ? '1 in progress (AT-04 single visit)'
+                ? '1 visit in progress'
                 : 'Check-in & photo'}
             </span>
           </button>

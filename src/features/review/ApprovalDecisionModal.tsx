@@ -247,7 +247,7 @@ export const ApprovalDecisionModal: React.FC<ApprovalDecisionModalProps> = ({
               </p>
             ) : (
               <p className="text-[10px] text-slate-500">
-                This rationale is permanently recorded in the append-only `approval_audit` table.
+                This rationale is permanently recorded in the immutable approval audit log.
               </p>
             )}
           </div>

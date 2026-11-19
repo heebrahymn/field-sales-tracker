@@ -128,7 +128,7 @@ export const INITIAL_RULE_HISTORY: Record<MarketCode, RuleVersionHistoryItem[]> 
       version: 'v1.2-canonical',
       effectiveDate: '2026-09-01',
       approvedBy: 'HQ Administrator (HQ Admin)',
-      changeSummary: 'Canonical MVP baseline: 200m geofence, 100m GPS visit accuracy, 50m pin proposing limit, 150m idle flag threshold.',
+      changeSummary: 'Standard operational baseline: 200m geofence, 100m GPS visit accuracy, 50m pin proposing limit, 150m idle flag threshold.',
     },
     {
       version: 'v1.1-clarified',

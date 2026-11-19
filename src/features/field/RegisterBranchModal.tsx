@@ -1043,7 +1043,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
               ) : (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  <span>{isProposePinMode ? 'Submit Physical Pin Proposal (Stage 3E Queue)' : 'Submit Client Location for Approval'}</span>
+                  <span>{isProposePinMode ? 'Submit Physical Pin Proposal' : 'Submit Client Location for Approval'}</span>
                 </>
               )}
             </Button>

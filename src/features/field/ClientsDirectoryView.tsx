@@ -343,7 +343,7 @@ export const ClientsDirectoryView: React.FC<ClientsDirectoryViewProps> = ({ onSt
                   ) : activeVisit ? (
                     <div className="w-full bg-slate-100 text-slate-500 font-bold text-xs p-2.5 rounded-lg text-center flex items-center justify-center gap-1.5 cursor-not-allowed">
                       <Lock className="w-3.5 h-3.5 text-slate-400" />
-                      Visit Blocked: Close active visit at {activeVisit.branchName.slice(0, 18)}... first (AT-04)
+                      Visit Blocked: Close active visit at {activeVisit.branchName.slice(0, 18)}... first
                     </div>
                   ) : branch.status === 'pending_approval' ? (
                     <Button

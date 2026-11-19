@@ -449,7 +449,7 @@ export const HqClientMasterImport: React.FC = () => {
         <div className="p-3.5 rounded-xl bg-blue-50/80 border border-blue-200 text-slate-800 text-xs flex items-start gap-3">
           <MapPin className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
           <div className="space-y-1 leading-relaxed">
-            <span className="font-bold text-brand-blue">Missing Coordinates $\to$ "Location Pending" Status</span>
+            <span className="font-bold text-brand-blue">Missing Coordinates → &quot;Location Pending&quot; Status</span>
             <p className="text-slate-600">
               Clients imported without GPS coordinates are assigned status <strong>Location Pending</strong>.
               They can be scheduled for visits, but cannot count as <em>Location Verified</em> until a salesperson proposes physical GPS coordinates and the Sales Head approves the pin.

@@ -833,7 +833,7 @@ export const offlineSyncService = {
       return {
         event: null,
         provisionalVisit: null,
-        error: new Error('Cannot start a new visit while an active visit is in progress (AT-04).'),
+        error: new Error('Cannot start a new visit while an active visit is in progress.'),
       };
     }
 
@@ -1346,7 +1346,7 @@ export const offlineSyncService = {
           event: null,
           provisionalAttendance: null,
           error: new Error(
-            `Cannot end workday: Queued visit (${vId.substring(0, 8)}) has no checkout event (AT-03).`
+            `Cannot end workday: Queued visit (${vId.substring(0, 8)}) has no checkout event.`
           ),
         };
       }

@@ -1172,7 +1172,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     }
   ): Promise<boolean | void> => {
     if (activeVisit) {
-      notify('Cannot start a new visit while a visit is in progress (AT-04).');
+      notify('Cannot start a new visit while a visit is already in progress.');
       return false;
     }
 

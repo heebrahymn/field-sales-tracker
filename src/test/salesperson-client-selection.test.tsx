@@ -346,8 +346,9 @@ describe('Salesperson Client Selection & Add Client Improvements (Changes 1 - 7)
 
       fireEvent.click(screen.getByText('Sahara Cold Storage Hub'));
 
-      // Location details display Pending Approval badge and warning
+      // Location details display Pending Approval badge and warning without internal spec citations
       expect(screen.getByText(/Pending Manager Approval/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Stage 3E|Governance Queue|\bPRD\b|\bAT-04\b|\bMVP\b/i)).toBeNull();
 
       // Check-in button is explicitly blocked
       const blockedBtn = screen.getByRole('button', { name: /Check-In Blocked: Location Pending Approval/i });

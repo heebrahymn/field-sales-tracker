@@ -378,7 +378,7 @@ export const CountryReportingView: React.FC<CountryReportingViewProps> = ({ mark
               Operational Reporting &amp; Audit Analytics
             </h3>
             <p className="text-slate-700 font-medium mt-0.5">
-              Multi-dimensional reporting across attendance, physical GPS visits, exception rates, unique branches, and offline sync. Strict MVP scope:{' '}
+              Multi-dimensional reporting across attendance, physical GPS visits, exception rates, unique branches, and offline sync. Operational scope:{' '}
               <span className="font-bold text-slate-900">no commercial sales pipelines, orders, or quotation metrics</span>.
             </p>
           </div>

@@ -291,7 +291,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
             <div className="flex justify-between items-center">
               <span className="text-slate-500 font-medium">Hardware Attestation:</span>
               <span className="text-slate-500 text-[11px] italic">
-                {hasAssignedDevice ? 'Future Knox MDM (Unattested in MVP)' : 'Pending handset assignment'}
+                {hasAssignedDevice ? 'Standard Device Session (MDM Pending)' : 'Pending handset assignment'}
               </span>
             </div>
             <div className="flex justify-between items-center">

@@ -256,7 +256,7 @@ export const HqOperationsDashboard: React.FC<HqOperationsDashboardProps> = ({
             <h2 className="font-bold text-white text-base flex items-center gap-2">
               <span>HQ Regional Administration &amp; Multi-Country Oversight</span>
               <span className="text-[10px] font-mono bg-blue-900 text-blue-200 px-2 py-0.5 rounded border border-blue-700">
-                Rule v1.2-canonical
+                Active Market Ruleset
               </span>
             </h2>
             <p className="text-slate-300 mt-0.5 font-medium">

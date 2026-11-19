@@ -1063,7 +1063,19 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                           <div className="flex items-start gap-2">
                             <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                             <div className="text-[11px] leading-tight">
-                              <strong className="font-bold">Pending Manager Approval:</strong> This location&apos;s proposed GPS pin is awaiting Country Sales Head approval (Stage 3E Governance Queue). Per company policy, normal verified check-in cannot proceed until approved.
+                              {isPinRejected ? (
+                                <>
+                                  <strong className="font-bold">Location Pin Rejected:</strong> This location&apos;s proposed GPS pin was rejected. Propose an updated physical GPS pin or log your meeting as an exception.
+                                </>
+                              ) : isPendingApproval ? (
+                                <>
+                                  <strong className="font-bold">Pending Manager Approval:</strong> This location&apos;s proposed GPS pin is awaiting Country Sales Head approval. Standard verified check-in cannot proceed until approved.
+                                </>
+                              ) : (
+                                <>
+                                  <strong className="font-bold">GPS Pin Approval Required:</strong> This location does not have an approved GPS pin yet. Propose a physical GPS pin for Country Sales Head approval or record your meeting as an exception.
+                                </>
+                              )}
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 pl-6">

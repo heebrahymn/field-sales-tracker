@@ -114,7 +114,7 @@ export const HqMarketConfiguration: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <span className="text-[11px] bg-slate-800 border border-slate-700 px-3 py-1 rounded-md text-slate-200 font-mono font-semibold">
-            Canonical Version: v1.2
+            Active Market Ruleset
           </span>
         </div>
       </div>

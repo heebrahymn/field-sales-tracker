@@ -1225,7 +1225,7 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
                     </div>
                   )}
                   <p className="text-[10px] text-slate-600 pt-1 border-t border-blue-200/70">
-                    Start Day GPS coordinates, live selfie capture, and field handset battery telemetry are not required for authorized non-visit workdays or approved leave (PRD §6.2).
+                    Start Day GPS coordinates, live selfie capture, and field handset battery telemetry are not required for authorized non-visit workdays or approved leave.
                   </p>
                 </div>
               ) : (
