@@ -66,9 +66,26 @@ describe('Exception Picture Evidence & New Client Approval Delay Label', () => {
     }
   });
 
-  it('CreateExceptionModal replaces 3rd option with New Client Approval Delay and attaches picture evidence to submitException', async () => {
+  it('CreateExceptionModal replaces 3rd option with New Client Approval Delay, removes Upload Image, requires Snap Photo except camera_failure, and attaches captured photo', async () => {
     const submitExceptionMock = vi.fn().mockResolvedValue(undefined);
     const onCloseMock = vi.fn();
+
+    const stopTrackMock = vi.fn();
+    const fakeStream = { getTracks: () => [{ stop: stopTrackMock }] } as unknown as MediaStream;
+    const getUserMediaMock = vi.fn().mockResolvedValue(fakeStream);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: getUserMediaMock },
+    });
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      translate: vi.fn(),
+      scale: vi.fn(),
+      drawImage: vi.fn(),
+    } as any);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((cb) => {
+      cb(new Blob(['mock-camera-image-bytes'], { type: 'image/jpeg' }));
+    });
 
     const { container } = render(
       <AuthContext.Provider value={{ currentUser: mockRepUser as any, isAuthenticated: true } as any}>
@@ -87,26 +104,42 @@ describe('Exception Picture Evidence & New Client Approval Delay Label', () => {
     expect(screen.queryByText(/Device Depletion \/ Post-Recovery Submission/i)).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'New Client Approval Delay' })).toBeInTheDocument();
 
+    // Upload Image option and file input are completely removed
+    expect(screen.queryByRole('button', { name: /Upload Image/i })).not.toBeInTheDocument();
+    expect(container.querySelector('#exception-evidence-file-input')).toBeNull();
+    expect(screen.queryByText(/Supporting Evidence Available/i)).not.toBeInTheDocument();
+
+    // Picture Evidence is required for non-camera exceptions
+    expect(screen.getByText(/Live Camera Required/i)).toBeInTheDocument();
+    const submitBtn = screen.getByRole('button', { name: /Submit Exception Claim/i });
+    expect(submitBtn).toBeDisabled();
+
+    // Camera Hardware / Capture Failure allows submission without a live camera photo
+    fireEvent.change(categorySelect, { target: { value: 'camera_failure' } });
+    expect(screen.getByText(/Picture Evidence \(Optional for Camera Failure\)/i)).toBeInTheDocument();
+    expect(submitBtn).toBeEnabled();
+
+    // Switch back to New Client Approval Delay -> requires Snap Photo again
     fireEvent.change(categorySelect, { target: { value: 'device_breakdown' } });
     expect((categorySelect as HTMLSelectElement).value).toBe('device_breakdown');
+    expect(submitBtn).toBeDisabled();
 
-    // Attach picture evidence via file upload input
-    expect(screen.queryByText(/Supporting Evidence Available/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/Picture Evidence \(Optional\)/i)).toBeInTheDocument();
-    const uploadInput = container.querySelector('#exception-evidence-file-input') as HTMLInputElement;
-    expect(uploadInput).toBeTruthy();
-    const mockFile = new File(['mock-image-bytes'], 'client-gate-evidence.jpg', { type: 'image/jpeg' });
-    fireEvent.change(uploadInput, { target: { files: [mockFile] } });
+    // Snap Photo via live camera
+    fireEvent.click(screen.getByRole('button', { name: /Snap Photo/i }));
+    await waitFor(() => expect(getUserMediaMock).toHaveBeenCalledTimes(1));
+    const captureBtn = await screen.findByRole('button', { name: /Capture Photo/i });
+    fireEvent.click(captureBtn);
 
-    // Thumbnail preview renders and opens full-view lightbox on click
+    // Thumbnail preview renders and opens full-view lightbox on click (no Change upload button)
     const thumbImg = await screen.findByAltText('Exception Evidence Preview');
     expect(thumbImg).toHaveAttribute('src', 'blob:mock-preview-url');
+    expect(screen.queryByRole('button', { name: /^Change$/i })).not.toBeInTheDocument();
     fireEvent.click(thumbImg);
     expect(await screen.findByRole('dialog', { name: /Exception Evidence — 19 Ademola Hopewell/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Close full photo view/i }));
 
-    // Fill required fields and submit
-    const submitBtn = screen.getByRole('button', { name: /Submit Exception Claim/i });
+    // Submit is now enabled and passes captured File
+    expect(submitBtn).toBeEnabled();
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
@@ -116,7 +149,7 @@ describe('Exception Picture Evidence & New Client Approval Delay Label', () => {
     const submittedArg = submitExceptionMock.mock.calls[0][0];
     expect(submittedArg.type).toBe('device_breakdown');
     expect(submittedArg.title).toBe('New Client Approval Delay');
-    expect(submittedArg.evidencePhotoBlob).toBe(mockFile);
+    expect(submittedArg.evidencePhotoBlob).toBeInstanceOf(File);
     expect(onCloseMock).toHaveBeenCalled();
   });
 

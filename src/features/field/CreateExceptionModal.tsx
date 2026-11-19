@@ -12,7 +12,6 @@ import {
   Building2,
   AlertTriangle,
   Camera,
-  Upload,
   CheckCircle2,
   Eye,
   Loader2,
@@ -73,10 +72,10 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const isPhotoRequired = type !== 'camera_failure';
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const fileUploadInputRef = useRef<HTMLInputElement>(null);
 
   const stopCamera = () => {
     if (mediaStreamRef.current) {
@@ -99,7 +98,6 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
     setEvidencePhotoPreviewUrl(null);
     setEvidencePhotoError(null);
     setCameraError(null);
-    if (fileUploadInputRef.current) fileUploadInputRef.current.value = '';
   };
 
   useEffect(() => {
@@ -259,28 +257,14 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
     }
   };
 
-  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setEvidencePhotoError('Please upload an image file (JPEG, PNG, or WebP).');
-      return;
-    }
-    if (file.size > 15 * 1024 * 1024) {
-      setEvidencePhotoError('Picture evidence exceeds the 15 MB file limit.');
-      return;
-    }
-
-    attachPhotoFile(file);
-  };
-
   const startCamera = async (mode: 'environment' | 'user' = facingMode) => {
     setCameraError(null);
     setEvidencePhotoError(null);
 
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      setCameraError('Live camera access is unavailable in this browser. Please allow camera permissions or use Upload Image.');
+      setCameraError(
+        'Live camera access is unavailable in this browser. Please allow camera permissions or select Camera Hardware / Capture Failure if camera hardware failed.'
+      );
       return;
     }
 
@@ -312,11 +296,13 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
       console.warn('[CreateExceptionModal] Camera start failed:', err);
       const name = err?.name || '';
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        setCameraError('Camera permission denied. Please enable camera access in browser settings or use Upload Image.');
+        setCameraError('Camera permission denied. Please enable camera access in browser settings and retry.');
       } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-        setCameraError('No active camera detected on this device. Use Upload Image to attach an existing picture.');
+        setCameraError(
+          'No active camera detected on this device. Select Camera Hardware / Capture Failure if your device camera failed.'
+        );
       } else {
-        setCameraError(err?.message || 'Unable to open device camera. Please retry or use Upload Image.');
+        setCameraError(err?.message || 'Unable to open device camera. Please click Retry Camera.');
       }
       setIsCameraActive(false);
     }
@@ -331,7 +317,7 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
   const handleCaptureCameraPhoto = () => {
     const video = videoRef.current;
     if (!video || !mediaStreamRef.current) {
-      setCameraError('Camera stream is not ready. Please click Retry or use Upload Image.');
+      setCameraError('Camera stream is not ready. Please click Retry Camera.');
       return;
     }
 
@@ -375,6 +361,11 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
+
+    if (isPhotoRequired && !evidencePhotoBlob) {
+      setEvidencePhotoError('Live picture evidence via Snap Photo is required before submitting.');
+      return;
+    }
 
     let title = 'GPS Signal Failure Exception';
     if (type === 'camera_failure') title = 'Camera Hardware / Capture Failure';
@@ -451,7 +442,10 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
             </label>
             <select
               value={type}
-              onChange={(e) => setType(e.target.value as any)}
+              onChange={(e) => {
+                setType(e.target.value as any);
+                setEvidencePhotoError(null);
+              }}
               className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-brand-blue focus:outline-none"
             >
               <option value="gps_failure">GPS Signal Failure (Basement / Multipath / Obstruction)</option>
@@ -702,26 +696,23 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
             />
           </div>
 
-          {/* Picture Evidence Camera Capture / File Upload */}
+          {/* Picture Evidence Live Camera Capture */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <span className="font-bold text-slate-900 flex items-center gap-1.5">
                 <Camera className="w-3.5 h-3.5 text-brand-blue shrink-0" />
-                Picture Evidence (Optional)
+                {isPhotoRequired ? (
+                  <>
+                    Picture Evidence <span className="text-red-500">*</span>
+                  </>
+                ) : (
+                  'Picture Evidence (Optional for Camera Failure)'
+                )}
               </span>
               <span className="text-[10px] text-slate-500 font-medium">
-                JPEG, PNG or WebP (Max 15 MB)
+                {isPhotoRequired ? 'Live Camera Required • Max 15 MB' : 'Live Camera Only • Max 15 MB'}
               </span>
             </div>
-
-            <input
-              ref={fileUploadInputRef}
-              id="exception-evidence-file-input"
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/*"
-              onChange={handlePhotoFileChange}
-              className="hidden"
-            />
 
             {isCameraActive ? (
               <div className="relative rounded-xl overflow-hidden bg-slate-950 aspect-4/3 border-2 border-brand-blue shadow-inner flex flex-col items-center justify-center">
@@ -819,15 +810,6 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fileUploadInputRef.current?.click()}
-                    className="text-[10px] h-7 px-2 font-semibold text-slate-700 bg-white"
-                  >
-                    Change
-                  </Button>
-                  <Button
-                    type="button"
                     variant="ghost"
                     size="sm"
                     onClick={clearAttachedPhoto}
@@ -842,7 +824,9 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
                 <div className="text-[11px] text-slate-600">
                   <p className="font-semibold text-slate-900">Attach gate pass, signage or visitor book photo</p>
                   <p className="text-[10px] text-slate-500">
-                    Snap a live photo with camera or upload an existing image for Country Sales Head review.
+                    {isPhotoRequired
+                      ? 'Required: snap a live photo with camera for Country Sales Head review.'
+                      : 'Snap a live photo with camera if available for Country Sales Head review.'}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -852,21 +836,10 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
                     variant="outline"
                     size="sm"
                     onClick={() => startCamera('environment')}
-                    className="text-[11px] h-8 px-2.5 font-bold border-brand-blue text-brand-blue hover:bg-blue-50 flex items-center gap-1"
+                    className="text-[11px] h-8 px-3 font-bold border-brand-blue text-brand-blue hover:bg-blue-50 flex items-center gap-1.5"
                   >
                     <Camera className="w-3.5 h-3.5" />
                     <span>Snap Photo</span>
-                  </Button>
-                  <Button
-                    id="btn-upload-exception-photo"
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fileUploadInputRef.current?.click()}
-                    className="text-[11px] h-8 px-2.5 font-bold border-slate-300 text-slate-800 hover:bg-slate-100 flex items-center gap-1"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Upload Image</span>
                   </Button>
                 </div>
               </div>
@@ -924,8 +897,8 @@ export const CreateExceptionModal: React.FC<CreateExceptionModalProps> = ({
             <Button
               id="btn-submit-exception-claim"
               type="submit"
-              disabled={isSubmitting}
-              className="text-xs h-11 px-5 font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center gap-1.5"
+              disabled={isSubmitting || !reason.trim() || (isPhotoRequired && !evidencePhotoBlob)}
+              className="text-xs h-11 px-5 font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
