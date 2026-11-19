@@ -224,6 +224,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
             id,
             is_current,
             assigned_at,
+            returned_at,
             devices (
               id,
               make,
@@ -239,14 +240,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
           .eq('is_current', true)
           .maybeSingle();
 
-        if (assignmentData && assignmentData.devices) {
-          const dev = assignmentData.devices;
+        const dev = assignmentData && !(assignmentData as any).returned_at ? assignmentData.devices : null;
+        const inactiveDepotStatuses = ['available', 'returned', 'retired', 'revoked', 'lost_stolen'];
+        if (dev && !inactiveDepotStatuses.includes((dev.inventory_status || '').toLowerCase())) {
           assignedDevice = {
             deviceId: dev.id,
             assetTag: dev.asset_tag || dev.asset_id || 'CAR-UNKNOWN',
             model: `${dev.make || ''} ${dev.model || ''}`.trim() || 'Company Handset',
             make: dev.make || 'Samsung',
-            status: dev.inventory_status === 'active' ? 'approved' : 'pending',
+            status: dev.inventory_status === 'active' || dev.inventory_status === 'assigned' ? 'approved' : 'pending',
             securityAuthorization: dev.security_authorization || 'authorized',
             batteryHealth: (dev as any).battery_health ?? 95,
           };

@@ -4,6 +4,7 @@ import { BrandLogo } from '@/components/brand/BrandLogo';
 import { supabase } from '@/lib/supabase';
 import { managementService } from '@/services/managementService';
 import { attendanceService } from '@/services/attendanceService';
+import { BADGE_COUNTS_CHANGED_EVENT, isClientAuditActionRequired } from '@/utils/badgeSync';
 import {
   LayoutDashboard,
   CheckCircle2,
@@ -64,34 +65,45 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     async function loadCounts() {
       try {
         if (currentUser.role === 'hq_admin') {
-          const [{ count: excCount }, { count: devCount }, { count: pendingPinsCount }] = await Promise.all([
+          const [
+            { count: excCount },
+            { count: devCount },
+            { count: pendingPinsCount },
+            { count: auditCount },
+          ] = await Promise.all([
             supabase.from('exceptions').select('id', { count: 'exact', head: true }).eq('status', 'pending_review'),
             supabase.from('device_replacement_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending_review'),
             supabase.from('branches').select('id', { count: 'exact', head: true }).eq('operating_status', 'pending_approval'),
+            supabase.from('client_audit_records').select('id', { count: 'exact', head: true }).eq('dispute_status', 'under_investigation'),
           ]);
           if (active) {
             setLiveBadges({
               exceptions: excCount ?? 0,
               devices: devCount ?? 0,
               clients: pendingPinsCount ?? 0,
+              audits: auditCount ?? 0,
             });
           }
         } else {
           const market = currentUser.marketCode || 'NG';
-          const [vRes, pPins, excs, flags, absReqs] = await Promise.all([
-            managementService.getCountryVisits(market),
-            managementService.getCountryPendingPins(market),
-            managementService.getCountryExceptions(market, 'pending_review'),
-            managementService.getCountryVerificationFlags(market, 'open'),
-            attendanceService.getPendingNonVisitRequests(market),
+          const [vRes, pPins, excs, flags, absReqs, auditsRes] = await Promise.all([
+            managementService.getCountryVisits?.(market) ?? Promise.resolve({ data: [], error: null }),
+            managementService.getCountryPendingPins?.(market) ?? Promise.resolve([]),
+            managementService.getCountryExceptions?.(market, 'pending_review') ?? Promise.resolve({ data: [], error: null }),
+            managementService.getCountryVerificationFlags?.(market, 'open') ?? Promise.resolve({ data: [], error: null }),
+            attendanceService.getPendingNonVisitRequests?.(market) ?? Promise.resolve({ data: [], error: null }),
+            managementService.getClientAuditRecords?.(market) ?? Promise.resolve({ data: [], error: null }),
           ]);
           if (active) {
+            const pinsCount = Array.isArray(pPins) ? pPins.length : ((pPins as any)?.data?.length ?? 0);
+            const auditsCount = (auditsRes?.data || []).filter(isClientAuditActionRequired).length;
             setLiveBadges({
-              visits: vRes.data?.length ?? 0,
-              approvals: pPins.length ?? 0,
-              exceptions: excs.data?.length ?? 0,
-              flags: flags.data?.length ?? 0,
-              attendance: absReqs.data?.length ?? 0,
+              visits: vRes?.data?.length ?? 0,
+              approvals: pinsCount,
+              exceptions: excs?.data?.length ?? 0,
+              flags: flags?.data?.length ?? 0,
+              audits: auditsCount,
+              attendance: absReqs?.data?.length ?? 0,
             });
           }
         }
@@ -99,11 +111,23 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         console.warn('[DesktopSidebar] Failed to load live counts:', err);
       }
     }
+
     loadCounts();
+
+    const handleRefreshEvent = () => {
+      loadCounts();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(BADGE_COUNTS_CHANGED_EVENT, handleRefreshEvent);
+    }
+
     return () => {
       active = false;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(BADGE_COUNTS_CHANGED_EVENT, handleRefreshEvent);
+      }
     };
-  }, [currentUser.role, currentUser.marketCode]);
+  }, [currentUser.role, currentUser.marketCode, activeSection]);
 
   const navItems = isHQ
     ? [

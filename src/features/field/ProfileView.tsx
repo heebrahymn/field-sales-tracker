@@ -67,9 +67,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
     }
   };
 
-  const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'CC-DEV-LOS-001';
+  const hasAssignedDevice = Boolean(currentUser.assignedDevice?.assetTag);
+  const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'Unassigned Handset';
   const assignedDeviceModel =
-    currentUser.assignedDevice?.model || 'Samsung Galaxy A15 Enterprise';
+    currentUser.assignedDevice?.model || 'None assigned';
 
   // Get requests for current salesperson or requests matching current user employee ID / ID
   const myRequests = replacementRequests.filter(
@@ -198,9 +199,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
           <span className="text-xs font-mono font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
             {currentUser.employeeId}
           </span>
-          <span className="text-[10px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
-            <ShieldCheck className="w-3 h-3 text-emerald-600" /> Knox Protected
-          </span>
+          {hasAssignedDevice ? (
+            <span className="text-[10px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-emerald-600" /> Knox Protected
+            </span>
+          ) : (
+            <span className="text-[10px] text-amber-700 font-semibold mt-1 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3 text-amber-600" /> Unassigned Handset
+            </span>
+          )}
         </div>
       </div>
 
@@ -231,11 +238,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
       </Card>
 
       {/* SECTION: My Assigned Company Device */}
-      <Card className="border-slate-200 shadow-xs">
+      <Card className={cn('shadow-xs', hasAssignedDevice ? 'border-slate-200' : 'border-amber-300')}>
         <CardHeader className="pb-2 p-4 border-b border-slate-100">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center">
+              <div
+                className={cn(
+                  'w-7 h-7 rounded-lg flex items-center justify-center',
+                  hasAssignedDevice ? 'bg-blue-50 text-brand-blue' : 'bg-amber-50 text-amber-700'
+                )}
+              >
                 <Smartphone className="w-4 h-4" />
               </div>
               <div>
@@ -245,9 +257,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
                 <p className="text-[11px] text-slate-500">100% Company-Provided Field Tool</p>
               </div>
             </div>
-            <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
-              <CheckCircle2 className="w-2.5 h-2.5" /> Active Custody
-            </span>
+            {hasAssignedDevice ? (
+              <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <CheckCircle2 className="w-2.5 h-2.5" /> Active Custody
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <AlertTriangle className="w-2.5 h-2.5" /> Unassigned Handset
+              </span>
+            )}
           </div>
         </CardHeader>
         <CardContent className="p-4 space-y-3.5">
@@ -255,7 +273,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
           <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
             <div className="flex justify-between items-center">
               <span className="text-slate-500 font-medium">Assigned Asset ID:</span>
-              <span className="font-mono font-bold text-slate-900">{assignedDeviceTag}</span>
+              <span className={cn('font-mono font-bold', hasAssignedDevice ? 'text-slate-900' : 'text-amber-800')}>
+                {assignedDeviceTag}
+              </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-500 font-medium">Device Model:</span>
@@ -264,31 +284,45 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onNavigateTab }) => {
             <div className="flex justify-between items-center">
               <span className="text-slate-500 font-medium">Inventory Assignment:</span>
               <span className="text-slate-800 font-semibold flex items-center gap-1">
-                <Smartphone className="w-3 h-3 text-brand-blue" /> HQ Database Assigned
+                <Smartphone className={cn('w-3 h-3', hasAssignedDevice ? 'text-brand-blue' : 'text-amber-600')} />{' '}
+                {hasAssignedDevice ? 'HQ Database Assigned' : 'Not Yet Assigned (Contact HQ Admin)'}
               </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-500 font-medium">Hardware Attestation:</span>
               <span className="text-slate-500 text-[11px] italic">
-                Future Knox MDM (Unattested in MVP)
+                {hasAssignedDevice ? 'Future Knox MDM (Unattested in MVP)' : 'Pending handset assignment'}
               </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-slate-500 font-medium">Battery Status:</span>
-              <span className={cn("font-semibold flex items-center gap-1", liveBattery?.statusColor || "text-emerald-700")}>
-                <BatteryCharging className="w-3.5 h-3.5" />
-                {liveBattery
-                  ? `${liveBattery.level}% (${liveBattery.charging ? 'Charging' : liveBattery.statusLabel})`
-                  : `${currentUser?.assignedDevice?.batteryHealth ?? 95}% (Healthy)`}
-              </span>
+              {hasAssignedDevice ? (
+                <span className={cn("font-semibold flex items-center gap-1", liveBattery?.statusColor || "text-emerald-700")}>
+                  <BatteryCharging className="w-3.5 h-3.5" />
+                  {liveBattery
+                    ? `${liveBattery.level}% (${liveBattery.charging ? 'Charging' : liveBattery.statusLabel})`
+                    : `${currentUser?.assignedDevice?.batteryHealth ?? 95}% (Healthy)`}
+                </span>
+              ) : (
+                <span className="text-slate-500 text-[11px] italic">
+                  Unavailable (No handset assigned)
+                </span>
+              )}
             </div>
           </div>
+
+          {!hasAssignedDevice && (
+            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 leading-relaxed">
+              No company handset is currently assigned to your account. Contact HQ Administrator to issue your field device before logging attendance or hardware issues.
+            </div>
+          )}
 
           {/* Primary Action: Report Device Issue */}
           <div className="space-y-1.5 pt-1">
             <Button
+              disabled={!hasAssignedDevice}
               onClick={() => setIsReportModalOpen(true)}
-              className="w-full h-11 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-2"
+              className="w-full h-11 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-500 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-2"
             >
               <AlertTriangle className="w-4 h-4" />
               Report Device Issue (Request Replacement)

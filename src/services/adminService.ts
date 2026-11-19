@@ -483,8 +483,12 @@ export const adminService = {
 
       const records: HqUserRecord[] = (data || []).map((row: any) => {
         const assignments = row['device_assignments!device_assignments_salesperson_id_fkey'] || row.device_assignments || [];
-        const activeAssignment = assignments.find((a: any) => a.is_current || a.returned_at === null) || assignments[0];
-        const dev = activeAssignment?.devices;
+        const activeAssignment = assignments.find((a: any) => Boolean(a.is_current) && !a.returned_at);
+        const rawDev = activeAssignment?.devices;
+        const dev =
+          rawDev && rawDev.inventory_status !== 'available' && rawDev.inventory_status !== 'returned'
+            ? rawDev
+            : null;
 
         return {
           id: row.id,
@@ -951,7 +955,11 @@ export const adminService = {
 
       const records: HqDeviceRecord[] = (data || []).map((row: any) => {
         const assignments = row.device_assignments || [];
-        const activeAssignment = assignments.find((a: any) => a.is_current || a.returned_at === null);
+        const isDepotStatus =
+          row.inventory_status === 'available' || row.inventory_status === 'returned';
+        const activeAssignment = !isDepotStatus
+          ? assignments.find((a: any) => Boolean(a.is_current) && !a.returned_at)
+          : null;
 
         return {
           id: row.id,

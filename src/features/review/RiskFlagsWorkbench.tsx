@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { managementService, RealVerificationFlag } from '@/services/managementService';
+import { emitBadgeCountsChanged } from '@/utils/badgeSync';
 import {
   AlertTriangle,
   Gauge,
@@ -180,6 +181,7 @@ export const RiskFlagsWorkbench: React.FC = () => {
         });
         if (error) throw error;
         await loadRealFlags();
+        emitBadgeCountsChanged();
       } catch (err: any) {
         setToastMessage(`Failed to review flag: ${err.message}`);
         return;
@@ -284,7 +286,10 @@ export const RiskFlagsWorkbench: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={loadRealFlags}
+            onClick={async () => {
+              await loadRealFlags();
+              emitBadgeCountsChanged();
+            }}
             disabled={isLoadingReal}
             className="h-8 text-xs font-semibold gap-1.5 bg-white border-rose-300 text-rose-800"
           >

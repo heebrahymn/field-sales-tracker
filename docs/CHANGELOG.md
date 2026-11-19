@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [Release Candidate 1.0.2 - Field & Country Sales Head UX Polish, Attendance Date Scoping & Camera Streamlining] (2026-11-18)
+## [Release Candidate 1.0.2 - Field & Country Sales Head UX Polish, Attendance Date Scoping, Badge Sync & Device Custody Integrity] (2026-11-19)
 
 ### Full Photo Lightbox & Review UI Polish
 - **Shared Full-Photo Lightbox (`src/components/ui/photo-lightbox-modal.tsx`):** Added shared uncropped `PhotoLightboxModal` (`object-contain`, keyboard `Escape` and backdrop dismissal) and integrated it across Country Sales Head and HQ Admin image inspection views (`ClientVisitVerification.tsx`, `BranchApprovalsQueue.tsx`, `ApprovalDecisionModal.tsx`, `TeamAttendanceReview.tsx`, `ClientsLocationsDirectory.tsx`, and `HqClientDirectory.tsx`).
@@ -29,9 +29,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Single Active-Visit Checkout CTA (`VisitWorkflowView.tsx`):** Removed duplicate in-card `Check Out & Document Visit` and `Draft Meeting Log` buttons from the active visit card, leaving full-width `Report Disruption` inside the card and `#sticky-btn-checkout` in the sticky footer, plus clean line separation for `Live Photo Attached`.
 - **Meeting Log Next Step Cleanliness (`MeetingLogModal.tsx`, `ClientVisitVerification.tsx`):** Removed `(Free Text Only)` / `(Free Text)` from `Next Step Description` and `Agreed Next Step:` labels and cleared the pre-filled default Next Step text (`useState('')`) in `MeetingLogModal.tsx` with `.trim()` submit validation.
 
+### Country Sales Head Badge Accuracy & Cross-Tab Synchronisation
+- **Untruncated Market Queries & Paginated Fetches:** Updated [managementService.ts](src/services/managementService.ts) with `fetchAllPaginatedRows` (1,000-row `.range()` pages) across `getCountryVisits` (removing the implicit `50`-row default limit), `exportCountryCsv` (removing the `500`-row cap), `getBranchLocationPins`, `getCountryExceptions`, `getCountryVerificationFlags`, and `getClientAuditRecords` so totals remain accurate across large datasets.
+- **Unified Cross-Surface Badge Counts:** Added [badgeSync.ts](src/utils/badgeSync.ts) (`BADGE_COUNTS_CHANGED_EVENT`, `emitBadgeCountsChanged`, `isClientAuditActionRequired`) and wired [DesktopSidebar.tsx](src/components/layout/DesktopSidebar.tsx), [SalesHeadDashboardPreview.tsx](src/features/review/SalesHeadDashboardPreview.tsx), [ClientVisitVerification.tsx](src/features/review/ClientVisitVerification.tsx), [NotificationsMenu.tsx](src/components/layout/NotificationsMenu.tsx), and every Country Sales Head review workbench (`BranchApprovalsQueue`, `ExceptionReviewWorkbench`, `RiskFlagsWorkbench`, `ClientAuditWorkbench`, `TeamAttendanceReview`) to refresh counts consistently after decisions or manual reloads, including the `Client Audit Calls (5%)` badge and `currentPage` reset on filter changes.
+
+### Salesperson Unassigned Device & HQ Provisioning Integrity
+- **Eliminated Auto-Assigned & Fallback Handset Labels:** Updated [SalespersonHomePreview.tsx](src/features/field/SalespersonHomePreview.tsx), [ProfileView.tsx](src/features/field/ProfileView.tsx), [ReportDeviceIssueModal.tsx](src/features/field/ReportDeviceIssueModal.tsx), and [PersistentStatusStrip.tsx](src/components/field/PersistentStatusStrip.tsx) to display `Unassigned Handset` instead of synthetic/fallback tags (`CC-DEV-LAG-019`, `CC-DEV-LOS-001`, `Company Phone`) and disabled device replacement submissions until a company phone is actively assigned.
+- **Strict Custody Enforcement Across Field & Sync Flows:** Updated [AuthContext.tsx](src/context/AuthContext.tsx), [StartDayModal.tsx](src/features/field/StartDayModal.tsx), [FieldSessionContext.tsx](src/context/FieldSessionContext.tsx), [attendanceService.ts](src/services/attendanceService.ts), and [offlineSyncService.ts](src/services/offlineSyncService.ts) to resolve custody strictly from active (`is_current = true`, unreturned, non-depot) `device_assignments` rows without falling back to market-wide depot lookups, blocking Start Day cleanly when no company handset is assigned.
+- **HQ Provisioning & Audit Length Guard:** Fixed [adminService.ts](src/services/adminService.ts) (`getHqUsers` and `getHqDevices`) so historical/returned assignments do not mask unassigned users or depot handsets, updated [HqUserManagement.tsx](src/features/admin/HqUserManagement.tsx) to clear stale handset selections on role/market change and sync custody via `assignDevice` if needed, and guarded `approval_audit.new_state` in [admin-provision-user/index.ts](supabase/functions/admin-provision-user/index.ts) within the 64-character column limit.
+
 ### Verification
-- **Vitest:** `12` targeted test suites (`128/128` tests) passed across the initial 1.0.2 release changes, `9` targeted suites (`94/94` tests) after adding date-range client visit aggregation, and `8` targeted suites (`70/70` tests, including [exception-picture-evidence.test.tsx](src/test/exception-picture-evidence.test.tsx)) after requiring live camera exception evidence.
-- **Quality Gates:** `npm run lint` passed (`0` errors) and `npm run build` (`tsc -b && vite build`) passed cleanly.
+- **Vitest:** Full repository regression run passed `36/36` test suites (`327/327` tests), including [saleshead-badges-sync.test.tsx](src/test/saleshead-badges-sync.test.tsx), [unassigned-device-integrity.test.tsx](src/test/unassigned-device-integrity.test.tsx), and updated dynamic-date pagination fixtures in [country-reporting-pagination.test.tsx](src/test/country-reporting-pagination.test.tsx).
+- **Quality Gates:** `npm run lint` passed (`0` errors, `5` pre-existing `no-empty` warnings) and `npm run build` (`tsc -b && vite build`) passed cleanly.
 
 ---
 

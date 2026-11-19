@@ -339,29 +339,28 @@ export const attendanceService = {
         };
       }
 
-      // 3. Resolve device ID fallback if unassigned
-      let validDeviceId = deviceId;
-      if (!validDeviceId) {
-        // Query active device in user's market or default device
-        const { data: dev } = await supabase
-          .from('devices')
-          .select('id')
-          .eq('market_code', marketCode)
-          .limit(1)
-          .maybeSingle();
-
-        if (dev?.id) {
-          validDeviceId = dev.id;
-        } else {
-          return {
-            data: null,
-            error: new Error(
-              'No company handset assignment found in asset inventory. Please contact HQ Admin.'
-            ),
-          };
-        }
-      }
-
+      // 3. Resolve strictly from this salesperson's active custody assignment (never auto-pick another market handset)
+      let validDeviceId = deviceId;
+      if (!validDeviceId) {
+        const { data: ownAssign } = await supabase
+          .from('device_assignments')
+          .select('device_id, returned_at')
+          .eq('salesperson_id', userId)
+          .eq('is_current', true)
+          .maybeSingle();
+
+        if (ownAssign?.device_id && !(ownAssign as any).returned_at) {
+          validDeviceId = ownAssign.device_id;
+        } else {
+          return {
+            data: null,
+            error: new Error(
+              'No company handset is assigned to your account. Please ask HQ Admin to assign a company device before starting your workday.'
+            ),
+          };
+        }
+      }
+
       // 4. Upload live selfie to private Supabase Storage (attendance-selfies bucket)
       // Path format: `${userId}/${workDate}_${submissionId}.jpg` (stable per submission attempt)
       const submissionId =

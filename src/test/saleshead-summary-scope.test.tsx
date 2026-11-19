@@ -160,7 +160,7 @@ describe('Country Sales Head Summary Scope Filtering & Dynamic Pills', () => {
     renderComponent();
 
     await waitFor(() => {
-      expect(managementService.getCountryVisits).toHaveBeenCalledWith('NG', undefined, 200);
+      expect(managementService.getCountryVisits).toHaveBeenCalledWith('NG');
     });
 
     const now = new Date();

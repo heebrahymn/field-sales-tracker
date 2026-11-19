@@ -7,6 +7,7 @@ import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbo
 import { useFieldSession } from '@/context/FieldSessionContext';
 import { useAuth } from '@/context/AuthContext';
 import { managementService, RealExceptionItem } from '@/services/managementService';
+import { emitBadgeCountsChanged } from '@/utils/badgeSync';
 import { formatExceptionSubmissionLag, formatMarketTime } from '@/services/attendanceService';
 import {
   ShieldAlert,
@@ -242,6 +243,7 @@ export const ExceptionReviewWorkbench: React.FC<ExceptionReviewWorkbenchProps> =
         );
         if (error) throw error;
         await loadRealExceptions();
+        emitBadgeCountsChanged();
 
         const statusLabel =
           decision === 'approved'
@@ -361,7 +363,10 @@ export const ExceptionReviewWorkbench: React.FC<ExceptionReviewWorkbenchProps> =
           <Button
             variant="outline"
             size="sm"
-            onClick={loadRealExceptions}
+            onClick={async () => {
+              await loadRealExceptions();
+              emitBadgeCountsChanged();
+            }}
             disabled={isLoadingReal}
             className="h-8 text-xs font-semibold gap-1.5 bg-white border-amber-300 text-amber-900"
           >

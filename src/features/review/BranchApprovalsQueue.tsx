@@ -7,6 +7,7 @@ import { useMarketConfig } from '@/context/MarketConfigContext';
 import { useFieldSession } from '@/context/FieldSessionContext';
 import { useAuth } from '@/context/AuthContext';
 import { managementService, RealBranchPinProposal } from '@/services/managementService';
+import { emitBadgeCountsChanged } from '@/utils/badgeSync';
 import {
   MapPin,
   Building2,
@@ -215,6 +216,7 @@ export const BranchApprovalsQueue: React.FC = () => {
           setToastMessage(`Branch Location Pin rejected. Reason recorded to audit ledger.`);
         }
         await loadRealPins();
+        emitBadgeCountsChanged();
       } catch (err: any) {
         setToastMessage(`Pin review failed: ${err.message}`);
       }
@@ -298,7 +300,10 @@ export const BranchApprovalsQueue: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={loadRealPins}
+              onClick={async () => {
+                await loadRealPins();
+                emitBadgeCountsChanged();
+              }}
               disabled={isLoadingReal}
               className="h-8 text-xs font-semibold gap-1.5"
             >

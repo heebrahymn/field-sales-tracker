@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useAudit } from '@/context/AuditContext';
 import { useAuth } from '@/context/AuthContext';
 import { managementService, RealAuditCallRecord } from '@/services/managementService';
+import { emitBadgeCountsChanged } from '@/utils/badgeSync';
 import {
   PhoneCall,
   Search,
@@ -118,6 +119,7 @@ export const ClientAuditWorkbench: React.FC = () => {
         setToastMessage(`No unsampled completed visits available in ${market}. Queue is current.`);
       }
       await loadRealAudits();
+      emitBadgeCountsChanged();
     } catch (err: any) {
       setToastMessage(`Sampling failed: ${err.message}`);
     } finally {
@@ -205,6 +207,7 @@ export const ClientAuditWorkbench: React.FC = () => {
 
         if (error) throw error;
         await loadRealAudits();
+        emitBadgeCountsChanged();
 
         const statusLabel =
           clientMetInPerson === 'yes'
@@ -267,6 +270,7 @@ export const ClientAuditWorkbench: React.FC = () => {
 
         if (error) throw error;
         await loadRealAudits();
+        emitBadgeCountsChanged();
 
         const resolutionLabel =
           disputeDecision === 'cleared'
@@ -366,7 +370,10 @@ export const ClientAuditWorkbench: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={loadRealAudits}
+            onClick={async () => {
+              await loadRealAudits();
+              emitBadgeCountsChanged();
+            }}
             disabled={isLoadingReal}
             className="h-8 text-xs font-semibold gap-1.5 bg-white border-emerald-300 text-emerald-900"
           >

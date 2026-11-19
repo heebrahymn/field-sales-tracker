@@ -8,6 +8,7 @@ import {
   AbsenceRequestRecord,
 } from '@/services/attendanceService';
 import { managementService } from '@/services/managementService';
+import { emitBadgeCountsChanged } from '@/utils/badgeSync';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
@@ -471,6 +472,7 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
         // Refresh real Supabase requests & attendance
         await loadSupabaseData();
       }
+      emitBadgeCountsChanged();
     } catch (err: any) {
       setToastMessage(`Review error: ${err.message}`);
     }
@@ -660,7 +662,10 @@ export const TeamAttendanceReview: React.FC<TeamAttendanceReviewProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => loadSupabaseData()}
+            onClick={async () => {
+              await loadSupabaseData();
+              emitBadgeCountsChanged();
+            }}
             disabled={isLoadingData}
             className="text-xs font-semibold border-slate-300 bg-white"
             title="Refresh Attendance Records"

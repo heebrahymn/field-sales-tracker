@@ -404,8 +404,13 @@ export const HqUserManagement: React.FC = () => {
       return;
     }
 
-    // If a device was chosen and Edge Function reported an assignment error, execute direct authorized HQ assignment
-    if (newUser.assignedDeviceId && (resData.deviceAssignmentError || !resData.user.assignedDeviceTag)) {
+    // If a device was chosen and Edge Function reported an assignment error or returned Unassigned Handset, execute direct authorized HQ assignment
+    if (
+      newUser.assignedDeviceId &&
+      (resData.deviceAssignmentError ||
+        !resData.user.assignedDeviceTag ||
+        resData.user.assignedDeviceTag === 'Unassigned Handset')
+    ) {
       try {
         const assignResult = await adminService.assignDevice(
           newUser.assignedDeviceId,
@@ -415,9 +420,12 @@ export const HqUserManagement: React.FC = () => {
         if (assignResult.success) {
           resData.deviceAssignmentError = null;
           resData.user.assignedDeviceTag = newUser.assignedDeviceTag;
+        } else if (assignResult.error) {
+          resData.deviceAssignmentError = assignResult.error.message;
         }
-      } catch (fallbackAssignErr) {
+      } catch (fallbackAssignErr: any) {
         console.warn('[HqUserManagement] Fallback assignment note:', fallbackAssignErr);
+        resData.deviceAssignmentError = fallbackAssignErr?.message || 'Unable to assign selected device.';
       }
     }
 
@@ -1462,7 +1470,14 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                     id="newUserRole"
                     name="role"
                     value={newUser.role}
-                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
+                    onChange={(e) =>
+                      setNewUser({
+                        ...newUser,
+                        role: e.target.value as UserRole,
+                        assignedDeviceId: '',
+                        assignedDeviceTag: '',
+                      })
+                    }
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue bg-white"
                   >
                     <option value="salesperson">Salesperson (Field Mobile)</option>
@@ -1477,7 +1492,14 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                     name="marketCode"
                     disabled={newUser.role === 'hq_admin'}
                     value={newUser.marketCode}
-                    onChange={(e) => setNewUser({ ...newUser, marketCode: e.target.value as MarketCode })}
+                    onChange={(e) =>
+                      setNewUser({
+                        ...newUser,
+                        marketCode: e.target.value as MarketCode,
+                        assignedDeviceId: '',
+                        assignedDeviceTag: '',
+                      })
+                    }
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue bg-white disabled:bg-slate-100 disabled:text-slate-400"
                   >
                     <option value="NG">Nigeria (Lagos Hub)</option>
@@ -1516,12 +1538,16 @@ Portal URL: ${typeof window !== 'undefined' ? window.location.origin : 'https://
                         </option>
                       ))}
                   </select>
-                  {availableDevices.filter((d) => isDeviceUnassignedForMarket(d, newUser.marketCode)).length === 0 && (
+                  {availableDevices.filter((d) => isDeviceUnassignedForMarket(d, newUser.marketCode)).length === 0 ? (
                     <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 mt-1.5 flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      No unassigned company devices are currently available for this market. You can assign a device later.
+                      No unassigned company devices are currently available for this market. You can assign a device later via Actions → Assign Handset.
                     </p>
-                  )}
+                  ) : !newUser.assignedDeviceId ? (
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      If left unassigned, the salesperson&apos;s app displays <strong>Unassigned Handset</strong> until you issue a company device via <strong>Actions → Assign Handset</strong>.
+                    </p>
+                  ) : null}
                 </div>
               )}
 

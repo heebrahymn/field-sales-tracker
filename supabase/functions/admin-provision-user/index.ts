@@ -304,25 +304,20 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 8. Administrative Audit Log Entry
+    // 8. Administrative Audit Log Entry (new_state is VARCHAR(64) in schema)
+    const auditStateSummary = assignedDeviceTag
+      ? `active:${assignedDeviceTag}`.slice(0, 64)
+      : "active:unassigned";
     await adminClient.from("approval_audit").insert({
       action: "user_provisioned",
       entity_type: "profiles",
       entity_id: newUserId,
       actor_id: callerUser.id,
       previous_state: "unprovisioned",
-      new_state: JSON.stringify({
-        email: cleanEmail,
-        full_name: cleanFullName,
-        role: role,
-        market_code: sanitizedMarketCode,
-        is_active: true,
-        assigned_device: assignedDeviceTag || null,
-        device_assignment_error: deviceAssignmentError || null,
-      }),
+      new_state: auditStateSummary,
       mandatory_reason: `HQ Admin (${callerProfile.full_name}) provisioned new ${role} employee account for ${cleanFullName} (${cleanEmail})${
-        assignedDeviceTag ? ` with company device ${assignedDeviceTag}` : ""
-      }.`,
+        assignedDeviceTag ? ` with company device ${assignedDeviceTag}` : " (Unassigned Handset)"
+      }${deviceAssignmentError ? ` [Note: ${deviceAssignmentError}]` : ""}.`,
     });
 
     // 9. Return Confirmed Persistence Response

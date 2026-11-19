@@ -1903,17 +1903,24 @@ export const offlineSyncService = {
     try {
       switch (event.eventType) {
         case 'ATTENDANCE_START_DAY': {
-          // Resolve valid device_id on server if placeholder 'dev-001' was used offline
+          // Resolve strictly from salesperson's own active assignment (never auto-substitute a market phone)
           let validDeviceId = p.deviceId;
           if (!validDeviceId || validDeviceId === 'dev-001') {
-            const { data: dev } = await supabase
-              .from('devices')
-              .select('id')
-              .eq('market_code', event.marketCode)
-              .limit(1)
+            const { data: ownAssign } = await supabase
+              .from('device_assignments')
+              .select('device_id, returned_at')
+              .eq('salesperson_id', event.ownerUserId)
+              .eq('is_current', true)
               .maybeSingle();
-            if (dev?.id) {
-              validDeviceId = dev.id;
+            if (ownAssign?.device_id && !(ownAssign as any).returned_at) {
+              validDeviceId = ownAssign.device_id;
+            } else {
+              return {
+                status: 'failed',
+                serverAckRef: null,
+                error:
+                  'No company handset is assigned to this salesperson account. Assign a company device in HQ Admin before syncing.',
+              };
             }
           }
 
@@ -2054,17 +2061,24 @@ export const offlineSyncService = {
             };
           }
 
-          // Resolve valid device_id if needed
+          // Resolve strictly from salesperson's own active assignment (never auto-substitute a market phone)
           let validDeviceId = p.deviceId;
           if (!validDeviceId || validDeviceId === 'dev-001') {
-            const { data: dev } = await supabase
-              .from('devices')
-              .select('id')
-              .eq('market_code', event.marketCode)
-              .limit(1)
+            const { data: ownAssign } = await supabase
+              .from('device_assignments')
+              .select('device_id, returned_at')
+              .eq('salesperson_id', event.ownerUserId)
+              .eq('is_current', true)
               .maybeSingle();
-            if (dev?.id) {
-              validDeviceId = dev.id;
+            if (ownAssign?.device_id && !(ownAssign as any).returned_at) {
+              validDeviceId = ownAssign.device_id;
+            } else {
+              return {
+                status: 'failed',
+                serverAckRef: null,
+                error:
+                  'No company handset is assigned to this salesperson account. Assign a company device in HQ Admin before syncing.',
+              };
             }
           }
 

@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useMarketConfig } from '@/context/MarketConfigContext';
 import { managementService, RealVisitVerificationRecord } from '@/services/managementService';
+import { emitBadgeCountsChanged } from '@/utils/badgeSync';
 import { PhotoLightboxModal, LightboxPhoto } from '@/components/ui/photo-lightbox-modal';
 import {
   MapPin,
@@ -87,7 +88,7 @@ export const ClientVisitVerification: React.FC = () => {
     setIsLoadingReal(true);
     try {
       const market = currentUser?.marketCode || 'NG';
-      const { data, error } = await managementService.getCountryVisits(market, undefined, 50);
+      const { data, error } = await managementService.getCountryVisits(market);
       if (error) {
         console.warn('[ClientVisitVerification] Failed to fetch Supabase visits:', error.message);
       } else {
@@ -286,7 +287,10 @@ export const ClientVisitVerification: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={loadRealVisits}
+            onClick={async () => {
+              await loadRealVisits();
+              emitBadgeCountsChanged();
+            }}
             disabled={isLoadingReal}
             className="h-8 text-xs font-semibold gap-1.5 bg-white border-blue-200 text-brand-blue"
           >
@@ -311,7 +315,7 @@ export const ClientVisitVerification: React.FC = () => {
               <Input
                 placeholder="Search visits by company, branch, rep or ID..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                 className="pl-9 text-xs h-9 bg-slate-50/50 border-slate-200"
               />
             </div>
@@ -320,7 +324,7 @@ export const ClientVisitVerification: React.FC = () => {
               <div className="flex items-center gap-1 text-xs">
                 <span className="font-semibold text-slate-500 mr-1">Location:</span>
                 <button
-                  onClick={() => setFilterLocationStatus('all')}
+                  onClick={() => { setFilterLocationStatus('all'); setCurrentPage(1); }}
                   className={`px-2.5 py-1 rounded-md font-bold text-xs transition-colors ${
                     filterLocationStatus === 'all'
                       ? 'bg-slate-900 text-white'
@@ -330,7 +334,7 @@ export const ClientVisitVerification: React.FC = () => {
                   All ({visits.length})
                 </button>
                 <button
-                  onClick={() => setFilterLocationStatus('verified')}
+                  onClick={() => { setFilterLocationStatus('verified'); setCurrentPage(1); }}
                   className={`px-2.5 py-1 rounded-md font-bold text-xs transition-colors ${
                     filterLocationStatus === 'verified'
                       ? 'bg-emerald-700 text-white'
@@ -340,7 +344,7 @@ export const ClientVisitVerification: React.FC = () => {
                   Location Verified
                 </button>
                 <button
-                  onClick={() => setFilterLocationStatus('unverified_approved')}
+                  onClick={() => { setFilterLocationStatus('unverified_approved'); setCurrentPage(1); }}
                   className={`px-2.5 py-1 rounded-md font-bold text-xs transition-colors ${
                     filterLocationStatus === 'unverified_approved'
                       ? 'bg-amber-600 text-white'

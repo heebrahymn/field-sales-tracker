@@ -33,11 +33,16 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
 
   if (!isOpen) return null;
 
-  const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'CC-DEV-LOS-001';
-  const assignedDeviceModel = currentUser.assignedDevice?.model || 'Samsung Galaxy A15 Enterprise';
+  const hasAssignedDevice = Boolean(currentUser.assignedDevice?.assetTag);
+  const assignedDeviceTag = currentUser.assignedDevice?.assetTag || 'Unassigned Handset';
+  const assignedDeviceModel = currentUser.assignedDevice?.model || 'None assigned';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasAssignedDevice) {
+      setErrorMessage('No company handset is assigned to your account. Contact HQ Admin to issue a device.');
+      return;
+    }
     if (!description.trim()) return;
 
     setIsSubmitting(true);
@@ -125,7 +130,9 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Assigned Hardware:</span>
-                <span className="font-mono font-bold text-slate-900">{assignedDeviceTag}</span>
+                <span className={`font-mono font-bold ${hasAssignedDevice ? 'text-slate-900' : 'text-amber-800'}`}>
+                  {assignedDeviceTag}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Model:</span>
@@ -136,6 +143,15 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
                 <span className="font-semibold text-slate-800">{currentUser.name}</span>
               </div>
             </div>
+
+            {!hasAssignedDevice && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  No company handset is assigned to your account yet. Contact HQ Admin to issue a company device before logging a replacement request.
+                </span>
+              </div>
+            )}
 
             {errorMessage && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
@@ -210,8 +226,8 @@ export const ReportDeviceIssueModal: React.FC<ReportDeviceIssueModalProps> = ({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={isSubmitting}
-                  className="bg-brand-blue hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5"
+                  disabled={!hasAssignedDevice || isSubmitting}
+                  className="bg-brand-blue hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-500 text-white text-xs font-semibold flex items-center gap-1.5"
                 >
                   <Send className="w-3.5 h-3.5" />
                   {isSubmitting ? 'Submitting to HQ...' : 'Submit Directly to HQ Admin'}

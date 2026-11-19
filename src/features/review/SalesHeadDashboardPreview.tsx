@@ -26,6 +26,11 @@ import { TeamAttendanceReview } from '@/features/review/TeamAttendanceReview';
 import { CountryReportingView } from '@/features/review/CountryReportingView';
 import { CountryCsvExportModal } from '@/features/review/CountryCsvExportModal';
 import { DesktopNavSection } from '@/components/layout/DesktopSidebar';
+import {
+  BADGE_COUNTS_CHANGED_EVENT,
+  emitBadgeCountsChanged,
+  isClientAuditActionRequired,
+} from '@/utils/badgeSync';
 import { cn } from '@/lib/utils';
 import {
   Users,
@@ -122,6 +127,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
   const [livePins, setLivePins] = useState<RealBranchPinRecord[]>([]);
   const [liveExceptions, setLiveExceptions] = useState<RealExceptionItem[]>([]);
   const [liveFlags, setLiveFlags] = useState<RealVerificationFlag[]>([]);
+  const [pendingAuditsCount, setPendingAuditsCount] = useState<number>(0);
   const [pendingAbsencesCount, setPendingAbsencesCount] = useState<number>(0);
   const [activeRepsCount, setActiveRepsCount] = useState<number>(0);
   const [totalRepsCount, setTotalRepsCount] = useState<number>(0);
@@ -151,19 +157,23 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
     try {
       const market = currentUser?.marketCode || 'NG';
       const todayStr = getMarketWorkDate(market);
-      const [vRes, pRes, eRes, fRes, repRes, attRes, absRes] = await Promise.all([
-        managementService.getCountryVisits(market, undefined, 200),
+      const [vRes, pRes, eRes, fRes, repRes, attRes, absRes, auditRes] = await Promise.all([
+        managementService.getCountryVisits(market),
         managementService.getCountryPendingPins(market),
         managementService.getCountryExceptions(market, 'pending_review'),
         managementService.getCountryVerificationFlags(market, 'open'),
         managementService.getMarketSalespeople(market),
         attendanceService.getMarketAttendance(market, todayStr),
         attendanceService.getPendingNonVisitRequests(market),
+        managementService.getClientAuditRecords
+          ? managementService.getClientAuditRecords(market)
+          : Promise.resolve({ data: [], error: null }),
       ]);
       setLiveVisits(vRes.data || []);
       setLivePins(Array.isArray(pRes) ? pRes : (pRes as any).data || []);
       setLiveExceptions(eRes.data || []);
       setLiveFlags(fRes.data || []);
+      setPendingAuditsCount((auditRes?.data || []).filter(isClientAuditActionRequired).length);
       setPendingAbsencesCount(absRes.data?.length ?? 0);
       if (Array.isArray(repRes)) {
         setTotalRepsCount(repRes.length);
@@ -180,6 +190,20 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
   useEffect(() => {
     loadDashboardData();
   }, [loadDashboardData, currentSection]);
+
+  useEffect(() => {
+    const handleRefreshEvent = () => {
+      loadDashboardData();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(BADGE_COUNTS_CHANGED_EVENT, handleRefreshEvent);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(BADGE_COUNTS_CHANGED_EVENT, handleRefreshEvent);
+      }
+    };
+  }, [loadDashboardData]);
 
   // Summary Scope dynamic labels and date boundaries
   const now = useMemo(() => new Date(), []);
@@ -365,6 +389,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
             : await managementService.rejectBranchLocationPin?.(itemId, reason);
         if (res?.error) throw res.error;
         await loadDashboardData();
+        emitBadgeCountsChanged();
       } else if (
         selectedReviewItem?.type === 'exception_approval' &&
         liveExceptions.some((e) => e.id === itemId)
@@ -372,6 +397,7 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
         const res = await managementService.reviewSalespersonException?.(itemId, decision as any, reason);
         if (res?.error) throw res.error;
         await loadDashboardData();
+        emitBadgeCountsChanged();
       }
       setFeedbackMessage(
         `Decision for #${shortId} (${selectedReviewItem?.title || 'Review Item'}): ${decision.toUpperCase()}. Rationale: "${reason.slice(0, 35)}..." Logged to immutable audit ledger.`
@@ -471,6 +497,9 @@ export const SalesHeadDashboardPreview: React.FC<SalesHeadDashboardPreviewProps>
         >
           <PhoneCall className="w-3.5 h-3.5" />
           <span>Client Audit Calls (5%)</span>
+          <span className="bg-teal-100 text-teal-900 px-1.5 py-0.2 rounded-full text-[10px]">
+            {pendingAuditsCount}
+          </span>
         </button>
         <button
           onClick={() => handleSectionChange('attendance')}

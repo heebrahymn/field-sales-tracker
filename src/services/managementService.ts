@@ -213,6 +213,36 @@ export function sanitizeCsvCell(value: string | number | undefined | null): stri
   return `"${escaped}"`;
 }
 
+async function fetchAllPaginatedRows<T = any>(
+  buildQuery: () => any,
+  pageSize: number = 1000,
+  maxPages: number = 50
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const allRows: T[] = [];
+  let from = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const query = buildQuery();
+    const supportsRange = typeof query?.range === 'function';
+    const pagedQuery = supportsRange ? query.range(from, from + pageSize - 1) : query;
+
+    const { data, error } = await pagedQuery;
+    if (error) {
+      return { data: [], error };
+    }
+
+    const chunk = (data as T[]) || [];
+    allRows.push(...chunk);
+
+    if (!supportsRange || chunk.length < pageSize) {
+      break;
+    }
+    from += pageSize;
+  }
+
+  return { data: allRows, error: null };
+}
+
 export const managementService = {
   /**
    * Queries real team attendance for Country Sales Head review, sandboxed by market.
@@ -361,85 +391,90 @@ export const managementService = {
   async getCountryVisits(
     marketCode: string,
     workDate?: string,
-    limit: number = 50
+    limit?: number
   ): Promise<{ data: RealVisitVerificationRecord[]; error: Error | null }> {
     try {
-      let query = supabase
-        .from('visits')
-        .select(`
-          id,
-          user_id,
-          attendance_day_id,
-          branch_id,
-          branch_pin_id,
-          check_in_at,
-          check_out_at,
-          check_in_latitude,
-          check_in_longitude,
-          check_in_accuracy_m,
-          check_out_latitude,
-          check_out_longitude,
-          check_out_accuracy_m,
-          premises_photo_url,
-          verification_status,
-          captured_offline,
-          created_at,
-          profiles:user_id (id, full_name, email, role, market_code),
-          branches:branch_id (
+      const buildQuery = () => {
+        let query = supabase
+          .from('visits')
+          .select(`
             id,
-            branch_name,
-            street_address,
-            market_code,
-            category,
-            organisations:organisation_id (id, name),
-            branch_location_pins (
+            user_id,
+            attendance_day_id,
+            branch_id,
+            branch_pin_id,
+            check_in_at,
+            check_out_at,
+            check_in_latitude,
+            check_in_longitude,
+            check_in_accuracy_m,
+            check_out_latitude,
+            check_out_longitude,
+            check_out_accuracy_m,
+            premises_photo_url,
+            verification_status,
+            captured_offline,
+            created_at,
+            profiles:user_id (id, full_name, email, role, market_code),
+            branches:branch_id (
+              id,
+              branch_name,
+              street_address,
+              market_code,
+              category,
+              organisations:organisation_id (id, name),
+              branch_location_pins (
+                id,
+                latitude,
+                longitude,
+                reported_accuracy_m,
+                status
+              )
+            ),
+            branch_location_pins:branch_pin_id (
               id,
               latitude,
               longitude,
               reported_accuracy_m,
-              status
-            )
-          ),
-          branch_location_pins:branch_pin_id (
-            id,
-            latitude,
-            longitude,
-            reported_accuracy_m,
-            version_number
-          ),
-          meeting_logs (
-            id,
-            purpose,
-            products_discussed,
-            fleet_size_volume,
-            outcome_narrative,
-            next_step_text,
-            business_card_photo_url,
-            submitted_at,
-            client_contacts:contact_id (
+              version_number
+            ),
+            meeting_logs (
               id,
-              full_name,
-              phone_number,
-              designation
+              purpose,
+              products_discussed,
+              fleet_size_volume,
+              outcome_narrative,
+              next_step_text,
+              business_card_photo_url,
+              submitted_at,
+              client_contacts:contact_id (
+                id,
+                full_name,
+                phone_number,
+                designation
+              )
+            ),
+            client_audit_records (
+              id,
+              call_status,
+              audit_outcome,
+              dispute_status,
+              contact_name,
+              contact_phone
             )
-          ),
-          client_audit_records (
-            id,
-            call_status,
-            audit_outcome,
-            dispute_status,
-            contact_name,
-            contact_phone
-          )
-        `);
+          `);
 
-      if (workDate) {
-        query = query.gte('check_in_at', `${workDate}T00:00:00Z`).lte('check_in_at', `${workDate}T23:59:59Z`);
-      }
+        if (workDate) {
+          query = query.gte('check_in_at', `${workDate}T00:00:00Z`).lte('check_in_at', `${workDate}T23:59:59Z`);
+        }
 
-      const { data, error } = await query
-        .order('check_in_at', { ascending: false })
-        .limit(limit);
+        return query.order('check_in_at', { ascending: false });
+      };
+
+      const { data, error } =
+        typeof limit === 'number' && limit > 0
+          ? await buildQuery().limit(limit)
+          : await fetchAllPaginatedRows(buildQuery);
 
       if (error) {
         return { data: [], error: new Error(error.message) };
@@ -640,52 +675,54 @@ export const managementService = {
     statusFilter?: 'pending_approval' | 'approved' | 'rejected' | 'all'
   ): Promise<{ data: RealBranchPinProposal[]; error: Error | null }> {
     try {
-      let query = supabase
-        .from('branch_location_pins')
-        .select(`
-          id,
-          branch_id,
-          latitude,
-          longitude,
-          reported_accuracy_m,
-          premises_photo_url,
-          proposed_by,
-          proposed_at,
-          status,
-          reviewed_by,
-          reviewed_at,
-          decision_reason,
-          version_number,
-          is_active,
-          branches:branch_id (
+      const { data, error } = await fetchAllPaginatedRows(() => {
+        let query = supabase
+          .from('branch_location_pins')
+          .select(`
             id,
-            branch_name,
-            street_address,
-            market_code,
-            category,
-            switchboard_phone,
-            organisations:organisation_id (name),
-            client_contacts (
+            branch_id,
+            latitude,
+            longitude,
+            reported_accuracy_m,
+            premises_photo_url,
+            proposed_by,
+            proposed_at,
+            status,
+            reviewed_by,
+            reviewed_at,
+            decision_reason,
+            version_number,
+            is_active,
+            branches:branch_id (
               id,
-              full_name,
-              designation,
-              phone_number,
-              email,
-              is_primary
-            )
-          ),
-          profiles:proposed_by (full_name, email)
-        `);
+              branch_name,
+              street_address,
+              market_code,
+              category,
+              switchboard_phone,
+              organisations:organisation_id (name),
+              client_contacts (
+                id,
+                full_name,
+                designation,
+                phone_number,
+                email,
+                is_primary
+              )
+            ),
+            profiles:proposed_by (full_name, email)
+          `);
 
-      if (statusFilter && statusFilter !== 'all') {
-        if (statusFilter === 'pending_approval') {
-          query = query.in('status', ['pending_approval', 'pending_review']);
-        } else {
-          query = query.eq('status', statusFilter);
+        if (statusFilter && statusFilter !== 'all') {
+          if (statusFilter === 'pending_approval') {
+            query = query.in('status', ['pending_approval', 'pending_review']);
+          } else {
+            query = query.eq('status', statusFilter);
+          }
         }
-      }
 
-      const { data, error } = await query.order('proposed_at', { ascending: false });
+        return query.order('proposed_at', { ascending: false });
+      });
 
       if (error) {
         return { data: [], error: new Error(error.message) };
@@ -831,36 +868,38 @@ export const managementService = {
     statusFilter?: ExceptionReviewStatus | 'all'
   ): Promise<{ data: RealExceptionItem[]; error: Error | null }> {
     try {
-      let query = supabase
-        .from('exceptions')
-        .select(`
-          id,
-          user_id,
-          branch_id,
-          resulting_visit_id,
-          exception_type,
-          reason,
-          supporting_evidence_url,
-          claimed_visit_time,
-          actual_submission_time,
-          status,
-          reviewed_by:decided_by,
-          reviewed_at:decided_at,
-          decision_reason,
-          created_at,
-          profiles:user_id (full_name, email, market_code),
-          branches:branch_id (
-            branch_name,
-            market_code,
-            organisations:organisation_id (name)
-          )
-        `);
+      const { data, error } = await fetchAllPaginatedRows(() => {
+        let query = supabase
+          .from('exceptions')
+          .select(`
+            id,
+            user_id,
+            branch_id,
+            resulting_visit_id,
+            exception_type,
+            reason,
+            supporting_evidence_url,
+            claimed_visit_time,
+            actual_submission_time,
+            status,
+            reviewed_by:decided_by,
+            reviewed_at:decided_at,
+            decision_reason,
+            created_at,
+            profiles:user_id (full_name, email, market_code),
+            branches:branch_id (
+              branch_name,
+              market_code,
+              organisations:organisation_id (name)
+            )
+          `);
 
-      if (statusFilter && statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
-      }
+        if (statusFilter && statusFilter !== 'all') {
+          query = query.eq('status', statusFilter);
+        }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+        return query.order('created_at', { ascending: false });
+      });
 
       if (error) {
         return { data: [], error: new Error(error.message) };
@@ -937,41 +976,43 @@ export const managementService = {
     statusFilter?: FlagStatus | 'all'
   ): Promise<{ data: RealVerificationFlag[]; error: Error | null }> {
     try {
-      let query = supabase
-        .from('verification_flags')
-        .select(`
-          id,
-          visit_id,
-          attendance_day_id,
-          user_id,
-          market_code,
-          flag_code,
-          severity,
-          status,
-          details,
-          reviewer_notes,
-          reviewed_by,
-          reviewed_at,
-          created_at,
-          profiles:user_id (full_name, email),
-          visits:visit_id (
+      const { data, error } = await fetchAllPaginatedRows(() => {
+        let query = supabase
+          .from('verification_flags')
+          .select(`
             id,
-            branches:branch_id (
-              branch_name,
-              organisations:organisation_id (name)
+            visit_id,
+            attendance_day_id,
+            user_id,
+            market_code,
+            flag_code,
+            severity,
+            status,
+            details,
+            reviewer_notes,
+            reviewed_by,
+            reviewed_at,
+            created_at,
+            profiles:user_id (full_name, email),
+            visits:visit_id (
+              id,
+              branches:branch_id (
+                branch_name,
+                organisations:organisation_id (name)
+              )
             )
-          )
-        `);
+          `);
 
-      if (marketCode && marketCode !== 'ALL') {
-        query = query.eq('market_code', marketCode);
-      }
+        if (marketCode && marketCode !== 'ALL') {
+          query = query.eq('market_code', marketCode);
+        }
 
-      if (statusFilter && statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
-      }
+        if (statusFilter && statusFilter !== 'all') {
+          query = query.eq('status', statusFilter);
+        }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+        return query.order('created_at', { ascending: false });
+      });
 
       if (error) {
         return { data: [], error: new Error(error.message) };
@@ -1038,51 +1079,53 @@ export const managementService = {
    */
   async getClientAuditRecords(marketCode: string): Promise<{ data: RealAuditCallRecord[]; error: Error | null }> {
     try {
-      let query = supabase
-        .from('client_audit_records')
-        .select(`
-          id,
-          visit_id,
-          market_code,
-          selection_method,
-          contact_name,
-          contact_phone,
-          call_status,
-          meeting_confirmed,
-          audit_outcome,
-          dispute_status,
-          dispute_notes,
-          resolved_by,
-          resolved_at,
-          created_at,
-          visits:visit_id (
+      const { data, error } = await fetchAllPaginatedRows(() => {
+        let query = supabase
+          .from('client_audit_records')
+          .select(`
             id,
-            check_in_at,
-            check_out_at,
-            verification_status,
-            profiles:user_id (full_name),
-            branches:branch_id (
-              branch_name,
-              organisations:organisation_id (name)
+            visit_id,
+            market_code,
+            selection_method,
+            contact_name,
+            contact_phone,
+            call_status,
+            meeting_confirmed,
+            audit_outcome,
+            dispute_status,
+            dispute_notes,
+            resolved_by,
+            resolved_at,
+            created_at,
+            visits:visit_id (
+              id,
+              check_in_at,
+              check_out_at,
+              verification_status,
+              profiles:user_id (full_name),
+              branches:branch_id (
+                branch_name,
+                organisations:organisation_id (name)
+              ),
+              meeting_logs (products_discussed)
             ),
-            meeting_logs (products_discussed)
-          ),
-          client_audit_attempts (
-            id,
-            attempt_number,
-            dialed_at,
-            call_result,
-            call_notes,
-            auditor_id,
-            profiles:auditor_id (full_name)
-          )
-        `);
+            client_audit_attempts (
+              id,
+              attempt_number,
+              dialed_at,
+              call_result,
+              call_notes,
+              auditor_id,
+              profiles:auditor_id (full_name)
+            )
+          `);
 
-      if (marketCode && marketCode !== 'ALL') {
-        query = query.eq('market_code', marketCode);
-      }
+        if (marketCode && marketCode !== 'ALL') {
+          query = query.eq('market_code', marketCode);
+        }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+        return query.order('created_at', { ascending: false });
+      });
 
       if (error) {
         return { data: [], error: new Error(error.message) };
@@ -1277,7 +1320,7 @@ export const managementService = {
     includeProvisionalWarning?: boolean;
   }): Promise<{ rowCount: number; error: Error | null }> {
     try {
-      const { data: visits, error: vErr } = await this.getCountryVisits(params.marketCode, undefined, 500);
+      const { data: visits, error: vErr } = await this.getCountryVisits(params.marketCode);
 
       if (vErr) {
         return { rowCount: 0, error: vErr };

@@ -1079,10 +1079,16 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
     if (!currentUser?.id) {
       return { success: false, error: 'Authenticated salesperson session required.' };
     }
+    if (!isTestEnv && currentUser.role === 'salesperson' && !currentUser.assignedDevice?.deviceId) {
+      return {
+        success: false,
+        error: 'No company handset is assigned to your account. Please ask HQ Admin to assign a company device before starting your workday.',
+      };
+    }
     const res = await offlineSyncService.enqueueStartDay({
       ownerUserId: currentUser.id,
       marketCode: currentUser.marketCode || 'NG',
-      deviceId: currentUser.assignedDevice?.deviceId || 'dev-001',
+      deviceId: currentUser.assignedDevice?.deviceId || (isTestEnv ? 'dev-001' : ''),
       latitude: params.latitude,
       longitude: params.longitude,
       accuracy: params.accuracy,
@@ -1271,14 +1277,23 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
           if (currentUser.assignedDevice?.deviceId && UUID_REGEX.test(currentUser.assignedDevice.deviceId)) {
             resolvedDeviceId = currentUser.assignedDevice.deviceId;
           } else {
-            const { data: dev } = await supabase
-              .from('devices')
-              .select('id')
-              .eq('market_code', currentUser.marketCode)
-              .limit(1)
+            const { data: ownAssign } = await supabase
+              .from('device_assignments')
+              .select('device_id, returned_at')
+              .eq('salesperson_id', currentUser.id)
+              .eq('is_current', true)
               .maybeSingle();
-            resolvedDeviceId = dev?.id || '00000000-0000-0000-0000-000000000001';
+            resolvedDeviceId =
+              ownAssign?.device_id && !(ownAssign as any).returned_at ? ownAssign.device_id : '';
           }
+        }
+
+        if (!resolvedDeviceId || !UUID_REGEX.test(resolvedDeviceId)) {
+          if (uploadedStoragePath) {
+            await visitService.removePremisesPhoto(uploadedStoragePath);
+          }
+          notify('No company handset is assigned to your account. Contact HQ Admin before checking into a visit.');
+          return false;
         }
 
         let { data: dbVisit, error: insertErr } = await visitService.checkInVisit({

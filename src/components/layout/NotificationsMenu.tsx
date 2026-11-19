@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { managementService } from '@/services/managementService';
 import { attendanceService } from '@/services/attendanceService';
 import { DesktopNavSection } from '@/components/layout/DesktopSidebar';
+import { BADGE_COUNTS_CHANGED_EVENT, isClientAuditActionRequired } from '@/utils/badgeSync';
 import {
   Bell,
   CheckCircle2,
@@ -156,9 +157,7 @@ export const NotificationsMenu: React.FC<NotificationsMenuProps> = ({ onSelectSe
         const pinCount = Array.isArray(pinsRes) ? pinsRes.length : ((pinsRes as any)?.data?.length ?? 0);
         const flagCount = flagsRes.data?.length ?? 0;
         const absCount = absRes.data?.length ?? 0;
-        const auditCount = (auditsRes.data || []).filter(
-          (a) => a.callStatus === 'pending_call' || a.disputeStatus === 'under_investigation'
-        ).length;
+        const auditCount = (auditsRes.data || []).filter(isClientAuditActionRequired).length;
 
         const items: NotificationAlert[] = [
           {
@@ -223,6 +222,21 @@ export const NotificationsMenu: React.FC<NotificationsMenuProps> = ({ onSelectSe
   // Initial load and reload when role/market changes
   useEffect(() => {
     loadAlerts();
+  }, [loadAlerts]);
+
+  // Reload when review/queue badges change across workbenches
+  useEffect(() => {
+    const handleRefreshEvent = () => {
+      loadAlerts();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(BADGE_COUNTS_CHANGED_EVENT, handleRefreshEvent);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(BADGE_COUNTS_CHANGED_EVENT, handleRefreshEvent);
+      }
+    };
   }, [loadAlerts]);
 
   // Reload when the dropdown is opened to guarantee freshness

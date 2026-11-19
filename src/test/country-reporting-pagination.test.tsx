@@ -27,6 +27,7 @@ vi.mock('@/services/managementService', () => ({
 describe('CountryReportingView - Individual Operational Records Pagination', () => {
   // Generate 25 mock visits to test pagination across pages
   const generateMockVisits = (count: number) => {
+    const todayDate = new Date().toISOString().slice(0, 10);
     return Array.from({ length: count }, (_, idx) => {
       const num = idx + 1;
       return {
@@ -38,9 +39,9 @@ describe('CountryReportingView - Individual Operational Records Pagination', () 
         branchAddress: `Street Address ${num}`,
         category: 'fleet_operator',
         marketCode: 'NG',
-        workDate: '2026-11-03',
-        checkInAt: `2026-11-03T08:${String(num % 60).padStart(2, '0')}:00Z`,
-        checkOutAt: `2026-11-03T09:${String(num % 60).padStart(2, '0')}:00Z`,
+        workDate: todayDate,
+        checkInAt: `${todayDate}T08:${String(num % 60).padStart(2, '0')}:00Z`,
+        checkOutAt: `${todayDate}T09:${String(num % 60).padStart(2, '0')}:00Z`,
         durationMinutes: 30,
         verificationStatus: num % 3 === 0 ? 'location_verified' : 'manager_approved_unverified',
         checkInAccuracyM: 15,
@@ -56,7 +57,7 @@ describe('CountryReportingView - Individual Operational Records Pagination', () 
           fleetSizeOrVolume: '25 units',
           outcomeNarrative: 'Meeting completed',
           nextStepText: 'Follow up',
-          submittedAt: '2026-11-03T09:15:00Z',
+          submittedAt: `${todayDate}T09:15:00Z`,
         },
         clientAuditStatus: null,
       };

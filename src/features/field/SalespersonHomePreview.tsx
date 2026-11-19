@@ -165,25 +165,52 @@ export const SalespersonHomePreview: React.FC<SalespersonHomePreviewProps> = ({ 
       </div>
 
       {/* Assigned Company Device Quick Strip (Profile -> My Device) */}
-      <div className="bg-white px-3.5 py-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-blue-50 text-brand-blue flex items-center justify-center shrink-0">
+      <div
+        className={`px-3.5 py-2.5 rounded-xl border shadow-2xs flex items-center justify-between text-xs ${
+          currentUser.assignedDevice?.assetTag
+            ? 'bg-white border-slate-200'
+            : 'bg-amber-50/70 border-amber-200'
+        }`}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
+              currentUser.assignedDevice?.assetTag
+                ? 'bg-blue-50 text-brand-blue'
+                : 'bg-amber-100 text-amber-800'
+            }`}
+          >
             <Smartphone className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <span className="font-semibold text-slate-900">
-              {currentUser.assignedDevice?.assetTag || 'CC-DEV-LAG-019'}
-            </span>
-            <span className="text-[10px] text-slate-500 ml-1.5 hidden sm:inline">
-              ({currentUser.assignedDevice?.model || 'Samsung Galaxy A15 Enterprise'})
-            </span>
+          <div className="min-w-0 truncate">
+            {currentUser.assignedDevice?.assetTag ? (
+              <>
+                <span className="font-semibold text-slate-900">
+                  {currentUser.assignedDevice.assetTag}
+                </span>
+                {currentUser.assignedDevice.model && (
+                  <span className="text-[10px] text-slate-500 ml-1.5 hidden sm:inline">
+                    ({currentUser.assignedDevice.model})
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-amber-950">
+                  Unassigned Handset
+                </span>
+                <span className="text-[10px] text-amber-800 ml-1.5 hidden sm:inline">
+                  (Awaiting HQ Admin issuance)
+                </span>
+              </>
+            )}
           </div>
         </div>
         <button
           onClick={() => onNavigateTab?.('profile')}
-          className="text-brand-blue hover:text-blue-800 font-bold text-[11px] flex items-center gap-1"
+          className="text-brand-blue hover:text-blue-800 font-bold text-[11px] flex items-center gap-1 shrink-0"
         >
-          My Device & Issues
+          {currentUser.assignedDevice?.assetTag ? 'My Device & Issues' : 'Device Status'}
           <ChevronRight className="w-3 h-3" />
         </button>
       </div>

@@ -445,7 +445,11 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
     }
   };
 
+  const requiresDeviceAssignment =
+    currentUser?.role === 'salesperson' && !currentUser?.assignedDevice?.deviceId;
+
   const isFormReady =
+    !requiresDeviceAssignment &&
     cameraState === 'captured' &&
     selfieBlob !== null &&
     gpsState === 'acquired' &&
@@ -590,6 +594,18 @@ export const StartDayModal: React.FC<StartDayModalProps> = ({ isOpen, onClose })
                   <strong className="text-slate-900 font-semibold">Company Phone Attendance Check:</strong> Front-camera live photo and fresh GPS coordinate verify attendance time. <em>Visual audit only; no automated biometric or face-matching processing.</em>
                 </div>
               </div>
+
+              {requiresDeviceAssignment && (
+                <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl space-y-1">
+                  <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                    No Company Handset Assigned
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Your profile currently has an Unassigned Handset. Contact HQ Admin to assign a company phone before starting a field workday.
+                  </p>
+                </div>
+              )}
 
               {/* Camera Viewfinder / Preview (Front/Back Switchable) */}
               <div className="space-y-1.5">
