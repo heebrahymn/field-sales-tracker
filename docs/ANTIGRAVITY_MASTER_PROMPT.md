@@ -1,0 +1,317 @@
+# Carbon Field Sales Tracker — Antigravity Master Project Guide
+
+**Document type:** Persistent agent implementation guide  
+**Project:** Carbon Field Sales Tracker  
+**Business:** Carbon Car Care  
+**Reference:** Carbon Field Sales Tracker PRD v1.2 (MVP Updated)  
+**Status:** Stages 0–3F Completed; Release Candidate 1.0.2 (DEF-001–DEF-019 Formally Accepted by Project Owner; Interactive Notifications Menu Integrated; Shared Lightbox, Exception Picture Evidence, Strict Team Attendance Date Scoping, Live Camera Visit Flow, Accurate Cross-Tab CSH Badges & Unassigned Device Custody Integrity Complete); Controlled Vercel Staging Deployed; Ready for Physical Handset Field Pilot  
+**Maintainer:** Project owner
+
+## 1. Role and working standard
+
+Act as a senior full-stack architect, React/TypeScript developer, SaaS product designer, database engineer, application security reviewer, and QA engineer. Develop a premium, reliable, maintainable **field-sales activity and visit-verification PWA** for Carbon Car Care. This project is built with Google Antigravity.
+
+Match the polish of excellent contemporary SaaS apps: intentional navigation, responsive layouts, careful typography, strong accessibility, clear operational states, and usable manager dashboards. Do not mistake attractive mock screens for working features.
+
+**Non-negotiable:** Do not implement the entire app in one prompt. Work in gated stages and request approval before proceeding to the next stage.
+
+## 2. Source of truth and conflict handling
+
+Before every significant task:
+
+1. Review this guide and `AGENTS.md`.
+2. Check `docs/Carbon_Field_Sales_Tracker_PRD_v1.2_MVP_Updated.pdf`, if present and readable. This is the latest approved-scope functional PRD, including workflows, requirements, and acceptance tests AT-01–AT-16.
+3. Apply any newer, explicitly approved decisions recorded in the project repository or current user instruction.
+4. If a document is inaccessible or ambiguous, state that and ask for clarification. Never fabricate its contents.
+
+**Approved decisions that must survive future changes:**
+
+- Devices are **company provided**.
+- Salesperson creates and submits every missed-visit, GPS-failure, or device-failure record, including delayed submissions after phone recovery; managers **never** create these records for a salesperson.
+- Manager-approved missing-GPS visits remain **Manager Approved — Location Unverified**, not GPS verified.
+- Allow different branches of one company to share the same telephone number.
+- An authorised non-visit working day can be manager approved; it counts toward attendance but not physical-visit targets.
+- A properly evidenced GPS/geofence visit can count as **Location Verified** without client confirmation; client confirmation is a separate audit dimension.
+- Quotes, follow-up task management/reminders, orders, sales pipelines, sales conversion/revenue analytics, invoicing, and ERP/CRM integration are **outside MVP**. Future integration is a roadmap only.
+- Salesperson submits company device replacement requests directly to HQ Admin (`Profile → My Device → Report Device Issue`); there is **no Country Sales Head approval or intermediary submission step**. Hardware replacement is strictly administrative and separate from salesperson-authored field visit exceptions.
+
+## 3. Project description
+
+- **Product:** Carbon Field Sales Tracker
+- **Markets:** Nigeria (`Africa/Lagos`), Zambia (`Africa/Lusaka`), Malawi (`Africa/Blantyre`)
+- **Users:** salesperson, country Sales Head, HQ administrator
+- **Platform:** Standalone, installable, mobile-first and offline-capable PWA for company phones; responsive manager/admin desktop views
+- **Objective:** Record attendance, physical visits, client branches, meeting details, evidence, offline activity, reviewable exceptions, manager audits, and operational reports.
+
+Never represent GPS/location evidence alone as proof a client meeting happened. Separate activity, location verification, client audit outcomes, and human disciplinary conclusions.
+
+## 4. Approved technology stack
+
+**Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn/ui + Radix primitives, Lucide React, React Router, TanStack Query, TanStack Table, React Hook Form, Zod, Recharts, date-fns.
+
+**Backend:** Supabase PostgreSQL, Auth, RLS, private Storage, Edge Functions, SQL migrations.
+
+**Offline/PWA:** Service worker, Vite PWA, IndexedDB, Dexie, durable event/media queue, UUID idempotency keys, ordered dependency-based sync.
+
+**Location/media:** Browser Geolocation API, `getUserMedia`, Leaflet and OpenStreetMap for manager maps.
+
+**Testing:** Vitest, React Testing Library, Playwright, SQL/RLS authorization checks and real-device QA.
+
+Use compatible, supported library releases; verify versions as installed. Do not add Next.js, Django, Firebase or a second database without a documented need and explicit approval.
+
+## 5. Official brand identity — mandatory
+
+The provided official logo should live at:
+
+`public/brand/carbon_logo.png`
+
+Never generate a replacement logo. If the file does not exist, request the authentic asset before finalising branded screens. Preserve proportions, whitespace, transparent background and original logo colours. Use it in login, app header/sidebar, manager/admin views, welcome/loading where appropriate, and thoughtfully derived PWA icons. Reference local project assets, never unauthorised hotlinked assets.
+
+**Design tokens:**
+
+| Token | Colour |
+|---|---|
+| Carbon primary blue | `#21409A` |
+| Carbon green | `#1B9A4A` |
+| Carbon yellow highlight | `#E8CF2F` |
+| Background | `#FFFFFF` plus subtle neutral surfaces |
+| Typography | Dark charcoal, muted slate secondary |
+
+Use manrope or a similarly legible sans-serif, clear hierarchy, high contrast, restrained shadows, professional tables/cards, generous but controlled spacing, accessible forms, meaningful status colours, and outdoor-friendly mobile controls. Avoid generic template dashboards, unnecessary gradients, heavy glassmorphism, excessive animation, or oversized decoration.
+
+Create reusable components for: app shell, responsive sidebar/mobile navigation, header, official logo, page headers, KPI cards, tables, filters, status badges, confirmation dialogs, skeletons, error/empty states, sync/GPS status, approval dialogs, evidence viewer, audit history and form fields.
+
+**UX direction:** Mobile-first salesperson experience with large Start Day / Visit Client / Add Branch / My Exceptions / End Day / Sync Now actions; refined desktop Country Sales Head and HQ Admin dashboards. Clear error states and functional navigation. All mock data must be visibly identified as demonstration content.
+
+## 6. User roles and security boundaries
+
+### Salesperson
+
+- View only own operational records and authorised market client data.
+- Start/end day; view attendance status; search organisations and branches.
+- Register organisations/branches subject to approval.
+- Capture GPS check-in/out and mandatory live premises photo for normal verified visits.
+- Complete meeting logs.
+- Create and submit own missed-visit, GPS/device-failure exception logs.
+- Submit company device replacement requests directly to HQ Admin under **Profile → My Device → Report Device Issue**; track approval, dispatch, activation status, and HQ decisions.
+- Request non-visit day/activities, view reviews, and sync offline records.
+- Cannot silently edit/delete submitted evidence or approve own exceptions or device replacements.
+
+### Country Sales Head
+
+- View one assigned country's team and client data.
+- Review attendance, visit evidence, registration/pin approvals, exceptions, disputes, flags, client audits, and country CSV exports.
+- Approve/reject/comment/escalate salesperson submissions and authorised non-field workdays.
+- **Does not create, submit, approve, or reject company device replacement requests.** Read-only operational visibility where appropriate, with zero approval bottleneck.
+- **Cannot create a salesperson's visit or exception log.** Enforce in API/database/RLS, not only in UI.
+
+### HQ Admin
+
+- Cross-country oversight, users, devices, country rules/calendars, client master imports, audited exports, escalation and system administration.
+- Sole review and approval/rejection authority for salesperson company device replacement requests; manages spare depot inventory, records dispatch, confirms activation, and records old device disposition.
+- Follow least-privilege controls; HQ privileges never imply impersonation or creation of fictitious salesperson evidence.
+
+## 7. Salesperson workflows and screens
+
+### Login
+
+Authentic logo, branded form, secure authentication, useful validation, password reset when configured, assigned company-device status, accessible phone layout.
+
+### Home
+
+Date/market; attendance and active visit status; today's visits; pending sync/verification; prominent actions. No quotation, order, sales pipeline or follow-up task modules.
+
+### Start Day
+
+Collect authenticated identity, assigned device session, fresh GPS with accuracy, live front-camera selfie, local day and timezone, offline marker. Do not claim face matching/biometric verification in MVP. Handle leave/approved absences and schedule exceptions.
+
+### Clients and branches
+
+Separate parent companies and physical branches, including multiple branches with shared telephone numbers. Search by name/location; show authorised contacts, approved pins and visit history. Registration captures company, branch, category, address/landmark, contact, role, telephone, applicable fleet size/volume, GPS pin and live premises image. Duplicates prompt review; never automatically reject valid branches merely for a shared company telephone number. Field registrations and pin proposals require Country Sales Head approval and audit history.
+
+### Visit capture
+
+1. Select approved branch.
+2. Capture recent GPS coordinates and accuracy.
+3. Check geofence against the branch pin (default **200 m**, configurable) and account for reported GPS uncertainty; retry uncertain readings.
+4. Capture live premises photo for a normal location-verified visit.
+5. Check in; only one open normal visit at once.
+6. Check out with location if available; **permit check-out outside the geofence and raise a flag** rather than blocking closure.
+7. Submit meeting log at check-out or within two hours; late logs are flagged.
+
+Default acceptable GPS accuracy: at most **100 m** for visits and **50 m** for proposed pins, subject to country/site configuration. Client-side checks are preliminary; server rechecks accepted synced events.
+
+### Meeting log
+
+Capture contact met; visit purpose; products discussed; narrative outcome; relevant fleet size/volume; **next step as free text only**; notes; optional live business-card photo. Use PRD-approved categories. Do not store quotation/order monetary values, create follow-up tasks or create commercial orders.
+
+### Failure/missed-visit exception
+
+- GPS or camera issues prompt retry and clear guidance; salesperson can submit a reasoned exception with available evidence.
+- In a full phone failure, salesperson submits the claimed visit **after access is restored**.
+- Include branch, claimed visit/time, actual submission time, meeting details, failure reason and supporting evidence, when available.
+- Country Sales Head can review/approve/reject/comment/escalate; manager **never originates a log**.
+- Approved insufficient-location record remains **Manager Approved — Location Unverified**.
+- Retain original submission, author, timestamps, decision and immutable history.
+
+### Non-visit working day
+
+Support salesperson request plus manager approval for training, proposal preparation (office), virtual meeting, internal meeting or other legitimate assigned activity. These affect attendance, **not** GPS-verified visit targets and do not create quotation management features.
+
+## 8. Visit verification, risk flags and audits
+
+Keep separate notions of visit location status, client meeting confirmation and manager review. Implement location-verified, location-unverified, pending review/client approval, manager-approved unverified, client-confirmed, disputed and confirmed violation states as specified by the PRD.
+
+A valid location-verified visit does **not** require every client's confirmation. Perform random weekly audit sampling of **5%** of verified visits plus independently identified risk-based audits. Client denial initiates **Disputed — Pending Review**; do not automatically issue disciplinary decisions.
+
+Support adjustable flags for: visits under five minutes; checkout beyond geofence; implausible travel above 80 km/h; idle gaps over 150 minutes where applicable; late start/early finish against local schedules; no/low visits; late meeting log; near-attendance-origin visit; duplicate/similar images; clustered/duplicate client registration; repeated branch visits; late offline sync; clock discrepancies; high offline share over 30%; device change; and auto-closed days.
+
+Flags are prompts for human review, not conclusive fraud findings. Preserve reviewer rationale and original evidence.
+
+## 9. Offline-first and data integrity
+
+- Service worker caches application shell and minimum authorised market/branch/rule data.
+- IndexedDB stores captured event records and associated media while offline.
+- Every event has a UUID, user/session, ordered sequence/dependencies, device timestamp, timezone, available GPS/accuracy, capture marker and later server receipt timestamp.
+- Show meaningful states: Offline, Pending Sync, Syncing, Synced, Needs Review, Failed. Provide manual Sync Now and retry.
+- Server validates event order, role/country, geofence, duplicates and idempotency when receiving records.
+- Handle interrupted uploads, duplicate requests, browser restarts, reconnection and clock anomalies.
+- Device time and browser elapsed-time are **not tamper-proof**, particularly across restarts. Browser storage may be cleared or lost; don't promise irreversible queues or perfect background sync.
+- If evidence cannot be recovered, require a salesperson-submitted exception. Never reconstruct/fabricate records.
+- Manager dashboards must label offline data as provisional; a disconnected device's unsynced queue length is not automatically known to the server.
+
+## 10. Manager dashboards and reports
+
+**Daily:** scheduled/active/absent, approved leave/non-visit days, open visits, completed visits, location-verified vs manager-approved-unverified, last known sync, missing logs, registration/pin approvals, flags and outstanding exceptions.
+
+**Weekly:** workdays, verified visit count, unique branches, approved-unverified visits, offline percentage, flag closure, audits and approval turnaround.
+
+**Quarterly:** account and branch coverage, repeat visit distribution, attendance, verified activity, exception and audit trends. No quotation/order/pipeline charts.
+
+**Other views:** salesperson day timeline and map evidence, organisation/branch history, exception queue, registration approval queue, audit call workbench and CSV export.
+
+Filter by market, user, and period according to permissions. Clearly label provisional sync status and use audited safe CSV exports, escaping formula-like cells. Daily **19:00** summaries are provisional; include next-day reconciliation where configured.
+
+## 11. Database and secure implementation
+
+Use the PRD's canonical MVP model and only add justified supporting relations. Conceptual entities include `markets`, `users`, `devices`, `work_schedules`, `attendance_days`, `organisations`, `branches`, `client_contacts`, `client_changes`, `visits`, `visit_photos`, `meeting_logs`, `activity_events`, `exceptions`, `flags`, `audit_checks`, `approval_audit`, `import_batches`, `export_jobs`.
+
+Implement UUIDs, foreign keys, indexes, explicit allowed statuses, country-scoped RLS, append-only audit events, private media, signed temporary links, controlled exports, schema migrations and server-side checks. Do not expose service-role keys or other secrets to browser code.
+
+**No MVP commercial tables/API/schedulers:** no `quotations`, `orders`, `opportunities`, `follow_up_tasks`, pipeline values or sales revenue reporting.
+
+## 12. Strict MVP exclusions
+
+The following are **not** part of MVP, even as placeholder screens or database tables:
+
+- Quote/quotation creation, values or approval
+- Follow-up task management or reminders
+- Order tracking and order verification
+- Opportunities, pipelines, sales conversion/revenue analytics
+- Invoices, payments, fuel or allowance management
+- Continuous employee tracking or route optimisation
+- Facial recognition
+- Live ERP/CRM integration
+
+Only a future-phase roadmap may describe these. Meeting purpose can mention follow-up; next-step free text remains allowed without creating a task system.
+
+## 13. Implementation phases and approval gates
+
+| Stage | Deliverables | Gate / Status |
+|---|---|---|
+| **0** | PRD review, architecture, design plan, risks, open questions | **Completed** (ADR 0001) |
+| **1** | Premium branded frontend for all roles with mock data; responsive UI walkthrough (1A–1E) | **Completed** (ADRs 0002–0006) |
+| **2** | Supabase dev project, migrations, Auth, roles, RLS, company device assignment (2A–2B) | **Completed** (ADRs 0007–0008) |
+| **Pre-3** | Pre-Stage 3 Product & UX Audit, Client terminology corrections, sync queue accessible navigation | **Completed** |
+| **3A** | Real Supabase Auth, GoTrue session lifecycle, trusted database profile RBAC, country isolation | **Completed** (ADR 0009) |
+| **3B** | Real attendance (Start/End Day), GPS capture, live camera selfie, non-visit request governance | **Completed** (ADR 0010) |
+| **3C** | Real client visits, authoritative PostGIS geofencing, rear-camera premises photo capture, active visit restoration, and meeting logs (ADR 0011, Migrations 00026–00027) | **Completed** (Commit `832bd8e`, Tag `stage-3c-visits-approved`) |
+| **3D** | Durable Offline IndexedDB Journal (`Dexie.js`), Binary Media Queue (`Uint8Array` / `Blob`), Topological Dependency Sync, Safe App-Shell Service Worker (`/sw.js`), Idempotent Retries & Provisional State Governance (ADR 0012) | **Completed** (Tag `stage-3d-offline-sync-approved`; Verified via 170/170 Vitest Tests incl. 27 Stage 3D Scenarios & Full 16-Step Offline Workday Browser E2E) |
+| **3E** | Operational Dashboards, Manager Review Queues, GPS Pin Governance, Zero Bottleneck Company Device Replacement, 5% Audit Workbench, Safe CSV Export & Client Master ERP Import (ADR 0013) | **Completed** (Commit `d4dbb37`, Tag `stage-3e-management-approved`; Verified via 187/187 Vitest Tests incl. 17 Stage 3E Tests, Complete Live Supabase Integrity Suite & 15 Multi-Viewport Browser Screenshots) |
+| **3F** | End-to-End QA, Physical Device Testing Protocols, Live Vercel Staging Deployment (27/27 E2E Pass), and Field Pilot Readiness | **Completed** (ADR 0014, Deployed to `https://field-sales-tracker-b6l7.vercel.app/`; 187/187 Vitest, 9/9 Live Security Suites, 27/27 Staging E2E Tests, 19 Responsive Screenshots) |
+| **SSoT** | Supabase Development Single Source of Truth & Frontend Mock Data Elimination | **Completed** (ADR 0015; Multi-Market Seeding, Custodian Dynamic Pool, 197/197 Tests Passing) |
+| **Admin/Cam** | Administration Governance, Pagination, Device Lifecycle, Manual Dialog Dismissals & Mobile Camera Switching | **Completed** (ADR 0016; 199/199 Vitest, 0 TypeScript Errors, Full Mobile & Desktop Browser E2E Verified) |
+| **Review/Sync** | Country Sales Head Reviews, Dedicated Non-Visit Screen, Bidirectional Real-Time Sync & Storage Bucket Alignment | **Completed** (ADR 0017; 199/199 Vitest, 0 TypeScript Errors, Automated E2E Verified) |
+| **Reassign/Spare** | Handset Custody Reassignment Supersession, Spare Allocation Persistence & Cross-Workflow Handover Sync | **Completed** (ADR 0018; Handset Supersession, Direct HQ Admin Depot Allocation, 0 Errors) |
+| **Brand Favicon** | Authentic Carbon Brand Mark Favicon Suite & Complete Web/PWA Asset Alignment | **Completed** (ADR 0019; Vector SVG, 32x32/16x16 Favicons, 192/512 PWA Icons) |
+| **ERP-GPS** | ERP Client Master Import Without GPS Coordinates & Field Pin Proposal Workflow | **Completed** (ADR 0020; 207/207 Vitest Tests Passing, Live PostGIS RPC Verified) |
+| **Market Rules / GPS** | Live Supabase Market Rules Persistence, Prospective Immutability & Dynamic Attendance GPS Uncertainty Thresholds | **Completed** (ADR 0021; 207/207 Vitest Tests Passing, Live Supabase Rule Commit & Acceptance Verified) |
+| **Post-UAT RC Verification** | Consolidation of DEF-001–DEF-019, In-App Simulator Elimination, Multi-View Table Pagination, Non-Visit Auth Fix, 3-State Device Custody Reconciliation, Live Supabase Parity | **Completed** (288/288 Vitest Tests Passing across 30 suites, 13/13 API RLS, 0 TS Errors, 0 ESLint Errors, Vite Production Build Passing) |
+| **UAT Retest Sign-Off** | Formal Project Owner Acceptance Retest for Corrected Workflows DEF-001–DEF-019 | **Completed** (19/19 Retests Passed; Formally Accepted by Project Owner; Zero Retests Outstanding) |
+| **Release Candidate 1.0.0** | Final Verified RC Package (`rc-1.0.0-uat-verified`) Promoted to GitHub & Controlled Vercel Staging (`https://field-sales-tracker-b6l7.vercel.app/`) | **Completed** (Zero Mock Leakage, 29-Migration & 7-Bucket Private Storage Parity Confirmed) |
+| **Notifications & Alerts** | Interactive Console Notifications Menu & Direct Workbench Navigation for CSH & HQ Admin | **Completed** (295/295 Vitest Tests Passing, Zero Simulator Leakage) |
+| **Post-UAT UX & Integrity Polish (1.0.2)** | Shared Full-Photo Lightbox, Exception Picture Evidence & Dynamic Lag, Strict Team Attendance Date Scoping, Live Camera Check-In, Accurate Cross-Tab CSH Badges & Unassigned Device Custody Integrity | **Completed** (Full Vitest Suite 36/36 Suites / 327/327 Tests Passing, 0 TS Errors, 0 ESLint Errors) |
+| **Field Pilot** | Real-device physical GPS/camera/offline QA on Samsung Galaxy A15 / Nokia G22, local IT commissioning, final field pilot reconciliation | Ready for Controlled Execution |
+| **Operational Rollout** | Business-wide multi-market operational go-live across Nigeria, Zambia, and Malawi | Awaiting Final Stakeholder Authorisation |
+
+At the end of each stage:
+
+1. Summarise exactly what was implemented.
+2. List files modified and migrations applied.
+3. Run and report relevant tests and failures.
+4. Show application/browser artifacts or screenshots when relevant.
+5. List limitations and blockers.
+6. Update all relevant documentation (`README.md`, `CHANGELOG.md`, `ROADMAP.md`, ADRs, and test reports).
+7. **Stop and request approval** before moving to the next stage.
+
+Use Git and preserve a stable commit at every approved checkpoint. Never overwrite approved UI without documenting it.
+
+## 14. Testing, privacy and honesty
+
+Use production-quality TypeScript, reusable components, input validation and clear separation of UI/data/business rules. Test permissions directly against backend APIs and RLS. Validate PRD acceptance cases AT-01–AT-16 as feasible at each stage. Browser simulations do not replace QA with company-issued real phones.
+
+Support privacy notices, limited event-based location capture, access controls, data retention review, backups, observability and appropriate jurisdictional reviews. Do not promise spoof-proof GPS, tamper-proof offline events or perfect sync across devices/browsers.
+
+### Credential Security & Verification Integrity
+- Passwords, access tokens, service role keys, and personal emails must never be written in repository files, documentation, test plans, or completion reports. All test accounts authenticate via dynamic credentials securely provisioned through the Supabase Auth Admin API (`npm run provision:users`) and stored in the local `.env.local`. In UAT instructions, refer to credentials as "Use the securely supplied test credentials".
+- Test plans and acceptance reports must strictly separate (1) Developer automated verification, (2) Developer local browser verification, (3) Live Supabase integration verification, (4) Stakeholder manual UAT result, and (5) Physical-device test result. Stakeholder manual results must be recorded as `NOT TESTED` until formal stakeholder acceptance is collected. Hardware-dependent tests must remain `NOT TESTED (Physical Handset Required)` until on-site field pilot testing.
+
+## 15. Current State & Architectural Baseline — Stage 3E & 3F Completed
+
+Stage 3E is committed (`d4dbb37`, tag `stage-3e-management-approved`), and **Stage 3F (End-to-End QA, Staging Deployment & Field Pilot Readiness)** is fully implemented, verified, and documented (ADR 0014, `STAGE_3F_FIELD_QA.md`, `STAGE_3F_QA_REPORT.md`). The current architecture establishes:
+
+1. **Applied Migrations 00001–00029:** Remote Supabase dev project `[SUPABASE_PROJECT_ID]` has all 29 migrations applied and verified, including Migration 00028 enforcing strict market isolation on all Country Sales Head RPCs (`approve_branch_location_pin`, `reject_branch_location_pin`, `review_branch_location_pin`, `review_salesperson_exception`, `record_client_audit_call`, `resolve_client_audit_dispute`) and Migration 00029 adding `pending_inspection` to `public.device_status`.
+2. **Authoritative Backend PostGIS Geofencing & Anti-Spoofing (PRD §7.1, §8.4):**
+   - Trigger `trg_validate_visit_location_verification` independently computes WGS84 ellipsoidal distance via `ST_Distance(NEW.check_in_geom::geography, v_pin_geom::geography)` and overrides client-supplied `location_classification` so spoofed `inside_confident` payloads are rejected with `23514`.
+   - Enforces cross-market isolation (`profiles.market_code = branches.market_code`), attendance ownership (`attendance_days.user_id = NEW.user_id`), active approved pin validation, and mandatory private premises photo (`visit-premises-photos`).
+3. **Bi-Directional Transaction-Safe Locking (PRD §6.1 / AT-03, AT-04):**
+   - End Day acquires row-level `FOR UPDATE` lock on open normal visits for the workday; raises `23514` check_violation if an active visit is in progress.
+   - Normal visit check-in acquires `FOR SHARE` lock on parent `public.attendance_days` row; raises `23514` check_violation if workday status != `'started'`.
+4. **Checkout Immutability & Outside-Geofence Preservation (`trg_preserve_visit_checkin_evidence_on_update`):**
+   - Blocks tampering with historical check-in coordinates, accuracy, premises photo path, `branch_pin_id`, or `rule_version_id` during or after checkout.
+5. **Durable Offline IndexedDB Journal, Binary Media Queue & Safe App-Shell Service Worker (`src/services/offlineSyncService.ts`, `public/sw.js`, ADR 0012):**
+   - `Dexie.js` database (`CarbonOfflineJournalDB`) with `eventJournal`, `mediaQueue` (`Uint8Array` binary payload storage), and `cachedContext` tables partitioned strictly by `ownerUserId`.
+   - Topological dependency synchronisation (`ATTENDANCE_START_DAY → VISIT_CHECKIN → VISIT_CHECKOUT → MEETING_LOG_SUBMIT → ATTENDANCE_END_DAY`) with `pending → syncing → synced`, `failed`, `needs_review`, and `blocked_dependency` states.
+6. **Country Sales Head Review Console (`src/services/managementService.ts`, ADR 0013):**
+   - Strictly sandboxed to assigned market (`profiles.market_code = branches.market_code`). Managerial non-origination enforced: managers never originate attendance, visits, GPS fixes, or photographs.
+   - Propose GPS pin review (`approve_branch_location_pin`, `reject_branch_location_pin` with mandatory reasons); versioned pin activation while historical visits retain capture-time pin references.
+   - Salesperson exception adjudication (`review_salesperson_exception`); approved missing-GPS exceptions remain `manager_approved_unverified` (never converted to GPS verified).
+   - 5% weekly random sampling workbench (`sampleWeeklyVisitsForAudit`, `record_client_audit_call`); client denials automatically open dispute (`under_investigation`) and raise verification flag `audit_dispute`; managerial inquiry dispute resolution (`resolve_client_audit_dispute`).
+   - Formula-safe audited CSV export (`exportCountryVisitsCsv`) with CWE-1236 sanitization logged to `public.export_jobs`.
+7. **HQ Enterprise Administration & MDM (`src/services/adminService.ts`, ADR 0013):**
+   - Multi-market operations dashboard (`NG`, `ZM`, `MW`), user provisioning, and role governance.
+   - **Zero Bottleneck Company Device Replacement & 3-State Custody Governance (PRD §6.5, ADR 0018):** Field salespeople submit device replacement requests directly to HQ Admin; Country Sales Heads have zero approval or submission gate. HQ Admin reviews, dispatches replacement from central spare inventory (`inventory_status = 'available'` strictly), and confirms activation while recording old device disposition (`quarantined` / `pending_inspection` default, `returned_to_depot` / `returned` only when physically received, or `revoked`); superseded/relinquished handsets transition to `pending_inspection` (never falsely marked `returned` or `available`); `uq_single_active_device_per_rep` strictly preserved.
+   - Market rule set versioning and administrative audit log inspection.
+   - Client Master ERP CSV batch ingestion (`processClientMasterImport`) logged to `public.import_batches`; unpinned branches marked `location_pending`; multiple branches permitted to share central parent company telephone per PRD §4.2.
+8. **Live Vercel Staging Deployment (Stage 3F, ADR 0014):**
+   - Hosted at `https://field-sales-tracker-b6l7.vercel.app/` under HTTPS with strict security headers (`nosniff`, `DENY`, `strict-origin-when-cross-origin`).
+   - Automated E2E verification complete (27/27 PASS across all roles, viewports 390x844, 360x800, and 1280x800).
+   - Physical device test protocol prepared for field pilot coordinators in Lagos, Lusaka, and Blantyre; hardware tests marked NOT TESTED (Physical Handset Required).
+9. **ERP Client Master Import Without GPS & Field Pin Governance (ADR 0020):**
+   - RFC-4180 CSV importer allows optional `latitude` and `longitude` fields in ERP Client Master uploads; unpinned locations are assigned `operating_status = 'location_pending'` and displayed as unpinned to field salespeople.
+   - Salespeople on mobile capture physical GPS coordinates (accuracy <= 50m) and live premises photos at unpinned locations to propose official GPS pins via `propose_branch_location_pin`.
+   - Country Sales Heads review and approve/reject pin proposals in the Manager Console; approval activates versioned pins without altering historical evidence.
+   - Field salespeople can log their first meeting at an unpinned location as `Manager Approved - Location Unverified` via the dedicated exception workflow (`review_salesperson_exception`), preserving backend PostGIS geofence integrity for normal visits.
+10. **Next Step:** Controlled Field Pilot on physical company-issued Samsung Galaxy A15 / Nokia G22 handsets. Do not launch unrestricted business-wide rollout without explicit review and approval.
+
+## 16. Instructions for every future user prompt
+
+Before executing a new instruction, inspect `AGENTS.md` and this project guide, review the current stage and relevant PRD sections, and determine whether the user requested a feature outside scope. Apply the smallest coherent change. Do not treat an instruction to adjust a screen as blanket permission to start subsequent backend stages. If the user explicitly approves a stage transition, document that approval and move to the next stage.
+
+**Response template at completion:**
+
+- Implemented: ...
+- Files changed: ...
+- Verified/tested: ...
+- Not yet complete / limitations: ...
+- Next approval needed: ...

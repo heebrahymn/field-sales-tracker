@@ -1,0 +1,47 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+.DS_Store
+.vercel
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Local-only tests, QA scripts, reports, and screenshots (kept locally, excluded from GitHub)
+src/test/
+scripts/
+docs/testing/
+docs/screenshots/
+docs/provisioning.md
+docs/stage3a_test_report.md

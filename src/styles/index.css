@@ -1,0 +1,84 @@
+@import "tailwindcss";
+@import "@fontsource-variable/manrope";
+
+@theme {
+  --font-sans: 'Manrope Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  --color-brand-blue: #21409A;
+  --color-brand-blue-50: #EEF3FF;
+  --color-brand-blue-100: #D8E4FF;
+  --color-brand-blue-200: #B7CEFF;
+  --color-brand-blue-300: #89AFFC;
+  --color-brand-blue-400: #5587F7;
+  --color-brand-blue-500: #2F62ED;
+  --color-brand-blue-600: #21409A;
+  --color-brand-blue-700: #19337D;
+  --color-brand-blue-800: #152A64;
+  --color-brand-blue-900: #132450;
+  --color-brand-blue-950: #0C1632;
+
+  --color-brand-green: #1B9A4A;
+  --color-brand-green-50: #EDFAF1;
+  --color-brand-green-100: #D5F4DE;
+  --color-brand-green-200: #AFE8C1;
+  --color-brand-green-300: #7CD79B;
+  --color-brand-green-400: #46BE72;
+  --color-brand-green-500: #24A454;
+  --color-brand-green-600: #1B9A4A;
+  --color-brand-green-700: #157A3A;
+  --color-brand-green-800: #156031;
+  --color-brand-green-900: #134F2B;
+  --color-brand-green-950: #072C15;
+
+  --color-brand-yellow: #E8CF2F;
+  --color-brand-yellow-50: #FDFCE9;
+  --color-brand-yellow-100: #FAF7C5;
+  --color-brand-yellow-200: #F6ED8E;
+  --color-brand-yellow-300: #EEDE54;
+  --color-brand-yellow-400: #E8CF2F;
+  --color-brand-yellow-500: #CCAF15;
+  --color-brand-yellow-600: #A8870E;
+  --color-brand-yellow-700: #80610E;
+  --color-brand-yellow-800: #6B4E13;
+  --color-brand-yellow-900: #5C4116;
+  --color-brand-yellow-950: #352309;
+}
+
+:root {
+  --background: #FFFFFF;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #21409A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F1F5F9;
+  --secondary-foreground: #1E293B;
+  --muted: #F8FAFC;
+  --muted-foreground: #475569;
+  --accent: #EDFAF1;
+  --accent-foreground: #157A3A;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --border: #E2E8F0;
+  --input: #E2E8F0;
+  --ring: #21409A;
+  --radius: 0.5rem;
+}
+
+/* Custom base resets and utilities for outdoor readability */
+html, body {
+  font-family: var(--font-sans);
+  color: var(--foreground);
+  background-color: #F8FAFC;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure accessible tap targets on mobile */
+@media (max-width: 768px) {
+  button, a, input, select, textarea {
+    min-height: 44px;
+  }
+}

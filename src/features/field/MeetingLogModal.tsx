@@ -1,0 +1,399 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { X, Clock, Camera, CheckCircle2 } from 'lucide-react';
+import { VisitPurpose } from '@/services/visitService';
+import { useAuthSafe } from '@/context/AuthContext';
+import { useMarketConfig } from '@/context/MarketConfigContext';
+
+export interface MeetingLogSubmissionData {
+  contactId?: string;
+  contactName: string;
+  contactRole: string;
+  purpose: VisitPurpose;
+  productsDiscussed: string[];
+  outcomeNarrative: string;
+  nextStepText: string;
+  fleetSizeVolume?: number | null;
+  businessCardBlob?: Blob;
+}
+
+interface MeetingLogModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  branchName: string;
+  defaultContactId?: string;
+  defaultContactName?: string;
+  defaultContactRole?: string;
+  onSubmitted: (submittedOnTime: boolean, logData?: MeetingLogSubmissionData) => void;
+}
+
+const CANONICAL_PURPOSES: Array<{ value: VisitPurpose; label: string }> = [
+  { value: 'routine_visit', label: 'Routine Visit / Account Review' },
+  { value: 'new_business', label: 'New Business / Commercial Pitch' },
+  { value: 'technical_support', label: 'Technical Support / Product Advisory' },
+  { value: 'relationship', label: 'Relationship Maintenance' },
+  { value: 'follow_up', label: 'Client Follow-Up' },
+];
+
+const PRODUCTS_LIST = ['Tyres', 'Batteries', 'Lubricants', 'Fleet servicing', 'Telematics', 'Other'];
+
+export const MeetingLogModal: React.FC<MeetingLogModalProps> = ({
+  isOpen,
+  onClose,
+  branchName,
+  defaultContactId,
+  defaultContactName,
+  defaultContactRole,
+  onSubmitted,
+}) => {
+  const auth = useAuthSafe();
+  const { getActiveMarketRules } = useMarketConfig();
+  const logSlaHours = getActiveMarketRules((auth?.currentUser?.marketCode || 'NG') as any).meetingLogSlaHours ?? 2;
+  const slaHoursPlural = `${logSlaHours} ${logSlaHours === 1 ? 'hour' : 'hours'}`;
+  const [contactName, setContactName] = useState(defaultContactName || 'Alhaji Musa Garba');
+  const [contactRole, setContactRole] = useState(defaultContactRole || 'Head of Fleet Operations');
+  const [purpose, setPurpose] = useState<VisitPurpose>('routine_visit');
+  const [outcome, setOutcome] = useState('Interest expressed in commercial battery fleet trial. Client requested technical specifications.');
+  const [nextStep, setNextStep] = useState('');
+  const [fleetSize, setFleetSize] = useState<string>('24');
+  const [selectedProducts, setSelectedProducts] = useState<string[]>(['Batteries', 'Lubricants']);
+  const [deferLog, setDeferLog] = useState(false);
+  const [businessCardAttached, setBusinessCardAttached] = useState<boolean>(false);
+  const [businessCardBlob, setBusinessCardBlob] = useState<Blob | null>(null);
+  const [businessCardPreviewUrl, setBusinessCardPreviewUrl] = useState<string | null>(null);
+  const [businessCardFileName, setBusinessCardFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCardFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setBusinessCardBlob(file);
+      setBusinessCardFileName(file.name);
+      setBusinessCardAttached(true);
+      const url = URL.createObjectURL(file);
+      setBusinessCardPreviewUrl(url);
+    }
+  };
+
+  const handleRemoveCard = () => {
+    setBusinessCardBlob(null);
+    setBusinessCardPreviewUrl(null);
+    setBusinessCardFileName(null);
+    setBusinessCardAttached(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  useEffect(() => {
+    if (defaultContactName) setContactName(defaultContactName);
+    if (defaultContactRole) setContactRole(defaultContactRole);
+  }, [defaultContactName, defaultContactRole]);
+
+  if (!isOpen) return null;
+
+  const toggleProduct = (prod: string) => {
+    setSelectedProducts((prev) =>
+      prev.includes(prod) ? prev.filter((p) => p !== prod) : [...prev, prod]
+    );
+  };
+
+  const handleComplete = () => {
+    let finalCardBlob: Blob | undefined = businessCardBlob || undefined;
+    if (!finalCardBlob && businessCardAttached) {
+      // Create a compact valid JPEG binary payload representing the captured business card image
+      const jpegHeaderBytes = new Uint8Array([
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48,
+        0x00, 0x48, 0x00, 0x00, 0xff, 0xd9,
+      ]);
+      finalCardBlob = new Blob([jpegHeaderBytes], { type: 'image/jpeg' });
+    }
+
+    const logData: MeetingLogSubmissionData = {
+      contactId: defaultContactId,
+      contactName: contactName.trim(),
+      contactRole: contactRole.trim(),
+      purpose,
+      productsDiscussed: selectedProducts,
+      outcomeNarrative: outcome.trim(),
+      nextStepText: nextStep.trim(),
+      fleetSizeVolume: fleetSize ? parseInt(fleetSize, 10) : null,
+      businessCardBlob: finalCardBlob,
+    };
+
+    onSubmitted(!deferLog, logData);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+      <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[90vh] flex flex-col shadow-2xl border border-slate-200">
+        {/* Header */}
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0 bg-slate-50 rounded-t-2xl">
+          <div>
+            <span className="text-[10px] font-bold text-brand-blue uppercase tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+              Meeting Documentation
+            </span>
+            <h3 className="font-bold text-slate-900 text-base mt-1">
+              Document Visit Outcome
+            </h3>
+            <p className="text-xs text-slate-600 truncate max-w-[280px]">{branchName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Scrollable Form Body */}
+        <div className="p-4 overflow-y-auto space-y-4 text-xs text-slate-800">
+          {/* Submission Timing Rule Note */}
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2.5">
+            <Clock className="w-4 h-4 text-brand-blue shrink-0 mt-0.5" />
+            <div className="text-[11px] text-slate-700 leading-relaxed">
+              <strong className="text-slate-900">{logSlaHours}-Hour Submission Window:</strong> You may submit this meeting log right now at check-out, or within {slaHoursPlural}. Records submitted beyond {slaHoursPlural} are flagged as <span className="font-semibold text-amber-900">Late Meeting Log</span> for manager review.
+            </div>
+          </div>
+
+          {/* Contact Person */}
+          <div className="space-y-1.5">
+            <label htmlFor="contact-name" className="block font-bold text-slate-900">
+              Contact Person Met <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                id="contact-name"
+                placeholder="Full Name"
+                value={contactName}
+                onChange={(e) => setContactName(e.target.value)}
+                className="text-xs"
+              />
+              <Input
+                id="contact-role"
+                placeholder="Role / Title"
+                value={contactRole}
+                onChange={(e) => setContactRole(e.target.value)}
+                className="text-xs"
+              />
+            </div>
+          </div>
+
+          {/* Visit Purpose */}
+          <div className="space-y-1.5">
+            <label htmlFor="visit-purpose" className="block font-bold text-slate-900">
+              Visit Purpose <span className="text-red-500">*</span>
+            </label>
+            <select
+              id="visit-purpose"
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value as VisitPurpose)}
+              className="w-full h-10 px-3 border border-slate-300 rounded-lg bg-white text-xs font-medium focus:ring-2 focus:ring-brand-blue focus:outline-none"
+            >
+              {CANONICAL_PURPOSES.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Products Discussed */}
+          <div className="space-y-1.5">
+            <label className="block font-bold text-slate-900">
+              Products Discussed (Multi-select) <span className="text-red-500">*</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {PRODUCTS_LIST.map((prod) => {
+                const isSelected = selectedProducts.includes(prod);
+                return (
+                  <button
+                    key={prod}
+                    type="button"
+                    onClick={() => toggleProduct(prod)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                      isSelected
+                        ? 'bg-brand-blue text-white border-brand-blue shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    {prod}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Estimated Fleet Size / Volume */}
+          <div className="space-y-1.5">
+            <label htmlFor="fleet-size" className="block font-bold text-slate-900">
+              Estimated Client Fleet Size / Volume (Vehicles / Litres)
+            </label>
+            <Input
+              id="fleet-size"
+              type="number"
+              placeholder="e.g. 24"
+              value={fleetSize}
+              onChange={(e) => setFleetSize(e.target.value)}
+              className="text-xs"
+            />
+          </div>
+
+          {/* Meeting Outcome */}
+          <div className="space-y-1.5">
+            <label htmlFor="meeting-outcome" className="block font-bold text-slate-900">
+              Meeting Outcome Narrative <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              id="meeting-outcome"
+              rows={2}
+              value={outcome}
+              onChange={(e) => setOutcome(e.target.value)}
+              placeholder="Summarise discussion points, client interest, and observations..."
+              className="w-full p-2.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue focus:outline-none font-medium text-slate-900"
+            />
+            <p className="text-[10px] text-slate-500 italic">
+              Descriptive activity outcome only; not a sales pipeline deal or revenue forecast.
+            </p>
+          </div>
+
+          {/* Next Step (Strict MVP Exclusion Enforcement: Narrative Only) */}
+          <div className="space-y-1.5">
+            <label htmlFor="next-steps" className="block font-bold text-slate-900">
+              Next Step Description <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              id="next-steps"
+              rows={2}
+              value={nextStep}
+              onChange={(e) => setNextStep(e.target.value)}
+              placeholder="Describe the expected next action in narrative format..."
+              className="w-full p-2.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-blue focus:outline-none font-medium text-slate-900"
+            />
+            <p className="text-[10px] text-slate-500">
+              Mandatory free-text summary. Creates <strong>no</strong> reminder, due-date task, or automated pipeline trigger.
+            </p>
+          </div>
+
+          {/* Optional Business Card Photograph Capture (PRD §7.3) */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5 text-brand-blue" />
+                Business Card Photograph (Optional)
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium">Supporting Asset</span>
+            </div>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              capture="environment"
+              onChange={handleCardFileChange}
+              className="hidden"
+              id="business-card-upload-input"
+            />
+
+            {businessCardAttached && businessCardPreviewUrl ? (
+              <div className="bg-white p-3 rounded-lg border border-emerald-300 bg-emerald-50/20 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-emerald-400 bg-slate-100 shrink-0">
+                    <img src={businessCardPreviewUrl} alt="Business Card" className="w-full h-full object-cover" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-900 text-xs flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      Card Photo Attached
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-mono truncate max-w-[170px]">
+                      {businessCardFileName || 'card_photo.jpg'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-[10px] h-7 px-2 font-semibold text-slate-700 bg-white"
+                  >
+                    Change
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveCard}
+                    className="text-[10px] h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-7 rounded bg-slate-100 border border-slate-300 flex items-center justify-center font-mono text-[8px] text-slate-600">
+                    CARD
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-800 text-[10px]">Client Contact Card</p>
+                    <p className="text-[9px] text-slate-500">
+                      Snap photo with camera or choose image file
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  id="btn-upload-business-card"
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-[10px] h-7 px-2.5 font-bold border-brand-blue text-brand-blue hover:bg-blue-50 flex items-center gap-1 cursor-pointer"
+                >
+                  <Camera className="w-3 h-3" />
+                  <span>Upload Card</span>
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Defer Submission Checkbox (Simulate 2h grace window) */}
+          <div className="pt-2 border-t border-slate-200 flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="deferCheck"
+              checked={deferLog}
+              onChange={(e) => setDeferLog(e.target.checked)}
+              className="w-4 h-4 rounded text-brand-blue focus:ring-brand-blue cursor-pointer"
+            >
+            </input>
+            <label htmlFor="deferCheck" className="text-[11px] text-slate-700 font-medium cursor-pointer">
+              Defer completion (Complete within permitted {logSlaHours}-hour window)
+            </label>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2.5 rounded-b-2xl shrink-0">
+          <Button variant="outline" size="default" onClick={onClose} className="text-xs h-11 px-4">
+            Cancel
+          </Button>
+          <Button
+            variant="default"
+            size="default"
+            onClick={handleComplete}
+            disabled={!contactName.trim() || !purpose || !nextStep.trim()}
+            className="text-xs h-11 px-5 font-bold bg-brand-blue hover:bg-brand-blue-700"
+          >
+            {deferLog ? `Check Out & Defer Log (${logSlaHours}h SLA)` : 'Submit Log & Close Visit'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
