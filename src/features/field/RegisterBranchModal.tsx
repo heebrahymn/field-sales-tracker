@@ -122,6 +122,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [photoCaptured, setPhotoCaptured] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const isSubmittingRef = useRef<boolean>(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [successRegisteredBranch, setSuccessRegisteredBranch] = useState<ClientBranch | null>(null);
 
@@ -289,36 +290,86 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
     }
   };
 
-  // Auto-calibrate live device GPS whenever the modal is opened
+  // Auto-calibrate live device GPS and refresh live branches whenever the modal is opened
   useEffect(() => {
     if (isOpen) {
+      setSubmissionError(null);
       if (isTestEnv) {
         setGpsCoords({ lat: defaultLat, lng: defaultLng, accuracy: 18 });
         setGpsCaptured(true);
         setIsCalibratingGps(false);
       } else {
+        refreshBranches().catch(() => {});
         recalibrateGps();
       }
     } else {
       setGpsError(null);
       setIsCalibratingGps(false);
+      setSubmissionError(null);
+      setSuccessRegisteredBranch(null);
+      isSubmittingRef.current = false;
     }
   }, [isOpen, defaultLat, defaultLng]);
 
   if (!isOpen) return null;
 
-  const effectiveCompanyName = clientType === 'existing' ? selectedExistingCompany : newCompanyName;
+  const normalizeText = (val: string) => val.trim().replace(/\s+/g, ' ').toLowerCase();
 
-  // Duplicate company check when typing a new company
+  const effectiveCompanyName = clientType === 'existing' ? selectedExistingCompany : newCompanyName;
+  const normalizedCompany = normalizeText(effectiveCompanyName);
+  const normalizedBranch = normalizeText(branchName);
+  const normalizedAddress = normalizeText(address);
+
+  // Active or pending branches (rejected/inactive records do not block a fresh submission)
+  const nonRejectedBranches = branches.filter(
+    (b) => b.status !== 'rejected' && b.operatingStatus !== 'inactive'
+  );
+
+  // Match an already-existing/pending company in this market
+  const matchedExistingCompanyBranch =
+    normalizedCompany.length > 1
+      ? nonRejectedBranches.find((b) => normalizeText(b.companyName) === normalizedCompany)
+      : undefined;
+
+  const matchedExistingCompanyName = matchedExistingCompanyBranch?.companyName || null;
+
+  // Duplicate client company when attempting to register under "New Business Client"
   const isDuplicateCompanyName =
+    !isProposePinMode &&
     clientType === 'new' &&
-    newCompanyName.trim().length > 2 &&
-    existingCompanies.some(
-      (c) => c.toLowerCase() === newCompanyName.trim().toLowerCase()
-    );
+    Boolean(matchedExistingCompanyName);
+
+  // Duplicate branch or street address under the same client (in either "New" or "Existing" mode)
+  const duplicateBranchMatch =
+    !isProposePinMode && normalizedCompany.length > 1 && (normalizedBranch.length > 0 || normalizedAddress.length > 0)
+      ? nonRejectedBranches.find((b) => {
+          if (normalizeText(b.companyName) !== normalizedCompany) return false;
+          const sameBranchName =
+            normalizedBranch.length > 0 && normalizeText(b.branchName) === normalizedBranch;
+          const sameAddress =
+            normalizedAddress.length > 0 &&
+            (normalizeText(b.rawStreetAddress || '') === normalizedAddress ||
+              normalizeText(b.address || '') === normalizedAddress);
+          return sameBranchName || sameAddress;
+        })
+      : undefined;
+
+  const isDuplicatePendingPin =
+    isProposePinMode && Boolean(defaultBranch?.hasPendingPinProposal);
+
+  const isDuplicateSubmission = Boolean(
+    duplicateBranchMatch || isDuplicateCompanyName || isDuplicatePendingPin
+  );
+
+  const existingCompanyHasOnlyPending =
+    Boolean(matchedExistingCompanyName) &&
+    nonRejectedBranches
+      .filter((b) => normalizeText(b.companyName) === normalizedCompany)
+      .every((b) => b.status === 'pending_approval');
 
   const handleExistingCompanyChange = (company: string) => {
     setSelectedExistingCompany(company);
+    setSubmissionError(null);
     const existingBranch = branches.find((b) => b.companyName === company);
     if (existingBranch?.hasSharedPhone && existingBranch.sharedCompanyPhone) {
       setHasSharedPhone(true);
@@ -326,14 +377,50 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
     }
   };
 
+  const handleSwitchToExistingClient = (companyName: string) => {
+    setClientType('existing');
+    handleExistingCompanyChange(companyName);
+    setSubmissionError(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
     setSubmissionError(null);
-    if (!effectiveCompanyName.trim() || !branchName.trim() || !address.trim()) {
-      setSubmissionError('Please fill in all mandatory fields (Company Name, Branch Name, and Street Address).');
+
+    if (isDuplicatePendingPin) {
+      setSubmissionError(
+        'A GPS pin proposal for this client location has already been submitted and is currently awaiting Country Sales Head approval.'
+      );
       return;
     }
 
+    if (!isProposePinMode) {
+      if (!effectiveCompanyName.trim() || !branchName.trim() || !address.trim()) {
+        setSubmissionError('Please fill in all mandatory fields (Company Name, Branch Name, and Street Address).');
+        return;
+      }
+
+      if (duplicateBranchMatch) {
+        setSubmissionError(
+          duplicateBranchMatch.status === 'pending_approval'
+            ? `Duplicate client submission: "${duplicateBranchMatch.companyName} — ${duplicateBranchMatch.branchName}" has already been submitted and is currently awaiting Country Sales Head approval. To add a different branch for this client, select "Existing Client Location" and enter the new branch name and address.`
+            : `Duplicate client location: "${duplicateBranchMatch.companyName} — ${duplicateBranchMatch.branchName}" is already registered and approved in your market. To add another branch for this client, select "Existing Client Location" and enter a distinct branch name and address.`
+        );
+        return;
+      }
+
+      if (isDuplicateCompanyName && matchedExistingCompanyName) {
+        setSubmissionError(
+          existingCompanyHasOnlyPending
+            ? `Duplicate new client: "${matchedExistingCompanyName}" has already been submitted for approval. Switch to "Existing Client Location" to add another branch for this client.`
+            : `Duplicate new client: "${matchedExistingCompanyName}" is already registered in your market. Switch to "Existing Client Location" to add a new branch for this client.`
+        );
+        return;
+      }
+    }
+
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -406,6 +493,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
         longitude: gpsCoords.lng,
         accuracyM: gpsCoords.accuracy,
         premisesPhotoPath: photoStoragePath,
+        registrationMode: clientType,
       });
 
       if (regError || !createdBranch) {
@@ -429,6 +517,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
         branchCode: createdBranch.id.slice(0, 8).toUpperCase(),
         category: createdBranch.category,
         address: createdBranch.street_address,
+        rawStreetAddress: createdBranch.street_address,
         landmark: landmark.trim() || 'Central Commercial Hub',
         contacts: [
           {
@@ -440,6 +529,8 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
         hasSharedPhone,
         sharedCompanyPhone: hasSharedPhone ? sharedCompanyPhone.trim() : undefined,
         status: 'pending_approval',
+        operatingStatus: 'pending_approval',
+        hasPendingPinProposal: true,
         approvedGpsLat: gpsCoords.lat,
         approvedGpsLng: gpsCoords.lng,
         distanceMeters: 120,
@@ -468,6 +559,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
         }
       }
     } finally {
+      isSubmittingRef.current = false;
       if (isMountedRef.current && typeof window !== 'undefined') {
         try {
           setIsSubmitting(false);
@@ -618,7 +710,15 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setClientType('existing')}
+                onClick={() => {
+                  setClientType('existing');
+                  if (!selectedExistingCompany || !existingCompanies.includes(selectedExistingCompany)) {
+                    if (existingCompanies.length > 0) {
+                      handleExistingCompanyChange(existingCompanies[0]);
+                    }
+                  }
+                  setSubmissionError(null);
+                }}
                 disabled={existingCompanies.length === 0}
                 className={`py-2 px-3 rounded-lg font-bold text-xs border transition-colors ${
                   clientType === 'existing'
@@ -663,17 +763,58 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
                   required
                   className="text-xs h-10 bg-white"
                 />
-                {isDuplicateCompanyName && (
-                  <div className="p-2 bg-amber-50 border border-amber-200 rounded-md text-[11px] text-amber-900 flex items-start gap-1.5 mt-1">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
-                    <span>
-                      A client with this name already exists. Consider switching to &quot;Existing Client Location&quot; to add a new location to it.
-                    </span>
+                {isDuplicateCompanyName && matchedExistingCompanyName && (
+                  <div
+                    role="alert"
+                    className="mt-2 p-3 bg-amber-50/95 border border-amber-200 border-l-4 border-l-amber-500 rounded-xl text-[11px] text-amber-950 space-y-2 shadow-2xs"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5 leading-relaxed">
+                        <p className="font-bold text-amber-950">
+                          {existingCompanyHasOnlyPending
+                            ? 'Duplicate Client — Already Submitted for Approval'
+                            : 'Duplicate New Client — Already Registered'}
+                        </p>
+                        <p className="text-amber-900">
+                          &quot;{matchedExistingCompanyName}&quot;{' '}
+                          {existingCompanyHasOnlyPending
+                            ? 'has already been submitted and is awaiting Country Sales Head approval.'
+                            : 'is already registered in your market.'}{' '}
+                          To add a new physical branch for this client, switch to <strong>Existing Client Location</strong>.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSwitchToExistingClient(matchedExistingCompanyName)}
+                      className="w-full h-8 text-[11px] font-bold bg-white border-amber-300 text-amber-950 hover:bg-amber-100/70"
+                    >
+                      Add New Branch for &quot;{matchedExistingCompanyName}&quot;
+                    </Button>
                   </div>
                 )}
               </div>
             )}
           </div>
+
+          {/* Duplicate Pending Pin Warning in propose_pin mode */}
+          {isDuplicatePendingPin && (
+            <div
+              role="alert"
+              className="p-3 bg-amber-50/95 border border-amber-200 border-l-4 border-l-amber-500 rounded-xl flex items-start gap-2.5 text-xs text-amber-950 shadow-2xs"
+            >
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div className="space-y-0.5 leading-relaxed">
+                <p className="font-bold text-amber-950">Duplicate Pin Proposal Blocked</p>
+                <p className="text-[11px] text-amber-900">
+                  A GPS pin proposal for this location has already been submitted and is awaiting Country Sales Head review.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Physical Location Details */}
           <div className={`space-y-3 ${isProposePinMode && defaultBranch ? 'hidden' : ''}`}>
@@ -733,6 +874,40 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
                 className="text-xs h-10"
               />
             </div>
+
+            {duplicateBranchMatch && (
+              <div
+                role="alert"
+                className="p-3 bg-rose-50/95 border border-rose-200 border-l-4 border-l-rose-500 rounded-xl text-[11px] text-rose-950 space-y-2 shadow-2xs"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5 leading-relaxed">
+                    <p className="font-bold text-rose-950">Duplicate Client Details Already Submitted</p>
+                    <p className="text-rose-900">
+                      &quot;{duplicateBranchMatch.companyName} — {duplicateBranchMatch.branchName}&quot;{' '}
+                      {duplicateBranchMatch.status === 'pending_approval'
+                        ? 'has already been submitted and is currently awaiting Country Sales Head approval.'
+                        : 'is already registered and approved in your market.'}
+                    </p>
+                    <p className="text-rose-800/90">
+                      To register a different branch for <strong>{duplicateBranchMatch.companyName}</strong>, use <strong>Existing Client Location</strong> with a distinct branch name and street address.
+                    </p>
+                  </div>
+                </div>
+                {clientType === 'new' && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSwitchToExistingClient(duplicateBranchMatch.companyName)}
+                    className="w-full h-8 text-[11px] font-bold bg-white border-rose-300 text-rose-900 hover:bg-rose-100/70"
+                  >
+                    Switch to &quot;Existing Client Location&quot; to Add a Different Branch
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Primary Contact Person */}
@@ -1056,6 +1231,7 @@ export const RegisterBranchModal: React.FC<RegisterBranchModalProps> = ({
                 isCalibratingGps ||
                 !gpsCaptured ||
                 !photoCaptured ||
+                isDuplicateSubmission ||
                 (!isProposePinMode && (!effectiveCompanyName.trim() || !branchName.trim() || !address.trim()))
               }
               className="text-xs h-11 px-5 font-bold bg-brand-blue hover:bg-brand-blue-700 text-white shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"

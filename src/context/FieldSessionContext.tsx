@@ -40,6 +40,7 @@ export interface ClientBranch {
   branchCode: string;
   category: string;
   address: string;
+  rawStreetAddress?: string;
   landmark: string;
   contacts: BranchContact[];
   sharedCompanyPhone?: string;
@@ -49,6 +50,8 @@ export interface ClientBranch {
   approvedGpsLng: number;
   approvedPinId?: string;
   approvedPinVersion?: number;
+  hasPendingPinProposal?: boolean;
+  operatingStatus?: 'location_pending' | 'pending_approval' | 'active' | 'rejected' | 'inactive';
   isRegisteredByRep?: boolean;
   registeredByRepName?: string;
   accuracyMeters?: number;
@@ -539,11 +542,14 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
         } else if (dbBranches && (dbBranches.length > 0 || !isTestEnv)) {
           const mapped: ClientBranch[] = dbBranches.map((b) => {
             const approvedPin = b.branch_location_pins?.find((p) => p.is_active && p.status === 'approved');
+            const pendingPin = b.branch_location_pins?.find(
+              (p) => p.status === 'pending_review' || p.status === 'pending_approval'
+            );
             const rejectedPin = b.branch_location_pins?.find((p) => p.status === 'rejected');
             const latestPin = b.branch_location_pins && b.branch_location_pins.length > 0
               ? b.branch_location_pins[b.branch_location_pins.length - 1]
               : undefined;
-            const pin = approvedPin || latestPin;
+            const pin = approvedPin || pendingPin || latestPin;
 
             let branchStatus: 'approved' | 'pending_approval' | 'rejected';
             if ((b as any).operating_status === 'location_pending') {
@@ -592,6 +598,7 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
               branchCode: b.branch_name.substring(0, 3).toUpperCase() + '-' + b.id.substring(0, 4).toUpperCase(),
               category: b.category,
               address: formattedAddress,
+              rawStreetAddress: rawStreet || undefined,
               landmark: '',
               contacts,
               sharedCompanyPhone: b.switchboard_phone,
@@ -601,6 +608,8 @@ export const FieldSessionProvider: React.FC<FieldSessionProviderProps> = ({
               approvedGpsLng: pin ? pin.longitude : 0,
               approvedPinId: approvedPin?.id,
               approvedPinVersion: pin?.version_number,
+              hasPendingPinProposal: Boolean(pendingPin),
+              operatingStatus: (b as any).operating_status || undefined,
               accuracyMeters: pin ? pin.reported_accuracy_m : 25,
               premisesPhotoUrl: pin?.premises_photo_url || undefined,
               status: branchStatus,

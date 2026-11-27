@@ -22,8 +22,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Responsive Visit Footer & Inline Warnings (`VisitWorkflowView.tsx`):** Redesigned the sticky bottom blocked/pending footer states (*Pending Manager Approval*, *Location Pin Rejected*, *No Client Selected*, and *Start Workday Required*) into stacked mobile cards with left accent borders (`border-l-4`), framed icon badges, and full-width wrapping status buttons (`whitespace-normal`) to prevent text squishing and horizontal overflow on narrow phones; upgraded inline Step 1 and Step 2 warning banners, prevented camera badge wrapping (`whitespace-nowrap`), and formatted Southern/Western hemisphere coordinates (`° S` / `° W`).
 - **Home & Exceptions Alert Polish (`SalespersonHomePreview.tsx`, `ExceptionsWorkbenchView.tsx`):** Updated the *Pending Meeting Logs* SLA alert (wired to active `meetingLogSlaHours`), *Non-Visit Workday* banner, and *Governance Rule* notice to stack cleanly on narrow mobile viewports with consistent icon badges and accent styling.
 
+### Duplicate Client & Pin Proposal Submission Prevention (2026-11-27)
+- **Live Duplicate Detection & Existing-Client Branching (`RegisterBranchModal.tsx`, `FieldSessionContext.tsx`, `VisitWorkflowView.tsx`):** Refreshes live market branches on modal open, adds double-tap submission locking, flags duplicate pending/approved client companies and `(company + branch name / street address)` matches with clear warnings, blocks duplicate submissions, offers a 1-click switch to **Existing Client Location** to add a distinct new branch under an existing client (preserving shared company switchboard phone support), and blocks duplicate pending GPS pin proposals while keeping rejected or unpinned locations eligible.
+- **Authoritative Server & Service Enforcement (`api/client/register.ts`, `visitService.ts`, `managementService.ts`, `errorMessages.ts`):** Added normalized duplicate branch/company detection returning `HTTP 409 Conflict` on `/api/client/register` and matching checks in `visitService.registerClientBranch` and `managementService.proposeBranchLocationPin`, while preserving detailed user-facing duplicate warnings in `formatUserFriendlyError`.
+
 ### Verification
-- **Vitest:** Full suite passed `38/38` test files (`338/338` tests), including 8 new tests in [client-registration-and-error-messages.test.tsx](src/test/client-registration-and-error-messages.test.tsx).
+- **Local Vitest:** Full local suite passed `39/39` test files (`346/346` tests).
 - **Quality Gates:** `npm run lint` passed (`0` errors) and `npm run build` (`tsc -b && vite build`) passed cleanly.
 
 ---

@@ -1111,23 +1111,30 @@ export const VisitWorkflowView: React.FC<VisitWorkflowViewProps> = ({
                             </div>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setProposePinBranch(selectedBranch);
-                                setIsRegisterClientModalOpen(true);
-                              }}
-                              className={`w-full h-auto min-h-[38px] py-2 px-3 text-[11px] font-bold rounded-lg bg-white whitespace-normal text-center leading-snug flex items-center justify-center gap-1.5 ${
-                                isPinRejected
-                                  ? 'border-rose-300 text-rose-900 hover:bg-rose-50'
-                                  : 'border-amber-300 text-amber-950 hover:bg-amber-100/70'
-                              }`}
-                            >
-                              <MapPin className={`w-3.5 h-3.5 shrink-0 ${isPinRejected ? 'text-rose-700' : 'text-amber-700'}`} />
-                              <span>Propose Physical GPS Pin</span>
-                            </Button>
+                            {selectedBranch.hasPendingPinProposal ? (
+                              <div className="w-full min-h-[38px] py-2 px-3 text-[11px] font-bold rounded-lg bg-amber-100/70 border border-amber-300 text-amber-900 text-center leading-snug flex items-center justify-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 shrink-0 text-amber-700" />
+                                <span>Pin Proposal Already Pending Review</span>
+                              </div>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setProposePinBranch(selectedBranch);
+                                  setIsRegisterClientModalOpen(true);
+                                }}
+                                className={`w-full h-auto min-h-[38px] py-2 px-3 text-[11px] font-bold rounded-lg bg-white whitespace-normal text-center leading-snug flex items-center justify-center gap-1.5 ${
+                                  isPinRejected
+                                    ? 'border-rose-300 text-rose-900 hover:bg-rose-50'
+                                    : 'border-amber-300 text-amber-950 hover:bg-amber-100/70'
+                                }`}
+                              >
+                                <MapPin className={`w-3.5 h-3.5 shrink-0 ${isPinRejected ? 'text-rose-700' : 'text-amber-700'}`} />
+                                <span>Propose Physical GPS Pin</span>
+                              </Button>
+                            )}
                             <Button
                               type="button"
                               variant="outline"

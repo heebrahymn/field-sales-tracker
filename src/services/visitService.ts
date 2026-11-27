@@ -368,6 +368,7 @@ export const visitService = {
     longitude: number;
     accuracyM: number;
     premisesPhotoPath: string;
+    registrationMode?: 'new' | 'existing';
   }): Promise<{ data: DatabaseBranchWithDetails | null; error: Error | null }> {
     try {
       // 1. Authoritative Server-Side Registration Endpoint (Vite Dev & Vercel Serverless)
@@ -413,7 +414,9 @@ export const visitService = {
       }
 
       // 2. Direct Supabase Client Fallback (e.g. Unit Tests or Direct RLS Fallback)
+      const normalizeValue = (val: string) => val.trim().replace(/\s+/g, ' ').toLowerCase();
       let orgId = params.organisationId;
+      let resolvedOrgName = params.organisationName.trim();
       if (!orgId) {
         // Resolve organisation in market
         const { data: orgs } = await supabase
@@ -422,36 +425,89 @@ export const visitService = {
           .eq('market_code', params.marketCode);
 
         const matched = orgs?.find(
-          (o) => o.name.toLowerCase() === params.organisationName.trim().toLowerCase()
+          (o) => normalizeValue(o.name) === normalizeValue(params.organisationName)
         );
         if (matched) {
           orgId = matched.id;
-        } else {
-          // Attempt insert with current session
-          const { data: newOrg, error: orgInsertErr } = await supabase
-            .from('organisations')
-            .insert({
-              name: params.organisationName.trim(),
-              market_code: params.marketCode,
-            })
-            .select('id')
-            .single();
+          resolvedOrgName = matched.name;
+        }
+      }
 
-          if (newOrg?.id) {
-            orgId = newOrg.id;
-          } else {
-            console.warn('[visitService] Organisation insert error:', orgInsertErr);
+      if (orgId) {
+        // Prevent duplicate client/branch submissions while still allowing new branches for existing clients
+        const branchesTable = supabase.from('branches') as any;
+        if (typeof branchesTable?.select === 'function') {
+          const { data: existingBranches } = await branchesTable
+            .select('id, branch_name, street_address, operating_status')
+            .eq('organisation_id', orgId)
+            .eq('market_code', params.marketCode);
+
+          const activeOrPending = (existingBranches || []).filter(
+            (b: any) => b?.operating_status !== 'rejected' && b?.operating_status !== 'inactive'
+          );
+
+          const duplicateBranch = activeOrPending.find(
+            (b: any) =>
+              (b?.branch_name && normalizeValue(b.branch_name) === normalizeValue(params.branchName)) ||
+              (b?.street_address &&
+                normalizeValue(b.street_address) === normalizeValue(params.streetAddress))
+          );
+
+          if (duplicateBranch) {
+            const isPending =
+              duplicateBranch.operating_status === 'pending_approval' ||
+              duplicateBranch.operating_status === 'location_pending';
             return {
               data: null,
               error: new Error(
-                formatUserFriendlyError(
-                  orgInsertErr,
-                  'client_registration',
-                  `Could not register client "${params.organisationName.trim()}" right now. Please try again or contact your Country Sales Head.`
-                )
+                isPending
+                  ? `Duplicate client submission: "${resolvedOrgName} — ${duplicateBranch.branch_name}" has already been submitted and is currently awaiting Country Sales Head approval. To add a different branch for this client, select "Existing Client Location" and enter the new branch name and address.`
+                  : `Duplicate client location: "${resolvedOrgName} — ${duplicateBranch.branch_name}" is already registered and approved in your market. To add another branch for this client, select "Existing Client Location" and enter a distinct branch name and address.`
               ),
             };
           }
+
+          if (params.registrationMode === 'new' && activeOrPending.length > 0) {
+            const hasPendingOnly = activeOrPending.every(
+              (b: any) =>
+                b?.operating_status === 'pending_approval' ||
+                b?.operating_status === 'location_pending'
+            );
+            return {
+              data: null,
+              error: new Error(
+                hasPendingOnly
+                  ? `Duplicate new client: "${resolvedOrgName}" has already been submitted for approval. To add another branch for this client, switch to "Existing Client Location" and select "${resolvedOrgName}".`
+                  : `Duplicate new client: "${resolvedOrgName}" is already registered in your market. To add a new branch for this client, switch to "Existing Client Location" and select "${resolvedOrgName}".`
+              ),
+            };
+          }
+        }
+      } else {
+        // Attempt insert with current session
+        const { data: newOrg, error: orgInsertErr } = await supabase
+          .from('organisations')
+          .insert({
+            name: params.organisationName.trim(),
+            market_code: params.marketCode,
+          })
+          .select('id')
+          .single();
+
+        if (newOrg?.id) {
+          orgId = newOrg.id;
+        } else {
+          console.warn('[visitService] Organisation insert error:', orgInsertErr);
+          return {
+            data: null,
+            error: new Error(
+              formatUserFriendlyError(
+                orgInsertErr,
+                'client_registration',
+                `Could not register client "${params.organisationName.trim()}" right now. Please try again or contact your Country Sales Head.`
+              )
+            ),
+          };
         }
       }
 

@@ -63,7 +63,13 @@ export default async function handler(req: any, res: any) {
     const organisationName = body.organisationName?.trim();
     const branchName = body.branchName?.trim();
     const streetAddress = body.streetAddress?.trim();
+    const registrationMode: 'new' | 'existing' | undefined =
+      body.registrationMode === 'new' || body.registrationMode === 'existing'
+        ? body.registrationMode
+        : undefined;
     const targetMarket = body.marketCode?.trim() || callerProfile.market_code || 'NG';
+
+    const normalizeValue = (val: string) => val.trim().replace(/\s+/g, ' ').toLowerCase();
 
     if (!organisationName || !branchName || !streetAddress) {
       return res.status(400).json({ error: 'Please fill in the Company Name, Branch Name, and Street Address before submitting.' });
@@ -76,11 +82,12 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 3. Resolve or create Organisation
+    // 3. Resolve Organisation & Enforce Duplicate Prevention (while permitting new branches of existing clients)
     let orgId = body.organisationId;
+    let resolvedOrgName = organisationName;
     if (!orgId) {
       const orgSearchResp = await fetch(
-        `${supabaseUrl}/rest/v1/organisations?name=ilike.${encodeURIComponent(organisationName)}&market_code=eq.${targetMarket}&select=id`,
+        `${supabaseUrl}/rest/v1/organisations?market_code=eq.${encodeURIComponent(targetMarket)}&select=id,name`,
         {
           headers: {
             apikey: serviceKey,
@@ -88,35 +95,97 @@ export default async function handler(req: any, res: any) {
           },
         }
       );
-      const existingOrgs = await orgSearchResp.json();
-      if (Array.isArray(existingOrgs) && existingOrgs.length > 0) {
-        orgId = existingOrgs[0].id;
-      } else {
-        const createOrgResp = await fetch(`${supabaseUrl}/rest/v1/organisations`, {
-          method: 'POST',
+      const marketOrgs = await orgSearchResp.json();
+      const matchedOrg = Array.isArray(marketOrgs)
+        ? marketOrgs.find((o: any) => o?.name && normalizeValue(o.name) === normalizeValue(organisationName))
+        : null;
+
+      if (matchedOrg?.id) {
+        orgId = matchedOrg.id;
+        resolvedOrgName = matchedOrg.name;
+      }
+    }
+
+    if (orgId) {
+      // Check existing branches under this organisation in the same market
+      const existingBranchesResp = await fetch(
+        `${supabaseUrl}/rest/v1/branches?organisation_id=eq.${encodeURIComponent(orgId)}&market_code=eq.${encodeURIComponent(targetMarket)}&select=id,branch_name,street_address,operating_status`,
+        {
           headers: {
             apikey: serviceKey,
             Authorization: `Bearer ${serviceKey}`,
-            'Content-Type': 'application/json',
-            Prefer: 'return=representation',
           },
-          body: JSON.stringify({
-            name: organisationName,
-            market_code: targetMarket,
-            tier: 'standard',
-          }),
-        });
-
-        if (!createOrgResp.ok) {
-          const orgErr = await createOrgResp.json().catch(() => ({}));
-          console.error('[api/client/register] Organisation insert failed:', orgErr);
-          return res.status(createOrgResp.status).json({
-            error: 'Could not save the new client company right now. Please check your details and try again.',
-          });
         }
-        const createdOrg = await createOrgResp.json();
-        orgId = createdOrg[0].id;
+      );
+      const existingBranches = await existingBranchesResp.json();
+      const activeOrPendingBranches = Array.isArray(existingBranches)
+        ? existingBranches.filter(
+            (b: any) => b?.operating_status !== 'rejected' && b?.operating_status !== 'inactive'
+          )
+        : [];
+
+      const duplicateBranch = activeOrPendingBranches.find(
+        (b: any) =>
+          (b?.branch_name && normalizeValue(b.branch_name) === normalizeValue(branchName)) ||
+          (b?.street_address && normalizeValue(b.street_address) === normalizeValue(streetAddress))
+      );
+
+      if (duplicateBranch) {
+        const isPending =
+          duplicateBranch.operating_status === 'pending_approval' ||
+          duplicateBranch.operating_status === 'location_pending';
+        return res.status(409).json({
+          duplicate: true,
+          duplicateType: 'branch_exists',
+          existingStatus: duplicateBranch.operating_status,
+          existingBranchName: duplicateBranch.branch_name,
+          existingCompanyName: resolvedOrgName,
+          error: isPending
+            ? `Duplicate client submission: "${resolvedOrgName} — ${duplicateBranch.branch_name}" has already been submitted and is currently awaiting Country Sales Head approval. To add a different branch for this client, select "Existing Client Location" and enter the new branch name and address.`
+            : `Duplicate client location: "${resolvedOrgName} — ${duplicateBranch.branch_name}" is already registered and approved in your market. To add another branch for this client, select "Existing Client Location" and enter a distinct branch name and address.`,
+        });
       }
+
+      // Prevent resubmitting an already-registered/pending client as a brand-new client company
+      if (registrationMode === 'new' && activeOrPendingBranches.length > 0) {
+        const hasPendingOnly = activeOrPendingBranches.every(
+          (b: any) =>
+            b?.operating_status === 'pending_approval' || b?.operating_status === 'location_pending'
+        );
+        return res.status(409).json({
+          duplicate: true,
+          duplicateType: 'company_exists',
+          existingCompanyName: resolvedOrgName,
+          error: hasPendingOnly
+            ? `Duplicate new client: "${resolvedOrgName}" has already been submitted for approval. To add another branch for this client, switch to "Existing Client Location" and select "${resolvedOrgName}".`
+            : `Duplicate new client: "${resolvedOrgName}" is already registered in your market. To add a new branch for this client, switch to "Existing Client Location" and select "${resolvedOrgName}".`,
+        });
+      }
+    } else {
+      const createOrgResp = await fetch(`${supabaseUrl}/rest/v1/organisations`, {
+        method: 'POST',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({
+          name: organisationName,
+          market_code: targetMarket,
+          tier: 'standard',
+        }),
+      });
+
+      if (!createOrgResp.ok) {
+        const orgErr = await createOrgResp.json().catch(() => ({}));
+        console.error('[api/client/register] Organisation insert failed:', orgErr);
+        return res.status(createOrgResp.status).json({
+          error: 'Could not save the new client company right now. Please check your details and try again.',
+        });
+      }
+      const createdOrg = await createOrgResp.json();
+      orgId = createdOrg[0].id;
     }
 
     // 4. Map category to allowed enum

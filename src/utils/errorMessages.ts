@@ -225,7 +225,7 @@ export function formatUserFriendlyError(
     lower.includes('duplicate key') ||
     lower.includes('23505') ||
     lower.includes('unique constraint') ||
-    lower.includes('already exists')
+    (lower.includes('already exists') && isTechnicalBackendError(raw))
   ) {
     return (
       DUPLICATE_BY_CONTEXT[context] ||

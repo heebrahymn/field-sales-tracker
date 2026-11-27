@@ -853,6 +853,30 @@ export const managementService = {
     photoUrl: string;
   }): Promise<{ pinId: string | null; error: Error | null }> {
     try {
+      // Prevent duplicate pending pin submissions for the same branch
+      try {
+        const pinsTable = (supabase as any)?.from?.('branch_location_pins');
+        if (typeof pinsTable?.select === 'function') {
+          const pendingQuery = pinsTable
+            .select('id, status')
+            .eq('branch_id', params.branchId)
+            .in('status', ['pending_review', 'pending_approval']);
+          if (pendingQuery && typeof pendingQuery.then === 'function') {
+            const { data: existingPendingPins } = await pendingQuery;
+            if (Array.isArray(existingPendingPins) && existingPendingPins.length > 0) {
+              return {
+                pinId: null,
+                error: new Error(
+                  'A GPS pin proposal for this client location has already been submitted and is awaiting Country Sales Head approval.'
+                ),
+              };
+            }
+          }
+        }
+      } catch {
+        // Ignore in unit tests that only mock supabase.rpc
+      }
+
       const { data, error } = await supabase.rpc('propose_branch_location_pin', {
         p_branch_id: params.branchId,
         p_latitude: params.latitude,
